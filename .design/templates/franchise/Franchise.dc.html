@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Franchise page" description="Grade first, then why, then the tabs — track record, trades, draft, outlook, roster health." -->
+<helmet>
+<script src="./ds-base.js"></script>
+<style>body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-sans)}</style>
+</helmet>
+<x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.TopBar" league="Bloodbath Dynasty" items="{{ nav }}" hint-size="100%,44px"></x-import>
+<div style="max-width:1180px;margin:0 auto;padding:0 var(--pad) 48px">
+  <div style="position:relative;overflow:hidden;background:color-mix(in srgb, var(--id-2) 13%, var(--surface));border-radius:var(--radius);box-shadow:var(--shadow);padding:24px 26px 24px 30px;margin-top:18px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:26px;align-items:start">
+    <span style="position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--id-2)"></span>
+    <div style="min-width:0">
+      <span style="font-family:var(--font-mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim)">Franchise</span>
+      <div style="display:flex;align-items:baseline;gap:14px;margin-top:6px">
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.GradeLetter" grade="A-" size="{{ 78 }}" hint-size="60px,78px"></x-import>
+        <h1 style="margin:0;font-family:var(--font-display);font-weight:800;font-size:32px;letter-spacing:-.034em">Okafor <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--stamp)">You</span></h1>
+      </div>
+      <div style="margin:12px 0 0;font-family:var(--font-display);font-weight:700;font-size:17px;letter-spacing:-.026em;line-height:1.3;max-width:30ch">The second-best franchise in the league, and rising.</div>
+      <p style="margin:10px 0 0;font-size:13.5px;line-height:1.5;color:var(--body);max-width:52ch;text-wrap:pretty">Two titles carry the grade. Draft capital is the biggest drag — three of the last four firsts are gone.</p>
+      <p style="margin:11px 0 0;font-size:12.5px;font-style:italic;color:var(--dim);max-width:46ch;line-height:1.45">Wins in spite of the draft, not because of it.</p>
+    </div>
+    <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Button" variant="ghost" hint-size="120px,44px">Edit profile</x-import>
+  </div>
+
+  <div style="display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--rule);margin-top:22px">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+      <button type="button" onClick="{{ t.pick }}" aria-selected="{{ t.on }}" style="position:relative;background:none;border:0;padding:12px 13px;min-height:44px;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer" style-hover="color:var(--ink)">
+        <sc-if value="{{ t.on }}" hint-placeholder-val="{{ true }}"><span style="color:var(--ink);font-weight:700">{{ t.label }}</span></sc-if>
+        <sc-if value="{{ t.off }}" hint-placeholder-val="{{ false }}"><span style="color:var(--dim)">{{ t.label }}</span></sc-if>
+        <sc-if value="{{ t.on }}" hint-placeholder-val="{{ true }}"><span style="position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink)"></span></sc-if>
+      </button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:26px 0 10px">
+        <h2 style="margin:0;font-family:var(--font-display);font-weight:800;font-size:var(--text-section);letter-spacing:-.026em">Why this grade</h2>
+        <span style="font-family:var(--font-mono);font-size:var(--text-label);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">Rating 1,688 · #2 of 12</span>
+      </div>
+      <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Panel" hint-size="100%,190px">
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Row" variant="head" cols="minmax(0,1fr) 62px 130px 62px" hint-size="100%,44px">
+          <span>Pillar</span><span style="text-align:right">Weight</span><span></span><span style="text-align:right">Adds</span>
+        </x-import>
+        <sc-for list="{{ pillars }}" as="p" hint-placeholder-count="3">
+          <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Row" cols="minmax(0,1fr) 62px 130px 62px" hint-size="100%,40px">
+            <span style="display:flex;align-items:center;gap:6px;min-width:0">
+              <span style="font-family:var(--font-display);font-weight:700;font-size:12px;letter-spacing:-.02em;color:var(--ink)">{{ p.name }}</span>
+              <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Tooltip" title="{{ p.name }}" body="{{ p.help }}" hint-size="26px,26px"></x-import>
+            </span>
+            <span style="text-align:right">{{ p.weight }}</span>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Bar" value="{{ p.score }}" max="{{ 100 }}" hint-size="100%,5px"></x-import>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ p.adds }}" signed="{{ true }}" hint-size="50px,16px"></x-import>
+          </x-import>
+        </sc-for>
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Row" variant="total" cols="minmax(0,1fr) 62px 130px 62px" hint-size="100%,40px">
+          <span>Base 1,500 + three pillars</span><span></span><span></span>
+          <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ 188 }}" signed="{{ true }}" hint-size="50px,16px"></x-import>
+        </x-import>
+      </x-import>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isTrades }}" hint-placeholder-val="{{ false }}">
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:26px 0 10px;flex-wrap:wrap">
+        <h2 style="margin:0;font-family:var(--font-display);font-weight:800;font-size:var(--text-section);letter-spacing:-.026em">Trades</h2>
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.SegmentControl" dc-props="{{ seasonProps }}" hint-size="260px,44px"></x-import>
+      </div>
+      <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.CardList" hint-size="100%,240px">
+        <sc-for list="{{ trades }}" as="d" hint-placeholder-count="3">
+          <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.EntryCard" hint-size="100%,96px">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+              <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Name" on="card" hint-size="140px,20px">{{ d.with }}</x-import>
+              <span style="display:grid;justifyItems:end">
+                <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ d.pts }}" dp="{{ 1 }}" signed="{{ true }}" size="15px" hint-size="70px,18px"></x-import>
+                <span style="font-family:var(--font-mono);font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)">Total pts</span>
+              </span>
+            </div>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.MetaLine" hint-size="100%,26px">
+              <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Meta" label="Trade value" tone="{{ d.tone }}" hint-size="80px,14px">{{ d.valueText }}</x-import>
+              <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Meta" label="" hint-size="70px,14px">{{ d.phase }}</x-import>
+              <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Meta" label="" hint-size="70px,14px">{{ d.date }}</x-import>
+            </x-import>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.MonoLink" hint-size="120px,14px">Read the ruling →</x-import>
+          </x-import>
+        </sc-for>
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.EntryCard" variant="total" hint-size="100%,70px">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+            <span style="font-family:var(--font-display);font-weight:700;font-size:14px">{{ tradeTotalLabel }}</span>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ tradeTotalPts }}" dp="{{ 1 }}" signed="{{ true }}" size="15px" hint-size="70px,18px"></x-import>
+          </div>
+        </x-import>
+      </x-import>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isOutlook }}" hint-placeholder-val="{{ false }}">
+    <div>
+      <div style="margin:26px 0 10px">
+        <h2 style="margin:0;font-family:var(--font-display);font-weight:800;font-size:var(--text-section);letter-spacing:-.026em">Outlook</h2>
+      </div>
+      <div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px">
+        <p style="margin:0 0 14px;font-size:var(--text-body);line-height:1.6;color:var(--body);max-width:56ch;text-wrap:pretty">Strength is high and the trajectory is still climbing, so this is a window that has not peaked.</p>
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.WindowCell" stage="Contending" hint-size="100%,36px"></x-import>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+    <div style="margin-top:22px">
+      <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.StateMessage" title="{{ emptyTitle }}" body="{{ emptyBody }}" action="Back to overview" on-action="{{ goOverview }}" hint-size="100%,200px"></x-import>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:780}}">
+const TABS = [
+  { key: "overview", label: "Overview" },
+  { key: "record", label: "Track record" },
+  { key: "trades", label: "Trades" },
+  { key: "draft", label: "Draft" },
+  { key: "outlook", label: "Outlook" },
+];
+
+class Component extends DCLogic {
+  state = { tab: "overview", season: "All-time" };
+
+  renderVals() {
+    const { tab, season } = this.state;
+    const all = [
+      { with: "Cavanaugh \u2192 Reznik", pts: 382.0, value: 3940, phase: "Wk 3", date: "24 Sep 2025", y: "2025" },
+      { with: "Brandt \u2192 Okafor", pts: 64.2, value: 310, phase: "Offseason (before 2025)", date: "3 Aug 2025", y: "2025" },
+      { with: "Delgado \u2192 Okafor", pts: -41.8, value: -620, phase: "Offseason (before 2025)", date: "2 Mar 2025", y: "2025" },
+      { with: "Reznik \u2192 Okafor", pts: -96.0, value: -1790, phase: "Wk 9", date: "5 Nov 2024", y: "2024" },
+    ];
+    const shown = season === "All-time" ? all : all.filter((t) => t.y === season);
+    const trades = shown.map((t) => ({
+      ...t,
+      tone: t.value > 0 ? "pos" : "neg",
+      valueText: (t.value > 0 ? "+" : "\u2212") + Math.abs(t.value).toLocaleString("en-US"),
+    }));
+    // The footer is recomputed from the VISIBLE set. Holding an all-time figure
+    // under a filtered ledger is the "headline must equal its rows" violation
+    // that has shipped here before: one row of -1,790 under a green +3,020.
+    const sumPts = shown.reduce((a, t) => a + t.pts, 0);
+
+    return {
+      // on/off are both exposed so the label can be written as static markup in
+      // two branches rather than through a style hole — a hole cannot resolve
+      // mid-stream, so the tab bar would paint unstyled until the call finishes.
+      tabs: TABS.map((t) => ({
+        ...t,
+        on: t.key === tab,
+        off: t.key !== tab,
+        pick: () => this.setState({ tab: t.key }),
+      })),
+      isOverview: tab === "overview",
+      isTrades: tab === "trades",
+      isOutlook: tab === "outlook",
+      isEmpty: tab === "record" || tab === "draft",
+      emptyTitle: tab === "draft" ? "No picks graded yet" : "One season of history so far",
+      emptyBody:
+        tab === "draft"
+          ? "Picks appear here once a rookie has played a game. Nothing from this class has yet."
+          : "A track record needs at least two seasons to say anything. Come back after this one closes.",
+      goOverview: () => this.setState({ tab: "overview" }),
+
+      // Every signal name comes from Leaderboard.tsx's PILLAR_HELP. Inventing a
+      // label here is the failure mode: a name with no definition is noise.
+      pillars: [
+        { name: "Results", weight: "50%", score: 88, adds: 121, help: "What you actually won: titles, playoff runs, and points-for rank against your league." },
+        { name: "Skill", weight: "30%", score: 71, adds: 46, help: "How well you traded and drafted, measured against what an average GM in your league got." },
+        { name: "Outlook", weight: "20%", score: 54, adds: 21, help: "What you are holding: roster value, youth, and the draft capital still on your books." },
+      ],
+
+      // Handlers reach an <x-import> through dc-props, NOT through an attribute:
+      // HTML lowercases attribute names, so onChange="{{ fn }}" arrives on the
+      // component as `onchange` and the control silently never fires.
+      seasonProps: {
+        label: "Filter trades by season",
+        options: ["All-time", "2025", "2024"],
+        value: season,
+        onChange: (s) => this.setState({ season: s }),
+      },
+      trades,
+      tradeTotalLabel: season === "All-time" ? "All 31 trades" : shown.length + (shown.length === 1 ? " trade in " : " trades in ") + season,
+      tradeTotalPts: season === "All-time" ? 1204.6 : Math.round(sumPts * 10) / 10,
+
+      nav: [
+        { label: "Dashboard", icon: "table" },
+        { label: "Trades", icon: "swap" },
+        { label: "Franchises", icon: "season", on: true },
+        { label: "Bets" },
+        { label: "How this works" },
+        { label: "Settings" },
+      ],
+    };
+  }
+}
+
+</script>
+</body>
+</html>

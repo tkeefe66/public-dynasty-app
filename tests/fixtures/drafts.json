@@ -1,0 +1,11 @@
+[
+  {
+    "draft_id": "draft_2024_a",
+    "league_id": "league_2024",
+    "season": "2024",
+    "status": "complete",
+    "type": "snake",
+    "settings": {"rounds": 4, "teams": 12},
+    "draft_order": {"u_alice": 1, "u_bob": 2}
+  }
+]

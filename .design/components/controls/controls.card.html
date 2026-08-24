@@ -1,0 +1,63 @@
+<!-- @dsCard group="Components" viewport="700x410" name="Controls" subtitle="Button, segmented control, sort header, field, theme toggle, marks." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Controls</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+body{margin:0;padding:16px 18px;background:var(--bg);font-family:var(--font-sans);color:var(--ink)}
+.grid{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.cell{display:grid;gap:8px}
+.cap{font-family:var(--font-mono);font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { Button, SegmentControl, SortButton, MonoLink, Field, ThemeToggle, Mark, FX_ICON_NAMES } = window.AgateDynastyAnalyzerDesignSystem_5c2c22;
+const Cap = ({ children, style }) => <div className="cap" style={style}>{children}</div>;
+function Demo() {
+  const [year, setYear] = React.useState("2025");
+  const [theme, setTheme] = React.useState("light");
+  const [sort, setSort] = React.useState("descending");
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <div className="grid">
+        <div className="cell"><Cap>Primary</Cap><Button icon="swap">Read the ruling</Button></div>
+        <div className="cell"><Cap>Ghost</Cap><Button variant="ghost" iconAfter="forward">All trades</Button></div>
+        <div className="cell"><Cap>Disabled</Cap><Button disabled>Saving…</Button></div>
+        <div className="cell"><Cap>Mono link</Cap><MonoLink>2025 draft board →</MonoLink></div>
+        <div className="cell"><Cap>Theme</Cap><ThemeToggle value={theme} onChange={setTheme} /></div>
+      </div>
+      <div className="grid">
+        <div className="cell" style={{ minWidth: 300 }}>
+          <Cap>Segmented — the one single-select dialect</Cap>
+          <SegmentControl label="Season" options={["All-time","2025","2024","2023"]} value={year} onChange={setYear} />
+        </div>
+        <div className="cell" style={{ minWidth: 170 }}>
+          <Cap>Sort header</Cap>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-label)", letterSpacing: ".12em", textTransform: "uppercase", color: "var(--dim)" }}>
+            <SortButton sort={sort} onClick={() => setSort(sort === "ascending" ? "descending" : "ascending")}>Total pts</SortButton>
+          </div>
+        </div>
+        <div className="cell" style={{ minWidth: 190 }}><Cap>Field</Cap><Field label="Sleeper username" placeholder="tkeefe" /></div>
+      </div>
+      <div className="cell">
+        <Cap>The nineteen marks — stroked, 16px grid, no icon library</Cap>
+        <div style={{ display: "flex", gap: 13, flexWrap: "wrap", color: "var(--ink)" }}>
+          {FX_ICON_NAMES.map((n) => <Mark key={n} name={n} size={16} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script>
+</body>
+</html>

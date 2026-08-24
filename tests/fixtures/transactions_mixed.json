@@ -1,0 +1,28 @@
+[
+  {
+    "type": "waiver",
+    "status": "complete",
+    "transaction_id": "tx_wv_001",
+    "created": 1726185600000,
+    "leg": 3,
+    "roster_ids": [3],
+    "adds": {"9999": 3},
+    "drops": {"8888": 3},
+    "draft_picks": [],
+    "waiver_budget": []
+  },
+  {
+    "type": "trade",
+    "status": "complete",
+    "transaction_id": "tx_002",
+    "created": 1726185600000,
+    "leg": 3,
+    "roster_ids": [3, 4],
+    "adds": {"7777": 4, "6666": 3},
+    "drops": {"6666": 4, "7777": 3},
+    "draft_picks": [],
+    "waiver_budget": [
+      {"sender": 3, "receiver": 4, "amount": 25}
+    ]
+  }
+]

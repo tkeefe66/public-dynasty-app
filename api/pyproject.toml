@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trade-grader-api"
+version = "0.1.0"
+description = "FastAPI backend wrapping the sleeper-dynasty grader for the web app."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sse-starlette>=2.1",
+    "httpx>=0.27",
+    # Identity/membership store (engine + cache stay file-based; the DB is
+    # only for users + league memberships). async SQLAlchemy on asyncpg in
+    # prod, aiosqlite locally/CI; alembic for migrations; pyjwt to verify the
+    # frontend-minted backend token.
+    "sqlalchemy[asyncio]>=2.0",
+    "alembic>=1.13",
+    "asyncpg>=0.29",
+    "aiosqlite>=0.20",
+    "pyjwt>=2.9",
+    "slowapi>=0.1.9",
+    "sentry-sdk[fastapi]>=2.0",
+    # S3-compatible client for the Cloudflare R2 backup target (app/services/r2.py).
+    "boto3>=1.35",
+    # The grader package itself, installed editable from the repo root.
+    "sleeper-dynasty",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "httpx>=0.27"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+# In a git worktree the editable `sleeper-dynasty` install points at the MAIN
+# repo's src, so prepend this worktree's src (and the api dir for `app`) so the
+# backend tests pick up the worktree's engine + app, not the main checkout's.
+pythonpath = [".", "../src"]

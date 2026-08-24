@@ -1,0 +1,24 @@
+{
+  "events": [
+    {
+      "competitions": [{
+        "date": "2025-11-09T18:00Z",
+        "venue": {"fullName": "Highmark Stadium", "indoor": false},
+        "competitors": [
+          {"homeAway": "home", "team": {"abbreviation": "BUF"}},
+          {"homeAway": "away", "team": {"abbreviation": "NE"}}
+        ]
+      }]
+    },
+    {
+      "competitions": [{
+        "date": "2025-11-09T18:00Z",
+        "venue": {"fullName": "Ford Field", "indoor": true},
+        "competitors": [
+          {"homeAway": "home", "team": {"abbreviation": "DET"}},
+          {"homeAway": "away", "team": {"abbreviation": "GB"}}
+        ]
+      }]
+    }
+  ]
+}

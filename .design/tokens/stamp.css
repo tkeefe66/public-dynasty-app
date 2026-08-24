@@ -1,0 +1,62 @@
+/* ============================================================================
+   STAMP — the second ink. Furniture's pigment is COBALT, #2f42ff.
+
+   Agate's stamp was ink navy (#172a44), chosen to read as a broadsheet
+   masthead. Furniture is not a broadsheet, and navy at consumer scale is the
+   single biggest contributor to the "robotic/old" read: it is nearly ink, so a
+   stamped band looks like a heavier ink band rather than a different voice.
+   Cobalt is unmistakably a brand colour, and still sits far from both --pos
+   green and --neg red, so a stamped element is never mistaken for a figure.
+
+   The rules did NOT loosen with the remodel:
+
+     - Stamp is a GROUND, never a tint on prose. Type reverses out of it.
+     - Stamp never touches a figure, a bar, a chart series, or a grade letter.
+       Those stay ink / --pos / --neg. No exceptions.
+     - Stamp is permitted in: the primary button fill, an active segmented or
+       tab cell, a link, the focus ring, and the "you" marker. Adding a sixth
+       place means naming the component here.
+
+   Agate's navy values live in tokens/legacy-agate.css.
+   ========================================================================= */
+
+:root {
+  --stamp: #2f42ff;
+  --stamp-ink: #ffffff;      /* type reversed out of a stamp ground */
+  --stamp-deep: #2033d6;     /* pressed */
+  --stamp-lit: #4459ff;      /* hover */
+  --stamp-rule: #2f42ff;     /* a stamp-weight rule, in place of --ink */
+  /* pale cobalt ground for a chip or callout. ALWAYS pair with --stamp-strong.
+     Never with --stamp-ink: that is the ink for the SOLID cobalt fill (white),
+     and on this wash it measures 1.13:1. */
+  --stamp-wash: #eef0ff;
+  --stamp-strong: #2033d6;   /* text/glyph ON --stamp-wash — 7.02:1 */
+  /* the SECOND line reversed out of a stamp ground: a caption under a heading,
+     a folio under a masthead. Never an rgba() alpha of --stamp-ink — at 9px
+     .72 measures 3.97:1, and small reversed type gets no large-text exemption. */
+  --stamp-ink-dim: #e2e6ff;  /* on --stamp — 5.08:1 */
+
+  /* Agate opened a band with a 2px stamp rule. Furniture opens it with a panel
+     edge and an elevation instead, so the band-opening rule returns to a
+     hairline. Kept as tokens because the Agate kits still read them. */
+  --band-open: var(--rule);
+  --band-open-weight: 1px;   /* @kind spacing */
+}
+
+:root[data-theme="dark"],
+:root[data-theme="furniture-dark"],
+[data-theme="dark"][data-theme],
+[data-theme="furniture-dark"][data-theme] {
+  /* Lifted one step: #2f42ff on #101114 is dense enough to read as a hole in
+     the page rather than as ink laid on it. */
+  --stamp: #3d4dff;
+  --stamp-ink: #ffffff;
+  --stamp-deep: #2b39d6;
+  --stamp-lit: #5665ff;
+  --stamp-rule: #4d5cff;
+  --stamp-wash: #1b2140;
+  --stamp-strong: #7d8bff;   /* the ramp inverts on slate: lighten, not darken */
+  --stamp-ink-dim: #e2e6ff;  /* on the lifted --stamp — 4.59:1 */
+  --band-open: var(--rule);
+  --band-open-weight: 1px;
+}

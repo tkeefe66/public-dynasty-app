@@ -1,0 +1,15 @@
+[
+  {
+    "league_id": "league_001",
+    "name": "Dynasty Bros",
+    "season": "2026",
+    "total_rosters": 12,
+    "roster_positions": ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "FLEX", "SUPER_FLEX", "K", "DEF",
+                         "BN", "BN", "BN", "BN", "BN", "BN", "BN", "BN", "BN", "BN",
+                         "IR", "IR", "TAXI", "TAXI", "TAXI"],
+    "scoring_settings": {"pass_td": 4.0, "rec": 1.0, "rush_td": 6.0, "pass_yd": 0.04, "rush_yd": 0.1, "rec_yd": 0.1},
+    "settings": {"playoff_week_start": 15, "num_playoff_teams": 6},
+    "status": "in_season",
+    "previous_league_id": "league_000"
+  }
+]

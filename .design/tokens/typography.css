@@ -1,0 +1,48 @@
+/* ============================================================================
+   TYPE — Furniture. Three families, each with one job.
+
+   Bricolage Grotesque replaced Archivo as the display face. Archivo 900
+   uppercase carried Agate's broadsheet voice; it is what read as shouting at
+   consumer scale. Bricolage is set at 700-800 in MIXED CASE — the change of
+   case matters as much as the change of face.
+
+   Geist sets prose. Geist Mono sets EVERY figure and every label, always with
+   tabular numerals, and it keeps its uppercase letterspacing: a mono label is
+   the one place caps still earn their keep.
+   ========================================================================= */
+
+:root {
+  --font-display: 'Bricolage Grotesque', system-ui, sans-serif;
+  --font-sans: 'Geist', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+
+  --weight-display: 800;   /* nameplates, leads */
+  --weight-heading: 700;   /* section headings, franchise and player names */
+
+  /* The scale. Seven steps, and there is no eighth — a size not on this list
+     is a size someone eyeballed. */
+  --text-nameplate: 44px;  /* franchise / league name */
+  --text-lead: 25px;       /* the claim that opens a screen */
+  --text-section: 17px;    /* section heading */
+  --text-name: 15px;       /* a franchise or player in a row */
+  --text-body: 13.5px;     /* prose */
+  --text-figure: 12.5px;   /* every number */
+  --text-label: 8.5px;     /* mono, uppercase, letterspaced — the floor */
+
+  /* Nameplate tiers, stepped by CHARACTER COUNT and computed server-side from
+     the name string — never measured in the browser. Two lines maximum, never
+     truncated, never scaled to fit one line. */
+  --nameplate-1: 44px;     /* <= 14 chars */
+  --nameplate-2: 36px;     /* 15-24 */
+  --nameplate-3: 28px;     /* 25-38 */
+  --nameplate-4: 22px;     /* 39+ */
+  --nameplate-1-sm: 30px;
+  --nameplate-2-sm: 26px;
+  --nameplate-3-sm: 21px;
+  --nameplate-4-sm: 17px;
+
+  --track-nameplate: -0.034em;
+  --track-lead: -0.03em;
+  --track-name: -0.024em;
+  --track-label: 0.11em;   /* mono labels only */
+}

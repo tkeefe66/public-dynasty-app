@@ -1,0 +1,178 @@
+/* ============================================================================
+   AGATE — the previous system, preserved as an opt-in scope.
+
+   Agate was the ledger: warm newsprint, Archivo 900 uppercase, a 26px rule
+   pitch where the striped ground WAS the row divider, zero radius, zero
+   shadow, and no colour anywhere except a signed figure. It is a coherent
+   system and it worked; it read as robotic and dated at consumer scale, which
+   is why Furniture replaced it. See readme.md § "The soul question".
+
+   Nothing here is dead code. Four UI kits (ui_kits/dashboard, /franchise,
+   /trade, /mobile), the Agate specimen cards, the component cards and the
+   Agate templates all render under this scope, and they are the record of what
+   the app shipped through August 2026. Any file that wants Agate declares
+   data-theme="agate" (or "agate-slate" for its dark ground) on <html> — or on
+   any wrapper element, since a specimen card is a fragment with no <html> tag.
+   Both selectors below are (0,2,0) so they beat the Furniture :root block no
+   matter which file imports last.
+
+   DO NOT extend this file. New work belongs in the Furniture layer. This is a
+   snapshot, and it is the thing a revert would restore.
+   ========================================================================= */
+
+:root[data-theme="agate"],
+[data-theme="agate"][data-theme] {
+  /* Ground — warm newsprint, never pure white */
+  --bg: #f7f6f1;
+  --surface: #fdfcf8;
+  --surface-sunk: #f2f1ea;
+  --paper: #f7f6f1;
+  --rule-lit: #fdfcf8;      /* the lit stripe of a ruled band */
+  --rule: #ddddd6;          /* the 1px rule — every divider in the app */
+  --rule-strong: #ddddd6;
+  --dim: #62615c;
+  --body: #3d3c38;
+  --ink: #141312;
+
+  /* The only colour in the interface */
+  --pos: #15803d;
+  --neg: #b91c1c;
+  --pos-strong: #15803d;
+  --neg-strong: #b91c1c;
+  --pos-bar: #15803d;
+  --neg-bar: #b91c1c;
+
+  /* Stamp ink — INK NAVY. Nameplate band and ruling stamp only. */
+  --stamp: #172a44;
+  --stamp-ink: #eef2f7;
+  --stamp-deep: #0f1c2e;
+  --stamp-lit: #21395c;
+  --stamp-rule: #172a44;
+  /* Direction B: the rule that OPENS a band is stamp at 2px; --rule still
+     separates WITHIN a band at 1px. */
+  --band-open: var(--stamp-rule);
+  --band-open-weight: 2px;
+  --bg-heavy: #f3f0e6;
+
+  --ringfocus: #141312;
+  --overlay-field: rgba(20, 19, 18, 0.55);
+
+  /* Type — Archivo carries the voice at 700-900, never below 12px */
+  --font-display: Archivo, system-ui, sans-serif;
+  --font-sans: Geist, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --weight-black: 900;
+  --weight-heavy: 800;
+  --weight-bold: 700;
+  --weight-display: 900;
+  --weight-heading: 900;
+
+  --text-lead: 25px;
+  --text-heading: 15px;
+  --text-section: 15px;
+  --text-name: 12px;
+  --text-body: 12px;
+  --text-figure: 11px;
+  --text-data: 11px;
+  --text-data-lg: 13px;
+  --text-label: 8px;
+  --text-label-lg: 9px;
+  --text-nameplate: 44px;
+
+  --track-nameplate: -0.05em;
+  --track-lead: -0.035em;
+  --track-name: -0.02em;
+  --track-label: 0.1em;
+  --track-strip: 0.16em;    /* the app strip only */
+
+  /* Rhythm — one entry is one 26px rule, and the pitch is the system */
+  --rule-pitch: 26px;
+  --tap-min: 44px;          /* a 26px rule is under target, so entries claim 44 */
+  --gutter: 18px;
+  --gutter-sm: 14px;
+  --hair: 1px;
+  --heavy: 1px;
+  --stroke-plot-lead: 2.5px;
+  --stroke-plot-other: 1.25px;
+
+  /* There are no curves and no elevation in this system */
+  --radius: 0;
+  --radius-sm: 0;
+  --radius-pill: 0;
+  --shadow: none;
+  --shadow-lift: none;
+  --fx-radius: 0;
+  --fx-radius-sm: 0;
+  --fx-radius-pill: 0;
+  --fx-shadow: none;
+  --fx-shadow-lift: none;
+}
+
+:root[data-theme="agate-slate"],
+[data-theme="agate-slate"][data-theme] {
+  /* Ink on slate — NOT inverted paper, but a cooler near-neutral ground
+     carrying the same warm off-white ink, so Archivo 900 reads printed
+     rather than lit. */
+  --bg: #17181a;
+  --surface: #1c1e21;
+  --surface-sunk: #1c1e21;
+  --paper: #f7f6f1;
+  --rule-lit: #1c1e21;
+  --rule: #2c2f34;
+  --rule-strong: #2c2f34;
+  --dim: #94938d;
+  --body: #c9c8c2;
+  --ink: #ecebe5;
+
+  /* Do NOT reuse the light values: these two were AA-verified on near-black. */
+  --pos: #d9f99d;
+  --neg: #fb7185;
+  --pos-strong: #d9f99d;
+  --neg-strong: #fb7185;
+  --pos-bar: #d9f99d;
+  --neg-bar: #fb7185;
+
+  /* The drawn dark counterpart. NOT the light value: #172a44 on #17181a is a
+     near-equal ground step and reads as a hole in the page. */
+  --stamp: #1e3958;
+  --stamp-ink: #edf1f7;
+  --stamp-deep: #14283e;
+  --stamp-lit: #284a72;
+  --stamp-rule: #41699a;    /* a 2px #1e3958 rule vanishes on slate; lifted to
+                               clear 3:1 non-text AA vs #17181a (3.14:1) */
+  --band-open: var(--stamp-rule);
+  --band-open-weight: 2px;
+  --bg-heavy: #17181a;
+
+  --ringfocus: #ecebe5;
+  --overlay-field: rgba(0, 0, 0, 0.6);
+
+  --font-display: Archivo, system-ui, sans-serif;
+  --font-sans: Geist, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --weight-display: 900;
+  --weight-heading: 900;
+  --text-lead: 25px;
+  --text-heading: 15px;
+  --text-name: 12px;
+  --text-body: 12px;
+  --text-figure: 11px;
+  --text-label: 8px;
+  --rule-pitch: 26px;
+  --tap-min: 44px;
+  --gutter: 18px;
+  --gutter-sm: 14px;
+  --hair: 1px;
+  --radius: 0;
+  --radius-sm: 0;
+  --radius-pill: 0;
+  --shadow: none;
+  --shadow-lift: none;
+  /* the aliases must be zeroed too, or a slate card renders Agate colour on
+     Furniture geometry */
+  --fx-radius: 0;
+  --fx-radius-sm: 0;
+  --fx-radius-pill: 0;
+  --fx-shadow: none;
+  --fx-shadow-lift: none;
+}

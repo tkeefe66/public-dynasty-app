@@ -1,0 +1,586 @@
+{
+  "captured": "2026-08-18T13:14:51",
+  "source": "/Users/tomkeefe/.sleeper-dynasty/cache/chain_9000000000000000001.json",
+  "schema_version": 17,
+  "league_id": "9000000000000000001",
+  "owners": 12,
+  "why": "Pre-change reading of the v1 window model. classify_window, the two axis scores and _describe_trajectory are all deleted by the Assets-led Outlook redesign, so these values exist nowhere else afterwards. Diff the new rating_to_stage output against `window` here.",
+  "rows": [
+    {
+      "user_id": "900000000000000006",
+      "window": "Competing now",
+      "strength_score": 100.0,
+      "trajectory_score": 70.1,
+      "trajectory_text": "Championship-caliber roster with a balanced age profile (avg 24.4). 15 core young pieces provide a multi-year window.",
+      "overall_avg_age": 24.4,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": 0.0363,
+          "score": 50.9,
+          "weight": 0.4,
+          "contribution": 20.4
+        },
+        "draft_capital": {
+          "raw": 0.0909,
+          "score": 90.9,
+          "weight": 0.3,
+          "contribution": 27.3
+        },
+        "youth": {
+          "raw": 0.7328,
+          "score": 100.0,
+          "weight": 0.15,
+          "contribution": 15.0
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 0.0,
+          "score": 100.0,
+          "weight": 0.6,
+          "contribution": 60.0
+        },
+        "playoff_rate": {
+          "raw": 1.0,
+          "score": 100.0,
+          "weight": 0.4,
+          "contribution": 40.0
+        }
+      }
+    },
+    {
+      "user_id": "90000000000000005",
+      "window": "Competing now",
+      "strength_score": 89.1,
+      "trajectory_score": 57.8,
+      "trajectory_text": "Championship-caliber roster with a balanced age profile (avg 26.0). 11 core young pieces provide a multi-year window.",
+      "overall_avg_age": 25.952380952380953,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": -0.1083,
+          "score": 47.3,
+          "weight": 0.4,
+          "contribution": 18.9
+        },
+        "draft_capital": {
+          "raw": 0.4545,
+          "score": 54.5,
+          "weight": 0.3,
+          "contribution": 16.4
+        },
+        "youth": {
+          "raw": 0.4398,
+          "score": 100.0,
+          "weight": 0.15,
+          "contribution": 15.0
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 0.1818,
+          "score": 81.8,
+          "weight": 0.6,
+          "contribution": 49.1
+        },
+        "playoff_rate": {
+          "raw": 1.0,
+          "score": 100.0,
+          "weight": 0.4,
+          "contribution": 40.0
+        }
+      }
+    },
+    {
+      "user_id": "900000000000000008",
+      "window": "Competing now",
+      "strength_score": 83.6,
+      "trajectory_score": 64.2,
+      "trajectory_text": "Championship-caliber roster with a balanced age profile (avg 25.2). 11 core young pieces provide a multi-year window.",
+      "overall_avg_age": 25.238095238095237,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": 0.0325,
+          "score": 50.8,
+          "weight": 0.4,
+          "contribution": 20.3
+        },
+        "draft_capital": {
+          "raw": 0.2727,
+          "score": 72.7,
+          "weight": 0.3,
+          "contribution": 21.8
+        },
+        "youth": {
+          "raw": 0.3878,
+          "score": 96.9,
+          "weight": 0.15,
+          "contribution": 14.5
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 0.2727,
+          "score": 72.7,
+          "weight": 0.6,
+          "contribution": 43.6
+        },
+        "playoff_rate": {
+          "raw": 1.0,
+          "score": 100.0,
+          "weight": 0.4,
+          "contribution": 40.0
+        }
+      }
+    },
+    {
+      "user_id": "900000000000000002",
+      "window": "Competing now",
+      "strength_score": 81.2,
+      "trajectory_score": 50.7,
+      "trajectory_text": "Championship-caliber roster with a balanced age profile (avg 25.2). 11 core young pieces provide a multi-year window.",
+      "overall_avg_age": 25.25,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": -0.0025,
+          "score": 49.9,
+          "weight": 0.4,
+          "contribution": 20.0
+        },
+        "draft_capital": {
+          "raw": 0.7273,
+          "score": 27.3,
+          "weight": 0.3,
+          "contribution": 8.2
+        },
+        "youth": {
+          "raw": 0.4667,
+          "score": 100.0,
+          "weight": 0.15,
+          "contribution": 15.0
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 0.0909,
+          "score": 90.9,
+          "weight": 0.6,
+          "contribution": 54.5
+        },
+        "playoff_rate": {
+          "raw": 0.6667,
+          "score": 66.7,
+          "weight": 0.4,
+          "contribution": 26.7
+        }
+      }
+    },
+    {
+      "user_id": "900000000000000010",
+      "window": "Ascending",
+      "strength_score": 51.5,
+      "trajectory_score": 49.6,
+      "trajectory_text": "Young, developing roster (avg 26.2) with 9 core pieces under 26. Building toward a competitive window in 1-2 seasons.",
+      "overall_avg_age": 26.19047619047619,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": 0.1619,
+          "score": 54.0,
+          "weight": 0.4,
+          "contribution": 21.6
+        },
+        "draft_capital": {
+          "raw": 0.8182,
+          "score": 18.2,
+          "weight": 0.3,
+          "contribution": 5.5
+        },
+        "youth": {
+          "raw": 0.4452,
+          "score": 100.0,
+          "weight": 0.15,
+          "contribution": 15.0
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 0.3636,
+          "score": 63.6,
+          "weight": 0.6,
+          "contribution": 38.2
+        },
+        "playoff_rate": {
+          "raw": 0.3333,
+          "score": 33.3,
+          "weight": 0.4,
+          "contribution": 13.3
+        }
+      }
+    },
+    {
+      "user_id": "900000000000000009",
+      "window": "Ascending",
+      "strength_score": 40.6,
+      "trajectory_score": 44.4,
+      "trajectory_text": "Young, developing roster (avg 25.4) with 11 core pieces under 26. Building toward a competitive window in 1-2 seasons.",
+      "overall_avg_age": 25.45,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": 0.1862,
+          "score": 54.7,
+          "weight": 0.4,
+          "contribution": 21.9
+        },
+        "draft_capital": {
+          "raw": 1.0,
+          "score": 0.0,
+          "weight": 0.3,
+          "contribution": 0.0
+        },
+        "youth": {
+          "raw": 0.5849,
+          "score": 100.0,
+          "weight": 0.15,
+          "contribution": 15.0
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 0.5455,
+          "score": 45.5,
+          "weight": 0.6,
+          "contribution": 27.3
+        },
+        "playoff_rate": {
+          "raw": 0.3333,
+          "score": 33.3,
+          "weight": 0.4,
+          "contribution": 13.3
+        }
+      }
+    },
+    {
+      "user_id": "900000000000000012",
+      "window": "Descending",
+      "strength_score": 32.7,
+      "trajectory_score": 53.1,
+      "trajectory_text": "Roster trending down (avg 25.8) with 8 aging risks and neutral capital. Consider selling aging assets for picks and young players.",
+      "overall_avg_age": 25.782608695652176,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": -0.0326,
+          "score": 49.2,
+          "weight": 0.4,
+          "contribution": 19.7
+        },
+        "draft_capital": {
+          "raw": 0.6364,
+          "score": 36.4,
+          "weight": 0.3,
+          "contribution": 10.9
+        },
+        "youth": {
+          "raw": 0.5741,
+          "score": 100.0,
+          "weight": 0.15,
+          "contribution": 15.0
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 0.4545,
+          "score": 54.5,
+          "weight": 0.6,
+          "contribution": 32.7
+        },
+        "playoff_rate": {
+          "raw": 0.0,
+          "score": 0.0,
+          "weight": 0.4,
+          "contribution": 0.0
+        }
+      }
+    },
+    {
+      "user_id": "900000000000000013",
+      "window": "Descending",
+      "strength_score": 29.7,
+      "trajectory_score": 63.7,
+      "trajectory_text": "Roster trending down (avg 25.1) with 4 aging risks and neutral capital. Consider selling aging assets for picks and young players.",
+      "overall_avg_age": 25.05263157894737,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": 0.2092,
+          "score": 55.2,
+          "weight": 0.4,
+          "contribution": 22.1
+        },
+        "draft_capital": {
+          "raw": 0.3636,
+          "score": 63.6,
+          "weight": 0.3,
+          "contribution": 19.1
+        },
+        "youth": {
+          "raw": 0.8048,
+          "score": 100.0,
+          "weight": 0.15,
+          "contribution": 15.0
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 0.7273,
+          "score": 27.3,
+          "weight": 0.6,
+          "contribution": 16.4
+        },
+        "playoff_rate": {
+          "raw": 0.3333,
+          "score": 33.3,
+          "weight": 0.4,
+          "contribution": 13.3
+        }
+      }
+    },
+    {
+      "user_id": "900000000000000003",
+      "window": "Descending",
+      "strength_score": 26.7,
+      "trajectory_score": 45.2,
+      "trajectory_text": "Roster trending down (avg 26.4) with 11 aging risks and neutral capital. Consider selling aging assets for picks and young players.",
+      "overall_avg_age": 26.38095238095238,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": -0.0065,
+          "score": 49.8,
+          "weight": 0.4,
+          "contribution": 19.9
+        },
+        "draft_capital": {
+          "raw": 0.9091,
+          "score": 9.1,
+          "weight": 0.3,
+          "contribution": 2.7
+        },
+        "youth": {
+          "raw": 0.4564,
+          "score": 100.0,
+          "weight": 0.15,
+          "contribution": 15.0
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 1.0,
+          "score": 0.0,
+          "weight": 0.6,
+          "contribution": 0.0
+        },
+        "playoff_rate": {
+          "raw": 0.6667,
+          "score": 66.7,
+          "weight": 0.4,
+          "contribution": 26.7
+        }
+      }
+    },
+    {
+      "user_id": "900000000000000004",
+      "window": "Ascending",
+      "strength_score": 24.2,
+      "trajectory_score": 71.4,
+      "trajectory_text": "Young, developing roster (avg 24.9) with 12 core pieces under 26. Building toward a competitive window in 1-2 seasons.",
+      "overall_avg_age": 24.94736842105263,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": -0.1125,
+          "score": 47.2,
+          "weight": 0.4,
+          "contribution": 18.9
+        },
+        "draft_capital": {
+          "raw": 0.0,
+          "score": 100.0,
+          "weight": 0.3,
+          "contribution": 30.0
+        },
+        "youth": {
+          "raw": 0.6546,
+          "score": 100.0,
+          "weight": 0.15,
+          "contribution": 15.0
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 0.8182,
+          "score": 18.2,
+          "weight": 0.6,
+          "contribution": 10.9
+        },
+        "playoff_rate": {
+          "raw": 0.3333,
+          "score": 33.3,
+          "weight": 0.4,
+          "contribution": 13.3
+        }
+      }
+    },
+    {
+      "user_id": "900000000000000007",
+      "window": "Descending",
+      "strength_score": 21.8,
+      "trajectory_score": 53.9,
+      "trajectory_text": "Roster trending down (avg 25.8) with 8 aging risks and neutral capital. Consider selling aging assets for picks and young players.",
+      "overall_avg_age": 25.8,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": -0.2246,
+          "score": 44.4,
+          "weight": 0.4,
+          "contribution": 17.8
+        },
+        "draft_capital": {
+          "raw": 0.5455,
+          "score": 45.5,
+          "weight": 0.3,
+          "contribution": 13.6
+        },
+        "youth": {
+          "raw": 0.607,
+          "score": 100.0,
+          "weight": 0.15,
+          "contribution": 15.0
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 0.6364,
+          "score": 36.4,
+          "weight": 0.6,
+          "contribution": 21.8
+        },
+        "playoff_rate": {
+          "raw": 0.0,
+          "score": 0.0,
+          "weight": 0.4,
+          "contribution": 0.0
+        }
+      }
+    },
+    {
+      "user_id": "900000000000000011",
+      "window": "Descending",
+      "strength_score": 18.8,
+      "trajectory_score": 65.1,
+      "trajectory_text": "Roster trending down (avg 25.6) with 5 aging risks and neutral capital. Consider selling aging assets for picks and young players.",
+      "overall_avg_age": 25.59090909090909,
+      "trajectory_inputs": {
+        "draft_skill": {
+          "raw": -0.195,
+          "score": 45.1,
+          "weight": 0.4,
+          "contribution": 18.1
+        },
+        "draft_capital": {
+          "raw": 0.1818,
+          "score": 81.8,
+          "weight": 0.3,
+          "contribution": 24.5
+        },
+        "youth": {
+          "raw": 0.598,
+          "score": 100.0,
+          "weight": 0.15,
+          "contribution": 15.0
+        },
+        "yoy_momentum": {
+          "raw": 0.0,
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        }
+      },
+      "strength_inputs": {
+        "roster_value_rank": {
+          "raw": 0.9091,
+          "score": 9.1,
+          "weight": 0.6,
+          "contribution": 5.5
+        },
+        "playoff_rate": {
+          "raw": 0.3333,
+          "score": 33.3,
+          "weight": 0.4,
+          "contribution": 13.3
+        }
+      }
+    }
+  ]
+}

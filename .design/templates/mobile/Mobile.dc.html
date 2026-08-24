@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Phone screen" description="The 390px form: one entry is one card, tabs stay, and every column survives." -->
+<helmet>
+<script src="./ds-base.js"></script>
+<style>body{margin:0;background:#eceae4;font-family:var(--font-sans)}</style>
+</helmet>
+<div style="display:flex;justify-content:center;padding:22px 14px 40px">
+  <div style="width:390px;box-sizing:border-box;padding:0 var(--pad) 34px;background:var(--bg);color:var(--ink);border-radius:24px;box-shadow:0 16px 40px -16px rgba(20,21,26,.3)">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 0 12px;border-bottom:1px solid var(--rule)">
+      <span style="font-family:var(--font-display);font-weight:800;font-size:15px;letter-spacing:-.03em">Fantasy Analyzer</span>
+      <span style="margin-left:auto;font-family:var(--font-mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)">Wk 14</span>
+    </div>
+    <h1 style="margin:16px 0 0;font-family:var(--font-display);font-weight:800;font-size:22px;letter-spacing:-.03em">Bloodbath Dynasty</h1>
+    <p style="margin:5px 0 0;font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">12 teams · 148 trades graded</p>
+
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--rule);margin-top:18px">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+        <button type="button" onClick="{{ t.pick }}" aria-selected="{{ t.on }}" style="position:relative;flex:1;background:none;border:0;padding:0;min-height:44px;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer">
+          <sc-if value="{{ t.on }}" hint-placeholder-val="{{ true }}"><span style="color:var(--ink);font-weight:700">{{ t.label }}</span></sc-if>
+          <sc-if value="{{ t.off }}" hint-placeholder-val="{{ false }}"><span style="color:var(--dim)">{{ t.label }}</span></sc-if>
+          <sc-if value="{{ t.on }}" hint-placeholder-val="{{ true }}"><span style="position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink)"></span></sc-if>
+        </button>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{ showSeason }}" hint-placeholder-val="{{ true }}">
+      <div style="margin-top:16px">
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.SegmentControl" dc-props="{{ seasonProps }}" hint-size="100%,44px"></x-import>
+      </div>
+    </sc-if>
+
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:20px 0 10px">
+      <h2 style="margin:0;font-family:var(--font-display);font-weight:800;font-size:17px;letter-spacing:-.026em">{{ heading }}</h2>
+      <span style="font-family:var(--font-mono);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">{{ count }}</span>
+    </div>
+
+    <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.CardList" hint-size="100%,320px">
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="4">
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.EntryCard" variant="{{ r.variant }}" hint-size="100%,104px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Avatar" name="{{ r.name }}" color="{{ r.color }}" size="{{ 30 }}" hint-size="30px,30px"></x-import>
+            <span style="flex:1;min-width:0">
+              <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Name" on="card" hint-size="100px,20px">{{ r.name }}</x-import>
+            </span>
+            <span style="display:grid;justifyItems:end">
+              <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ r.headline }}" dp="{{ r.dp }}" signed="{{ r.signed }}" size="15px" hint-size="70px,18px"></x-import>
+              <span style="font-family:var(--font-mono);font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)">{{ r.headlineLabel }}</span>
+            </span>
+          </div>
+          <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.MetaLine" hint-size="100%,26px">
+            <sc-for list="{{ r.facts }}" as="f" hint-placeholder-count="3">
+              <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Meta" label="{{ f.label }}" tone="{{ f.tone }}" hint-size="70px,14px">{{ f.value }}</x-import>
+            </sc-for>
+          </x-import>
+        </x-import>
+      </sc-for>
+      <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.EntryCard" variant="total" hint-size="100%,74px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+          <span style="font-family:var(--font-display);font-weight:700;font-size:14px">{{ totalLabel }}</span>
+          <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ totalValue }}" dp="{{ totalDp }}" signed="{{ totalSigned }}" size="15px" hint-size="70px,18px"></x-import>
+        </div>
+      </x-import>
+    </x-import>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:430,&quot;height&quot;:900}}">
+const TABS = [
+  { key: "standings", label: "Standings" },
+  { key: "trades", label: "Trades" },
+  { key: "draft", label: "Draft" },
+];
+
+class Component extends DCLogic {
+  state = { tab: "standings", season: "All-time" };
+
+  renderVals() {
+    const { tab, season } = this.state;
+    const sgn = (n) => (n > 0 ? "+" : "\u2212") + Math.abs(n).toLocaleString("en-US");
+
+    /* THE MOBILE ANSWER. An entry is a CARD, not a narrower row: a row is
+       clamped to the rule pitch, so a two-line entry became two rules and any
+       divider drawn between children cut a franchise in half. A card's edge IS
+       the entry boundary. Every column survives as a labelled fact — nothing is
+       dropped and nothing scrolls sideways. */
+    const STANDINGS = [
+      { name: "Reznik", color: "var(--id-1)", headline: 1742, facts: [["Rank", "1 of 12"], ["Rec", "61-42"], ["Grade", "A"], ["Trade value", "+3,940", "pos"]] },
+      { name: "Okafor", color: "var(--id-2)", mine: true, headline: 1688, facts: [["Rank", "2 of 12"], ["Rec", "58-45"], ["Grade", "A-"], ["Trade value", "+1,180", "pos"]] },
+      { name: "Brandt", color: "var(--id-3)", headline: 1580, facts: [["Rank", "3 of 12"], ["Rec", "52-51"], ["Grade", "B"], ["Trade value", "+310", "pos"]] },
+      { name: "Cavanaugh", color: "var(--id-4)", headline: 1511, facts: [["Rank", "4 of 12"], ["Rec", "49-54"], ["Grade", "C+"], ["Trade value", "\u22121,790", "neg"]] },
+    ].map((r) => ({ ...r, dp: 0, signed: false, headlineLabel: "Rating", variant: r.mine ? "mine" : "body", facts: r.facts.map(([label, value, tone]) => ({ label, value, tone })) }));
+
+    const TRADES = [
+      { name: "Cavanaugh \u2192 Reznik", color: "var(--id-1)", headline: 382.0, y: "2025", facts: [["Trade value", "+3,940", "pos"], ["", "Wk 3"], ["", "24 Sep 2025"]] },
+      { name: "Brandt \u2192 Okafor", color: "var(--id-3)", headline: 64.2, y: "2025", facts: [["Trade value", "+310", "pos"], ["", "Offseason"], ["", "3 Aug 2025"]] },
+      { name: "Reznik \u2192 Okafor", color: "var(--id-2)", headline: -96.0, y: "2024", facts: [["Trade value", "\u22121,790", "neg"], ["", "Wk 9"], ["", "5 Nov 2024"]] },
+    ].map((r) => ({ ...r, dp: 1, signed: true, headlineLabel: "Total pts", variant: "body", facts: r.facts.map(([label, value, tone]) => ({ label, value, tone })) }));
+
+    const PICKS = [
+      { name: "M. Nabers", color: "var(--id-1)", headline: 412.4, y: "2025", facts: [["Rnd", "1st"], ["Via", "Draft"], ["Now", "Rostered"], ["vs Slot", "+2,410", "pos"]] },
+      { name: "J. Reed", color: "var(--id-2)", headline: 118.0, y: "2025", facts: [["Rnd", "2nd"], ["Via", "Trade"], ["Now", "Rostered"], ["vs Slot", "+640", "pos"]] },
+      { name: "K. Walker", color: "var(--id-4)", headline: 12.2, y: "2024", facts: [["Rnd", "2nd"], ["Via", "Draft"], ["Now", "Dropped"], ["vs Slot", "\u2212420", "neg"]] },
+    ].map((r) => ({ ...r, dp: 1, signed: false, headlineLabel: "Total pts", variant: "body", facts: r.facts.map(([label, value, tone]) => ({ label, value, tone })) }));
+
+    const source = tab === "standings" ? STANDINGS : tab === "trades" ? TRADES : PICKS;
+    // Standings are current, not per-season, so the season control is not
+    // RENDERED there rather than shown inert: an inert pill still moves when
+    // tapped, which tells the reader a filter applied when nothing changed.
+    // Same precedent as draft-tab.html's board link, which only exists when a
+    // season is active.
+    const showSeason = tab !== "standings";
+    const rows = showSeason && season !== "All-time" ? source.filter((r) => r.y === season) : source;
+
+    // Recomputed from the VISIBLE set. A footer holding an all-time figure under
+    // a filtered ledger reads as that season's total, which is a lie.
+    const sumPts = rows.reduce((a, r) => a + (typeof r.headline === "number" ? r.headline : 0), 0);
+    const noun = tab === "trades" ? "trade" : "pick";
+
+    return {
+      tabs: TABS.map((t) => ({ ...t, on: t.key === tab, off: t.key !== tab, pick: () => this.setState({ tab: t.key }) })),
+      showSeason,
+      seasonProps: {
+        label: "Filter by season",
+        options: ["All-time", "2025", "2024"],
+        value: season,
+        onChange: (s) => this.setState({ season: s }),
+      },
+      heading: tab === "standings" ? "Standings" : tab === "trades" ? "Trades" : "Draft",
+      count: tab === "standings" ? "12 franchises" : rows.length + " of " + source.length,
+      rows,
+      totalLabel:
+        tab === "standings"
+          ? "All 12 franchises"
+          : season === "All-time"
+          ? "All " + source.length + " " + noun + "s"
+          : rows.length + " " + (rows.length === 1 ? noun : noun + "s") + " in " + season,
+      totalValue: tab === "standings" ? 18240 : Math.round(sumPts * 10) / 10,
+      totalDp: tab === "standings" ? 0 : 1,
+      totalSigned: tab === "trades",
+    };
+  }
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Data" subtitle="Figures, the grade ramp, bars, labels, the window ladder, identity." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Data</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+body{margin:0;padding:16px 18px;background:var(--bg);font-family:var(--font-sans);color:var(--ink)}
+.grid{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.cell{display:grid;gap:8px}
+.cap{font-family:var(--font-mono);font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { Figure, GradeLetter, Bar, Label, Kicker, WindowCell, Avatar } = window.AgateDynastyAnalyzerDesignSystem_5c2c22;
+const Cap = ({ children, style }) => <div className="cap" style={style}>{children}</div>;
+function Demo() {
+  return (
+    <div style={{ display: "grid", gap: 18 }}>
+      <div className="grid">
+        <div className="cell"><Cap>Unsigned</Cap><Figure value={1688} size="14px" /></div>
+        <div className="cell"><Cap>Signed</Cap><div style={{display:"grid",gap:3}}><Figure value={3940} signed size="14px" /><Figure value={-1790} signed size="14px" /></div></div>
+        <div className="cell"><Cap>Zero · absent</Cap><div style={{display:"grid",gap:3}}><Figure value={0} size="14px" /><Figure value={null} size="14px" /></div></div>
+        <div className="cell"><Cap>With unit</Cap><Figure value={161.4} dp={1} suffix="pts" size="14px" /></div>
+        <div className="cell"><Cap>Grade ramp — A to F</Cap>
+          <div style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
+            {["A","B","C","D","F"].map((g) => <GradeLetter key={g} grade={g} size={34} />)}
+          </div>
+        </div>
+      </div>
+      <div className="grid">
+        <div className="cell" style={{ width: 190 }}><Cap>Bar — unsigned</Cap><Bar value={72} max={100} /></div>
+        <div className="cell" style={{ width: 190 }}><Cap>Bar — signed, both ways</Cap>
+          <div style={{ display: "grid", gap: 7 }}><Bar value={3940} max={4000} signed /><Bar value={-1790} max={4000} signed /></div>
+        </div>
+        <div className="cell"><Cap>Labels</Cap>
+          <div style={{ display: "grid", gap: 5 }}><Label>Trade value</Label><Label tone="stamp">You</Label><Kicker>Week 14 recap</Kicker></div>
+        </div>
+        <div className="cell"><Cap>Identity</Cap>
+          <div style={{ display: "flex", gap: 7 }}>
+            {[1,2,3,4].map((i) => <Avatar key={i} name={["Okafor","Reznik","Brandt","Cavanaugh"][i-1]} color={"var(--id-"+i+")"} size={32} />)}
+          </div>
+        </div>
+      </div>
+      <div className="cell">
+        <Cap>Window — an ORDERED five-step ladder, never a quadrant</Cap>
+        <WindowCell stage="Contending" />
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+[
+  {
+    "roster_id": 1,
+    "owner_id": "user_aaa",
+    "players": ["4046", "6794", "4984", "2449", "1479"],
+    "settings": {"wins": 5, "losses": 3, "ties": 0, "fpts": 1205, "fpts_decimal": 50, "fpts_against": 1100, "fpts_against_decimal": 20}
+  },
+  {
+    "roster_id": 2,
+    "owner_id": "user_bbb",
+    "players": ["5848", "4866", "6803", "3321", "1466"],
+    "settings": {"wins": 4, "losses": 4, "ties": 0, "fpts": 1100, "fpts_decimal": 0, "fpts_against": 1050, "fpts_against_decimal": 0}
+  }
+]

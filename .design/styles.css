@@ -1,0 +1,10 @@
+@import "./tokens/fonts.css";
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/rhythm.css";
+@import "./tokens/stamp.css";
+/* The previous system, as an opt-in scope: :root[data-theme="agate"].
+   Imported after the Furniture layer so its overrides land, and scoped so it
+   never affects a page that does not ask for it. Snapshot — do not extend. */
+@import "./tokens/legacy-agate.css";
+@import "./tokens/base.css";

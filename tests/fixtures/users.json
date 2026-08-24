@@ -1,0 +1,5 @@
+[
+  {"user_id": "user_aaa", "display_name": "Alice", "avatar": "acct_aaa", "metadata": {"team_name": "Alice's Aces", "avatar": "https://sleepercdn.com/uploads/team_aaa.png"}},
+  {"user_id": "user_bbb", "display_name": "Bob", "avatar": "acct_bbb", "metadata": {"team_name": "Bob's Bombers"}},
+  {"user_id": "user_ccc", "display_name": "Carol", "metadata": {}}
+]

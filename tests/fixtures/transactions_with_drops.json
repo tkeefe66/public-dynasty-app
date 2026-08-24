@@ -1,0 +1,32 @@
+[
+  {
+    "type": "drop",
+    "status": "complete",
+    "transaction_id": "tx_drop_1",
+    "created": 1726185600000,
+    "leg": 3,
+    "roster_ids": [1],
+    "adds": null,
+    "drops": {"8888": 1}
+  },
+  {
+    "type": "waiver",
+    "status": "complete",
+    "transaction_id": "tx_wv_1",
+    "created": 1726272000000,
+    "leg": 3,
+    "roster_ids": [2],
+    "adds": {"7777": 2},
+    "drops": {"9999": 2}
+  },
+  {
+    "type": "trade",
+    "status": "complete",
+    "transaction_id": "tx_trade_1",
+    "created": 1726358400000,
+    "leg": 3,
+    "roster_ids": [1, 2],
+    "adds": {"5555": 1},
+    "drops": {"5555": 2}
+  }
+]

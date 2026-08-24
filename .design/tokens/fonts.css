@@ -1,0 +1,100 @@
+/* Three families, self-hosted. SIL Open Font License 1.1 — texts sit beside the
+   binaries in assets/fonts/.
+
+   Furniture: Bricolage Grotesque is the display face, Geist sets prose, Geist
+              Mono sets every figure.
+   Agate:     Archivo carried the display voice (see tokens/legacy-agate.css).
+              NO ARCHIVO BINARY IS SUPPLIED and none is linked, so the legacy
+              [data-theme="agate"] scope falls back to the next family in its
+              stack. That is already what happens — see the note at the foot of
+              this file. Self-host a binary here if the Agate kits ever need to
+              render in their real face again.
+
+   VARIABLE, not static, and deliberately: Bricolage's `opsz` axis redraws the
+   letterforms for the size they are set at — tightening spacing and thinning
+   joins as size rises. A static instance freezes opsz at 14, which sets every
+   44px nameplate in a text cut. Since --text-nameplate runs to 44px and
+   --text-label down to 8.5px, this system spans the axis it exists for.
+   Six files, latin + latin-ext, ~280 KB total.
+
+   font-weight/font-stretch declare RANGES, so any weight in between is free —
+   never add a second @font-face for another weight of the same family.
+
+   Paths are relative to this file (tokens/ → ../assets/fonts/). */
+
+/* Bricolage Grotesque | latin | wght 200-800, wdth 75-100, opsz 12-96 */
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  font-stretch: 75% 100%;
+  src: url("../assets/fonts/bricolage-grotesque-latin-var.woff2") format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* Bricolage Grotesque | latin-ext */
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  font-stretch: 75% 100%;
+  src: url("../assets/fonts/bricolage-grotesque-latin-ext-var.woff2") format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* Geist | latin | wght 100-900 */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../assets/fonts/geist-latin-var.woff2") format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* Geist | latin-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../assets/fonts/geist-latin-ext-var.woff2") format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* Geist Mono | latin | wght 100-900 — U+2212 is in this range, which is the
+   minus sign Figure emits; never let a fallback serve it. */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../assets/fonts/geist-mono-latin-var.woff2") format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* Geist Mono | latin-ext */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../assets/fonts/geist-mono-latin-ext-var.woff2") format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* REMOVED 2026-08-16: a Google Fonts @import for Archivo used to sit here, at
+   the FOOT of this file.
+
+   It never did anything. CSS requires @import to precede every other rule in a
+   stylesheet (bar @charset and @layer), so an @import after eighty lines of
+   @font-face is discarded by every browser — Archivo was never fetched, and the
+   Agate scope has been falling back for as long as the line existed. It was
+   removed rather than moved to the top because putting it there would CHANGE
+   BEHAVIOUR: it would add a live third-party font request to every consumer of
+   this system in order to serve a retired theme.
+
+   If the Agate kits need their real face back, self-host an Archivo binary in
+   assets/fonts/ and add a normal @font-face above. Do not re-add the CDN link. */

@@ -1,0 +1,126 @@
+/* ============================================================================
+   BASE — resets, focus, links, motion.
+
+   The one structural change from Agate: .ruled. Under Agate a panel had a
+   striped background and the stripes WERE the row dividers, so nothing inside
+   carried a border and every row had to be exactly --rule-pitch tall. Under
+   Furniture a panel has a solid ground, so the stripe is gone and rows need an
+   explicit rule between them — and because the clamp is gone with it, a row is
+   free to be two lines on a phone. That clamp was the source of the mobile
+   wrapping problem the whole remodel had to solve.
+
+   Agate's striped .ruled is preserved under [data-theme="agate"] below, so the
+   four Agate kits keep rendering exactly as they did. Those selectors are
+   deliberately NOT :root-anchored: a specimen card is a fragment with no <html>
+   tag, so it opts in on a wrapper element instead.
+   ========================================================================= */
+
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-feature-settings: "ss01" on;
+}
+
+body {
+  font-family: var(--font-sans);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Every figure in the app. Columns must align digit-for-digit. */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* A panel: solid ground, one radius, one elevation, explicit row rules. */
+.ruled {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.ruled > * { display: grid; align-items: center; min-height: var(--rule-pitch); padding: 0 14px; }
+.ruled > * + * { border-top: var(--hair) solid var(--rule); }
+
+/* Agate: the striped ground, where the stripe is the divider and every row is
+   clamped to the pitch. Snapshot — do not extend. */
+[data-theme="agate"] .ruled,
+[data-theme="agate-slate"] .ruled {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--rule-lit) 0 calc(var(--rule-pitch) - 1px),
+    var(--rule) calc(var(--rule-pitch) - 1px) var(--rule-pitch)
+  );
+  border-top: var(--band-open-weight) solid var(--band-open);
+  border-radius: 0;
+  box-shadow: none;
+}
+[data-theme="agate"] .ruled > *,
+[data-theme="agate-slate"] .ruled > * {
+  height: var(--rule-pitch);
+  min-height: 0;
+  padding: 0;
+}
+[data-theme="agate"] .ruled > * + *,
+[data-theme="agate-slate"] .ruled > * + * { border-top: 0; }
+
+/* The signed-in user's entry. Stamp, because "you" is the product speaking,
+   not a data value. Under Agate this was an ink bar repeated on every rule of
+   a multi-rule entry; a Furniture entry is one element, so it draws once. */
+.you-marker { box-shadow: inset 3px 0 0 var(--stamp); }
+[data-theme="agate"] .you-marker,
+[data-theme="agate-slate"] .you-marker { box-shadow: inset 3px 0 0 var(--ink); }
+
+/* Any interactive row keeps a real target regardless of its content height. */
+.tap { min-height: var(--tap-min); box-sizing: border-box; }
+
+/* In a labelled cell the VALUE never degrades. */
+.ledger-prose { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* Focus. 2px stamp ring at 2px offset, following the element's own radius —
+   Agate forced radius 0 because it had no curves; Furniture does. */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--ringfocus);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+[data-theme="agate"] :focus-visible,
+[data-theme="agate-slate"] :focus-visible { border-radius: 0; }
+
+/* Links are stamp — one of its five sanctioned places. Defined here so a link
+   added later never renders browser blue. */
+a { color: var(--stamp); text-decoration: none; }
+a:hover { color: var(--stamp-deep); text-decoration: underline; text-underline-offset: 3px; }
+[data-theme="agate"] a,
+[data-theme="agate-slate"] a { color: var(--ink); }
+[data-theme="agate"] a:hover,
+[data-theme="agate-slate"] a:hover { color: var(--ink); text-decoration: underline; }
+
+/* The only animated element in the system: one indeterminate segment on a
+   hairline track, one per view. No spinners, no shimmer, no pulsing dot. */
+@keyframes indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.animate-indeterminate { animation: indeterminate 1.15s linear infinite; }
+
+/* Disclosure + tooltip reveals. Opacity only; no travel, no choreography. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-panel-in { animation: fade-in var(--dur-panel) var(--ease); }
+.animate-tip-in   { animation: fade-in var(--dur-tip) var(--ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,75 @@
+<!-- @dsCard group="Components" viewport="700x530" name="Ledger" subtitle="A panel of rows, the same entries as cards, and the chrome above them." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ledger</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+body{margin:0;padding:16px 18px;background:var(--bg);font-family:var(--font-sans);color:var(--ink)}
+.grid{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.cell{display:grid;gap:8px}
+.cap{font-family:var(--font-mono);font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { TopBar, Panel, Row, EntryCard, CardList, MetaLine, Meta, SectionHead, Name, StampBand, Figure, ThemeToggle } = window.AgateDynastyAnalyzerDesignSystem_5c2c22;
+const Cap = ({ children, style }) => <div className="cap" style={style}>{children}</div>;
+const COLS = "minmax(0,1fr) 74px 96px";
+const DATA = [
+  { n: "Reznik", rec: "61-42", r: 1742, mine: false },
+  { n: "Okafor", rec: "58-45", r: 1688, mine: true },
+  { n: "Brandt", rec: "52-51", r: 1580, mine: false },
+];
+function Demo() {
+  const [open, setOpen] = React.useState(true);
+  return (
+    <div style={{ display: "grid", gap: 4, margin: "-16px -18px" }}>
+      <TopBar league="Bloodbath Dynasty" items={[{label:"Dashboard",icon:"table",on:true},{label:"Trades",icon:"swap"},{label:"Franchises"}]} right={<ThemeToggle value="light" />} />
+      <div style={{ padding: "14px 18px", display: "grid", gap: 4 }}>
+        <StampBand title="Bloodbath Dynasty" meta="12 teams · 148 trades graded" style={{ padding: "16px 18px" }} />
+        <SectionHead title="Standings" aside="All-time · 12" collapsible open={open} onToggle={() => setOpen(!open)} />
+        {open ? (
+          <div className="grid" style={{ gap: 18 }}>
+            <div className="cell" style={{ flex: 1, minWidth: 330 }}>
+              <Cap>Desktop — Panel of Rows</Cap>
+              <Panel>
+                <Row variant="head" cols={COLS}><span>Franchise</span><span style={{textAlign:"right"}}>Rec</span><span style={{textAlign:"right"}}>Rating</span></Row>
+                {DATA.map((d) => (
+                  <Row key={d.n} cols={COLS} variant={d.mine ? "mine" : "body"}>
+                    <Name>{d.n}</Name><span style={{textAlign:"right"}}>{d.rec}</span><Figure value={d.r} />
+                  </Row>
+                ))}
+                <Row variant="total" cols={COLS}><span>All 12 franchises</span><span /><Figure value={18240} /></Row>
+              </Panel>
+            </div>
+            <div className="cell" style={{ width: 250 }}>
+              <Cap>≤700px — one entry, one card</Cap>
+              <CardList>
+                {DATA.slice(0, 2).map((d) => (
+                  <EntryCard key={d.n} variant={d.mine ? "mine" : "body"}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+                      <Name on="card">{d.n}</Name><Figure value={d.r} size="15px" />
+                    </div>
+                    <MetaLine><Meta label="Record">{d.rec}</Meta><Meta label="vs Slot" tone="pos">+3,940</Meta></MetaLine>
+                  </EntryCard>
+                ))}
+              </CardList>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script>
+</body>
+</html>

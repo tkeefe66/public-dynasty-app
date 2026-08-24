@@ -1,0 +1,29 @@
+[
+  {
+    "type": "trade",
+    "status": "complete",
+    "transaction_id": "tx_001",
+    "created": 1726099200000,
+    "leg": 2,
+    "roster_ids": [1, 2],
+    "adds": {"5678": 1, "1234": 2},
+    "drops": {"1234": 1, "5678": 2},
+    "draft_picks": [
+      {
+        "season": "2025",
+        "round": 1,
+        "roster_id": 1,
+        "previous_owner_id": 2,
+        "owner_id": 1
+      },
+      {
+        "season": "2024",
+        "round": 2,
+        "roster_id": 1,
+        "previous_owner_id": 1,
+        "owner_id": 2
+      }
+    ],
+    "waiver_budget": []
+  }
+]

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Trade ruling" description="One trade, judged: the verdict first, then the lens-by-lens receipt and what each side got." -->
+<helmet>
+<script src="./ds-base.js"></script>
+<style>body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-sans)}</style>
+</helmet>
+<x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.TopBar" league="Bloodbath Dynasty" items="{{ nav }}" hint-size="100%,44px"></x-import>
+<div style="max-width:1180px;margin:0 auto;padding:0 var(--pad) 48px">
+  <div style="margin-top:16px">
+    <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.MonoLink" hint-size="110px,14px">← All trades</x-import>
+  </div>
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:18px;align-items:start;margin-top:14px">
+    <div>
+      <span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim)">24 Sep 2025 · Wk 3</span>
+      <h1 style="margin:8px 0 0;font-family:var(--font-display);font-weight:800;font-size:30px;letter-spacing:-.034em;line-height:1.06;max-width:26ch">Cavanaugh sent the season to Reznik.</h1>
+      <p style="margin:11px 0 0;font-size:var(--text-body);line-height:1.6;color:var(--body);max-width:60ch;text-wrap:pretty">Reznik gave up two future firsts and a starting back. He got the league's best receiver for the run that mattered, and 382 more started points out of the deal.</p>
+    </div>
+    <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.RulingStamp" verdict="Ruling" winner="Reznik" detail="Won four of five lenses, by 382.0 started points and 3,940 Trade Value." tag="Lopsided" hint-size="100%,200px"></x-import>
+  </div>
+
+  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:26px 0 10px">
+    <h2 style="margin:0;font-family:var(--font-display);font-weight:800;font-size:var(--text-section);letter-spacing:-.026em">Scored by lens</h2>
+    <span style="font-family:var(--font-mono);font-size:var(--text-label);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">Five lenses · four to Reznik</span>
+  </div>
+  <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Panel" hint-size="100%,280px">
+    <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Row" variant="head" cols="minmax(0,1fr) 96px 130px 96px" hint-size="100%,44px">
+      <span>Lens</span><span style="text-align:right">Margin</span><span></span><span style="text-align:right">Winner</span>
+    </x-import>
+    <sc-for list="{{ lenses }}" as="l" hint-placeholder-count="5">
+      <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Row" cols="minmax(0,1fr) 96px 130px 96px" hint-size="100%,40px">
+        <span style="display:flex;align-items:center;gap:6px;min-width:0">
+          <span style="color:var(--ink)">{{ l.name }}</span>
+          <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Tooltip" title="{{ l.name }}" body="{{ l.help }}" hint-size="26px,26px"></x-import>
+        </span>
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ l.margin }}" dp="{{ l.dp }}" signed="{{ true }}" hint-size="80px,16px"></x-import>
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Bar" value="{{ l.margin }}" max="{{ l.max }}" signed="{{ true }}" hint-size="100%,5px"></x-import>
+        <span style="text-align:right;color:var(--ink)">{{ l.winner }}</span>
+      </x-import>
+    </sc-for>
+  </x-import>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;margin-top:22px">
+    <sc-for list="{{ sides }}" as="s" hint-placeholder-count="2">
+      <div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px">
+          <h3 style="margin:0;font-family:var(--font-display);font-weight:800;font-size:16px;letter-spacing:-.024em">{{ s.who }} received</h3>
+          <span style="font-family:var(--font-mono);font-size:var(--text-label);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">{{ s.note }}</span>
+        </div>
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Panel" hint-size="100%,180px">
+          <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Row" variant="head" cols="minmax(0,1fr) 74px 78px" hint-size="100%,44px">
+            <span>Player</span><span style="text-align:right">Value</span><span style="text-align:right">Total pts</span>
+          </x-import>
+          <sc-for list="{{ s.got }}" as="p" hint-placeholder-count="3">
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Row" cols="minmax(0,1fr) 74px 78px" hint-size="100%,40px">
+              <span style="min-width:0;display:flex;align-items:baseline;gap:6px">
+                <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Name" hint-size="100px,18px">{{ p.name }}</x-import>
+                <span style="font-family:var(--font-mono);font-size:var(--text-label);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">{{ p.pos }}</span>
+              </span>
+              <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ p.value }}" hint-size="60px,16px"></x-import>
+              <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ p.pts }}" dp="{{ 1 }}" hint-size="60px,16px"></x-import>
+            </x-import>
+          </sc-for>
+          <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Row" variant="total" cols="minmax(0,1fr) 74px 78px" hint-size="100%,40px">
+            <span>{{ s.totalLabel }}</span>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ s.totalValue }}" hint-size="60px,16px"></x-import>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ s.totalPts }}" dp="{{ 1 }}" hint-size="60px,16px"></x-import>
+          </x-import>
+        </x-import>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  renderVals() {
+    /* Never render "KTC" — the metric is Trade Value. */
+    const lenses = [
+      { name: "Started points", margin: 382.0, dp: 1, max: 400, winner: "Reznik", help: "Points the pieces actually scored in a starting lineup after the trade." },
+      { name: "Trade Value", margin: 3940, dp: 0, max: 4000, winner: "Reznik", help: "Net swing in Trade Value at the moment of the deal." },
+      { name: "Playoff points", margin: 148.4, dp: 1, max: 400, winner: "Reznik", help: "Only the games that decided a title." },
+      { name: "Roster fit", margin: 62.0, dp: 1, max: 400, winner: "Reznik", help: "Whether the pieces filled a hole or duplicated one you already had." },
+      { name: "Future capital", margin: -1820, dp: 0, max: 4000, winner: "Cavanaugh", help: "Draft picks and youth handed over, valued at today's board." },
+    ];
+
+    const sides = [
+      {
+        who: "Reznik",
+        note: "Total realized 412.0",
+        got: [
+          { name: "M. Nabers", pos: "WR", value: 8400, pts: 288.4 },
+          { name: "T. Etienne", pos: "RB", value: 1900, pts: 96.4 },
+          { name: "2026 3rd", pos: "Pick", value: 420, pts: 27.2 },
+        ],
+        totalLabel: "Three pieces",
+        totalValue: 10720,
+        totalPts: 412.0,
+      },
+      {
+        who: "Cavanaugh",
+        note: "Total realized 164.0",
+        got: [
+          { name: "K. Walker", pos: "RB", value: 3100, pts: 122.6 },
+          { name: "2026 1st", pos: "Pick", value: 2600, pts: 24.2 },
+          { name: "2027 1st", pos: "Pick", value: 1080, pts: 17.2 },
+        ],
+        totalLabel: "Three pieces",
+        totalValue: 6780,
+        totalPts: 164.0,
+      },
+    ];
+
+    return {
+      lenses,
+      sides,
+      nav: [
+        { label: "Dashboard", icon: "table" },
+        { label: "Trades", icon: "swap", on: true },
+        { label: "Franchises", icon: "season" },
+        { label: "Bets" },
+        { label: "How this works" },
+        { label: "Settings" },
+      ],
+    };
+  }
+}
+
+</script>
+</body>
+</html>

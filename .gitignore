@@ -1,0 +1,33 @@
+.venv/
+__pycache__/
+*.egg-info/
+*.pyc
+.pytest_cache/
+dist/
+build/
+.DS_Store
+.superpowers/
+web/next-env.d.ts
+
+# Tool scratch (Claude worktrees, impeccable design skill)
+.claire/
+web/.impeccable/
+
+# env files (secrets) — never commit.
+# `.env.local` matters as much as `.env` here: `web/e2e/README.md` tells you to
+# put a throwaway AUTH_SECRET in `web/.env.local`, and Next's `loadEnvConfig`
+# reads it — but `*/.env` does not match it, so it was untracked-by-luck only.
+# Holding AUTH_SECRET is equivalent to being able to sign in as anyone.
+.env
+.env.local
+*/.env
+*/.env.local
+.env.*.local
+
+# stray root-level node_modules (tooling cache)
+node_modules/
+
+# the design system is tooling, but it is tracked
+!.design/
+
+# Throwaway QA session-minting script (local only)

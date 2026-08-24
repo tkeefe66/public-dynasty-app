@@ -1,0 +1,68 @@
+name: CI
+
+# The Agate drift guard (web/tests/agate-rules.test.ts) and every unit test only
+# guard anything if something runs them. Railway deploys straight off a push to
+# main without running tests, so this workflow is what turns "make test passes on
+# my machine" into an actual gate.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: web — vitest + typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20" # matches web/Dockerfile
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      # Bare `vitest run` silently picks up NO config and fails on JSX — the
+      # explicit --config is required (see CLAUDE.md § Commands).
+      - name: Unit tests (includes the Agate drift guard)
+        run: npx vitest --config tests/vitest.config.ts run
+      - name: Typecheck
+        run: npx tsc --noEmit
+      # The build does not gate on lint by design (ignoreDuringBuilds), so lint
+      # is not run here — there is known, tracked debt (AGATE_FOLLOWUPS C11) and
+      # failing CI on it would only teach people to ignore CI.
+      - name: Build
+        run: npm run build
+        env:
+          # Next needs these present at build time; values are irrelevant to a
+          # build and are never real secrets.
+          AUTH_SECRET: ci-build-not-a-real-secret
+          AUTH_BACKEND_SECRET: ci-build-not-a-real-secret
+
+  api:
+    name: api — pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11" # api/pyproject.toml requires >=3.11
+      # The engine installs editable from the repo root; the API installs
+      # editable on top, exactly as api/Dockerfile does it.
+      - run: pip install -e ".[dev]"
+      - run: pip install -e "./api[dev]"
+      # `api/tests` and `tests/` are both packages named "tests", so a single
+      # rootdir-wide pytest run collides. They are run separately, from their
+      # own directories (see CLAUDE.md § Commands).
+      - name: Backend tests
+        run: pytest -q
+        working-directory: api
+      - name: Engine + CLI tests
+        run: pytest tests -q

@@ -1,0 +1,18 @@
+[
+  {
+    "matchup_id": 1,
+    "roster_id": 1,
+    "points": 142.3,
+    "starters": ["100", "200"],
+    "players": ["100", "200", "300"],
+    "players_points": {"100": 28.0, "200": 114.3, "300": 31.0}
+  },
+  {
+    "matchup_id": 1,
+    "roster_id": 2,
+    "points": 98.1,
+    "starters": ["400", "500"],
+    "players": ["400", "500", "600"],
+    "players_points": {"400": 50.1, "500": 48.0, "600": 2.0}
+  }
+]

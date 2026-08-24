@@ -1,0 +1,185 @@
+/* ============================================================================
+   COLOR — Furniture. This is the system's default ground, on :root.
+
+   Agate's newsprint values have moved to tokens/legacy-agate.css under
+   :root[data-theme="agate"]; the four Agate UI kits and its specimen cards
+   opt in there. Nothing here is a theme override — a consuming project that
+   links styles.css and writes no data-theme gets Furniture.
+
+   The thesis that survived the remodel: colour is never decoration. It marks
+   a SIGN (--pos/--neg), a FRANCHISE (--id-*), or the product's own voice
+   (--stamp). It never differentiates one neutral row from another.
+   ========================================================================= */
+
+:root {
+  /* Ground — bright, not aged. Agate's striped ground is gone; rows sit on
+     white and panels lift off the page, so every table needs explicit row
+     rules. (Under Agate the stripe WAS the divider.) */
+  --bg: #f4f3ef;
+  --surface: #ffffff;
+  --surface-sunk: #faf9f6;   /* table header rows, inset wells */
+  --paper: #faf9f6;          /* the light ground — so also the type colour ON an ink panel */
+
+  --rule-lit: #ffffff;
+  --rule: #eceae4;           /* separates rows within a panel */
+  --rule-strong: #dddad2;    /* control borders, panel edges */
+
+  --dim: #5f636e;            /* labels, metadata — 5.41:1 on --bg, 6.01:1 on --surface */
+  --body: #43464f;           /* prose */
+  --ink: #14151a;            /* type, figures, primary fill */
+
+  /* ---- Signed outcomes. TWO pairs, and -strong is the one you want for TEXT.
+
+     CORRECTED 2026-08-16. This note used to reserve the -strong pair for
+     "large tone-ramped glyphs ONLY (the franchise grade letter)" and warn
+     "never use them for a row figure — at 10px they read as ink". That was
+     wrong in a way that cost the consuming app its accessibility: following it
+     put every signed figure on the base pair, which does not clear WCAG AA as
+     text on ANY light ground this system defines.
+
+     Measured against these exact values, contrast ratio:
+
+                          --bg       --surface   --surface-sunk
+       --pos  #00a63e     2.90 FAIL  3.22 FAIL   3.06 FAIL
+       --neg  #e12d39     4.08 FAIL  4.53 pass   4.30 FAIL
+       --pos-strong       4.94 pass  5.48 pass   5.21 pass
+       --neg-strong       7.09 pass  7.87 pass   7.48 pass
+
+     The bar is 4.5:1: --text-figure is 12.5px, well under the 18.66px-bold /
+     24px large-text exemption, so a row figure is NORMAL text. --pos misses
+     even the 3:1 large-text floor on --bg. The old note's own premise was
+     also mis-stated — it described --pos as 3.22:1 "on white" and treated that
+     as acceptable for figures, when 3.22 fails the bar those figures take.
+
+     The aesthetic worry was tested, not dismissed: rendered side by side at
+     11px in Geist Mono against a pure-ink control, --pos-strong is plainly
+     green and --neg-strong plainly red. Neither reads as ink.
+
+     Dark theme passes on either pair (see the block below), but a utility
+     class picks the token for BOTH themes, so light decides.
+
+     WHERE THE BASE PAIR IS STILL CORRECT: on this evidence, nowhere in text.
+     It is retained rather than deleted because dropping a published token
+     breaks any consumer still referencing it, and because --neg does pass on
+     pure --surface. Treat it as deprecated for figures. Note the wash pairings
+     below already pointed at -strong, which is the same conclusion this note
+     is now reaching. ---- */
+  --pos: #00a63e;
+  --neg: #e12d39;
+  --pos-strong: #007a33;
+  --neg-strong: #a3131d;
+
+  /* Caution: the third semantic, for a decision that is pending rather than
+     good or bad. --warn-strong is the only one that clears 4.5:1 on its wash. */
+  --warn: #a16207;
+  --warn-strong: #8a5106;
+
+  /* Pale grounds for chips and callout tints. Foreground pairings that pass:
+     --stamp-wash + --stamp-strong, --pos-wash + --pos-strong, --neg-wash +
+     --neg-strong, --warn-wash + --warn-strong. Never a wash under a figure,
+     and never --stamp-ink on --stamp-wash: that pair is 1.13:1. */
+  --pos-wash: #dcfce7;
+  --neg-wash: #fdeaec;
+  --warn-wash: #fef3c7;
+
+  /* The annotation callout: an aside ABOUT the design rather than part of it,
+     used for provenance notes and open questions. Eighteen files hard-coded
+     these three values before they were tokens. */
+  --note-wash: #fff8e6;
+  --note-ink: #6b4708;
+  --note-edge: #f0dfae;
+
+  /* Bars are a THIRD pair, and deliberately not the figure pair. A bar is a
+     large solid area, so the two hues must match in visual weight or the
+     louder one reads as "more" at equal length. --neg is lighter and hotter
+     than --pos, which pulls green forward and settles red back. Do not point
+     these at --pos/--neg. */
+  --pos-bar: #12a150;
+  --neg-bar: #d4303c;
+
+  /* ---- Franchise identity. Identity ONLY — never a figure, bar or series.
+     A 13% tint of these is the franchise hero ground; the full value is the
+     5px identity edge that keeps the franchise legible at a glance. ---- */
+  --id-1: #f5a524;
+  --id-2: #38bdf8;
+  --id-3: #8b5cf6;
+  --id-4: #10b981;
+  --id-5: #ec4899;
+  --id-6: #f97316;
+
+  /* ---- Identity AS A STROKE. The ramp above was authored for FILLS — chips,
+     avatars, the 5px hero edge — where the colour sits as a solid block. As a
+     1-3px line on --surface only 2 of the 6 clear the 3:1 that WCAG 1.4.11
+     asks of a graphical object you need in order to read a chart: --id-2
+     measured 2.14:1, so a plot's WINNING series was its faintest line. These
+     are the same hues darkened until each clears 3:1 on white; use them for
+     any polyline, axis stub, scatter mark or connector, and keep the fills
+     above for chips and identity edges. On slate the ramp runs the other way,
+     so the dark block below points these back at the bright originals. ---- */
+  --id-1-line: #b45309;   /* 4.99:1 on --surface */
+  --id-2-line: #0284c7;   /* 4.09:1 */
+  --id-3-line: #7c3aed;   /* 5.70:1 */
+  --id-4-line: #047857;   /* 5.50:1 */
+  --id-5-line: #be185d;   /* 6.00:1 */
+  --id-6-line: #c2410c;   /* 5.18:1 */
+
+  --overlay-field: rgba(20, 21, 26, 0.55);
+  --ringfocus: var(--stamp);
+}
+
+/* Both spellings resolve: screens written during the remodel set
+   data-theme="furniture-dark", and "dark" is the name the app already uses.
+   The element forms are doubled to (0,2,0) so a fragment can demo the dark
+   ground on a wrapper — a specimen card has no <html> to attribute. */
+:root[data-theme="dark"],
+:root[data-theme="furniture-dark"],
+[data-theme="dark"][data-theme],
+[data-theme="furniture-dark"][data-theme] {
+  --bg: #101114;
+  --surface: #17191d;
+  --surface-sunk: #1c1f24;
+  --paper: #faf9f6;          /* unchanged — an ink panel is still ink on slate */
+
+  --rule-lit: #17191d;
+  --rule: #262a30;
+  --rule-strong: #333841;
+
+  --dim: #9ba2ae;
+  --body: #c9ccd3;
+  --ink: #f0f1f3;
+
+  --pos: #4ade80;
+  --neg: #fb7185;
+  /* on slate the ramp runs the other way: lighten to clear the dark ground.
+     Both pairs clear AA here — --pos 10.83:1 on --bg, --pos-strong 13.45:1 —
+     so dark theme is not what constrains the choice; the light block is. */
+  --pos-strong: #86efac;
+  --neg-strong: #fda4af;
+  --warn: #fcd34d;
+  --warn-strong: #fde68a;
+  --pos-wash: #12301f;
+  --neg-wash: #3a1418;
+  --warn-wash: #33270c;
+  --note-wash: #2b2412;
+  --note-ink: #fde68a;
+  --note-edge: #4a3d18;
+
+  --pos-bar: #2ec46c;
+  --neg-bar: #f0555f;
+
+  --id-3: #a78bfa;
+  --id-4: #34d399;
+  --id-5: #f472b6;
+  --id-6: #fb923c;
+
+  /* on slate the bright fills ARE the legible strokes — all six clear 3:1 on
+     --surface #17191d — so the darkened light-ground ramp is discarded here */
+  --id-1-line: #f5a524;
+  --id-2-line: #38bdf8;
+  --id-3-line: #a78bfa;
+  --id-4-line: #34d399;
+  --id-5-line: #f472b6;
+  --id-6-line: #fb923c;
+
+  --overlay-field: rgba(0, 0, 0, 0.62);
+}

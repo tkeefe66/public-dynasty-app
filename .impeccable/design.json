@@ -1,0 +1,250 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-10T00:00:00Z",
+  "title": "Design System: FFB Dynasty",
+  "extensions": {
+    "colorMeta": {
+      "ledger-paper": {
+        "role": "neutral",
+        "displayName": "Ledger Paper",
+        "canonical": "#fafaf7",
+        "dark": "#0b0c0d",
+        "cssVar": "--bg",
+        "tonalRamp": ["oklch(15% 0.004 106)", "oklch(26% 0.004 106)", "oklch(38% 0.004 106)", "oklch(49% 0.004 106)", "oklch(61% 0.004 106)", "oklch(72% 0.004 106)", "oklch(84% 0.004 106)", "oklch(95% 0.004 106)"]
+      },
+      "clean-sheet": {
+        "role": "neutral",
+        "displayName": "Clean Sheet",
+        "canonical": "#ffffff",
+        "dark": "#131313",
+        "cssVar": "--surface",
+        "tonalRamp": ["oklch(15% 0 0)", "oklch(26% 0 0)", "oklch(38% 0 0)", "oklch(49% 0 0)", "oklch(61% 0 0)", "oklch(72% 0 0)", "oklch(84% 0 0)", "oklch(95% 0 0)"]
+      },
+      "ledger-ink": {
+        "role": "neutral",
+        "displayName": "Ledger Ink",
+        "canonical": "#0e0e0e",
+        "dark": "#ededed",
+        "cssVar": "--ink",
+        "tonalRamp": ["oklch(15% 0 0)", "oklch(26% 0 0)", "oklch(38% 0 0)", "oklch(49% 0 0)", "oklch(61% 0 0)", "oklch(72% 0 0)", "oklch(84% 0 0)", "oklch(95% 0 0)"]
+      },
+      "pencil-gray": {
+        "role": "neutral",
+        "displayName": "Pencil Gray",
+        "canonical": "#6b6b6b",
+        "dark": "#9b9ba2",
+        "cssVar": "--dim",
+        "tonalRamp": ["oklch(15% 0 0)", "oklch(26% 0 0)", "oklch(38% 0 0)", "oklch(49% 0 0)", "oklch(61% 0 0)", "oklch(72% 0 0)", "oklch(84% 0 0)", "oklch(95% 0 0)"]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#e5e5e0",
+        "dark": "#1f2024",
+        "cssVar": "--divider",
+        "tonalRamp": ["oklch(15% 0.005 106)", "oklch(26% 0.005 106)", "oklch(38% 0.005 106)", "oklch(49% 0.005 106)", "oklch(61% 0.005 106)", "oklch(72% 0.005 106)", "oklch(84% 0.005 106)", "oklch(95% 0.005 106)"]
+      },
+      "win-green": {
+        "role": "secondary",
+        "displayName": "Win Green",
+        "canonical": "oklch(52.7% 0.154 150)",
+        "hex": "#15803d",
+        "dark": "#d9f99d",
+        "cssVar": "--pos",
+        "tonalRamp": ["oklch(15% 0.154 150)", "oklch(26% 0.154 150)", "oklch(38% 0.154 150)", "oklch(49% 0.154 150)", "oklch(61% 0.154 150)", "oklch(72% 0.154 150)", "oklch(84% 0.154 150)", "oklch(95% 0.154 150)"]
+      },
+      "loss-red": {
+        "role": "secondary",
+        "displayName": "Loss Red",
+        "canonical": "oklch(50.5% 0.213 27.5)",
+        "hex": "#b91c1c",
+        "dark": "#fb7185",
+        "cssVar": "--neg",
+        "tonalRamp": ["oklch(15% 0.213 27.5)", "oklch(26% 0.213 27.5)", "oklch(38% 0.213 27.5)", "oklch(49% 0.213 27.5)", "oklch(61% 0.213 27.5)", "oklch(72% 0.213 27.5)", "oklch(84% 0.213 27.5)", "oklch(95% 0.213 27.5)"]
+      },
+      "flip-blue": {
+        "role": "secondary",
+        "displayName": "Flip Blue",
+        "canonical": "oklch(54.6% 0.245 262.9)",
+        "hex": "#2563eb",
+        "dark": "#60a5fa",
+        "cssVar": "--info",
+        "tonalRamp": ["oklch(15% 0.245 262.9)", "oklch(26% 0.245 262.9)", "oklch(38% 0.245 262.9)", "oklch(49% 0.245 262.9)", "oklch(61% 0.245 262.9)", "oklch(72% 0.245 262.9)", "oklch(84% 0.245 262.9)", "oklch(95% 0.245 262.9)"]
+      },
+      "playoff-gold": {
+        "role": "secondary",
+        "displayName": "Playoff Gold",
+        "canonical": "oklch(53.1% 0.109 83.3)",
+        "hex": "#8a6500",
+        "dark": "#e6b400",
+        "cssVar": "--playoff",
+        "tonalRamp": ["oklch(15% 0.109 83.3)", "oklch(26% 0.109 83.3)", "oklch(38% 0.109 83.3)", "oklch(49% 0.109 83.3)", "oklch(61% 0.109 83.3)", "oklch(72% 0.109 83.3)", "oklch(84% 0.109 83.3)", "oklch(95% 0.109 83.3)"]
+      },
+      "caution-amber": {
+        "role": "secondary",
+        "displayName": "Caution Amber",
+        "canonical": "oklch(55.5% 0.146 49.0)",
+        "hex": "#b45309",
+        "dark": "#fbbf24",
+        "cssVar": "--warn",
+        "tonalRamp": ["oklch(15% 0.146 49.0)", "oklch(26% 0.146 49.0)", "oklch(38% 0.146 49.0)", "oklch(49% 0.146 49.0)", "oklch(61% 0.146 49.0)", "oklch(72% 0.146 49.0)", "oklch(84% 0.146 49.0)", "oklch(95% 0.146 49.0)"]
+      },
+      "window-indigo": {
+        "role": "secondary",
+        "displayName": "Window Indigo",
+        "canonical": "oklch(51.1% 0.230 277.0)",
+        "hex": "#4f46e5",
+        "dark": "#818cf8",
+        "cssVar": "--window",
+        "tonalRamp": ["oklch(15% 0.230 277.0)", "oklch(26% 0.230 277.0)", "oklch(38% 0.230 277.0)", "oklch(49% 0.230 277.0)", "oklch(61% 0.230 277.0)", "oklch(72% 0.230 277.0)", "oklch(84% 0.230 277.0)", "oklch(95% 0.230 277.0)"]
+      },
+      "verdict-violet": {
+        "role": "primary",
+        "displayName": "Verdict Violet",
+        "canonical": "oklch(54.1% 0.281 293)",
+        "hex": "#7c3aed",
+        "dark": "#c4b5fd",
+        "cssVar": "--accent",
+        "tonalRamp": ["oklch(15% 0.281 293)", "oklch(26% 0.281 293)", "oklch(38% 0.281 293)", "oklch(49% 0.281 293)", "oklch(61% 0.281 293)", "oklch(72% 0.281 293)", "oklch(84% 0.281 293)", "oklch(95% 0.281 293)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Verdict Display", "purpose": "Instrument Serif, the trade-verdict headline and its italic 'beat/vs' connector only. One gloat per page." },
+      "headline": { "displayName": "Hero Headline", "purpose": "Extrabold tracking-tight Geist Sans for page-hero names; the 34px franchise letter is a variant of this voice." },
+      "title": { "displayName": "Card Title", "purpose": "13-14px semibold/bold tracking-tight Geist Sans for card and section titles." },
+      "body": { "displayName": "Body", "purpose": "12-13px Geist Sans prose - explainers, stories, blurbs. Max 65-75ch for prose; tables run wider." },
+      "data": { "displayName": "Ledger Data", "purpose": "11-12px Geist Mono with tabular-nums (.tabular) for every metric cell, rating, record, and date." },
+      "label": { "displayName": "Whisper Label", "purpose": "9-10px uppercase Geist Mono, letter-spaced 0.05-0.1em, Pencil Gray. Column headers, state tags, captions." }
+    },
+    "shadows": [
+      { "name": "overlay", "value": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)", "purpose": "Portaled tooltips and floating menus only - the sole blurred shadow. Never on surfaces in page flow." },
+      { "name": "frozen-column-mask", "value": "8px 0 0 var(--surface), 9px 0 0 var(--divider)", "purpose": "Zero-blur solid paint faking a surface fill + 1px divider edge on the pinned owner column of scrolled tables." },
+      { "name": "you-row-marker", "value": "inset 3px 0 0 var(--accent)", "purpose": "3px inset Verdict Violet bar flagging the signed-in user's row in standings." }
+    ],
+    "motion": [
+      { "name": "panel-in", "value": "panel-in 200ms cubic-bezier(0.165, 0.84, 0.44, 1)", "keyframes": "@keyframes panel-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }", "purpose": "Disclosure reveal for expanding breakdown panels (rating receipts, GM breakdowns)." },
+      { "name": "tip-in", "value": "tip-in 120ms ease-out", "keyframes": "@keyframes tip-in { from { opacity: 0; } to { opacity: 1; } }", "purpose": "Tooltip fade - opacity only, positioning transform lives in inline style." },
+      { "name": "transition-standard", "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Default Tailwind transition for hover color/opacity/transform state feedback." },
+      { "name": "reduced-motion", "value": "prefers-reduced-motion: reduce -> all animation/transition durations forced to 0.01ms", "purpose": "Global neutralizer in globals.css; every animation must survive being instant." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" },
+      { "name": "2xl", "value": "1536px" },
+      { "name": "note", "value": "Tailwind defaults - no custom screens; responsive behavior is structural (frozen-column horizontal swipe on tables, nav folding into a More menu)." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The universal container: Clean Sheet on 1px Hairline, 10px radius, flat per The Hairline Rule.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">Franchise Rankings</div><div class=\"ds-card-meta\">12 rows</div></div>",
+      "css": ".ds-card { background: var(--surface); border: 1px solid var(--divider); border-radius: 10px; padding: 16px 20px; } .ds-card-title { font-family: var(--font-geist-sans), system-ui, sans-serif; font-size: 14px; font-weight: 700; letter-spacing: -0.025em; color: var(--ink); } .ds-card-meta { margin-top: 2px; font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 10px; color: var(--dim); }"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one primary button: Ink on Paper, 4px radius, opacity hover - The One Ink Button Rule.",
+      "html": "<button class=\"ds-btn-primary\">Continue with Google</button>",
+      "css": ".ds-btn-primary { background: var(--ink); color: var(--bg); border: none; border-radius: 4px; padding: 10px 16px; font-family: var(--font-geist-sans), system-ui, sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-primary:hover { opacity: 0.8; } .ds-btn-primary:focus-visible { outline: 2px solid var(--ringfocus); outline-offset: 2px; border-radius: 3px; }"
+    },
+    {
+      "name": "Year Tabs",
+      "kind": "nav",
+      "refersTo": "tab-active",
+      "description": "Mono tab strip on a Hairline baseline; active tab is Ink bold with a 2px Ink underline.",
+      "html": "<div class=\"ds-tabs\"><button class=\"ds-tab\">2023</button><button class=\"ds-tab\">2024</button><button class=\"ds-tab ds-tab-active\">2025</button><button class=\"ds-tab\">All years</button></div>",
+      "css": ".ds-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--divider); } .ds-tab { background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 10px 14px; font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 11px; letter-spacing: 0.025em; color: var(--dim); cursor: pointer; } .ds-tab:hover { color: var(--ink); } .ds-tab:focus-visible { outline: 2px solid var(--ringfocus); outline-offset: 2px; border-radius: 3px; } .ds-tab-active { color: var(--ink); font-weight: 700; border-bottom-color: var(--ink); }"
+    },
+    {
+      "name": "Ledger Row",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "The signature data-table row: mono tabular figures, signed outcome colors, whole-row hover link.",
+      "html": "<a href=\"#\" class=\"ds-ledger-row\"><span class=\"ds-ledger-rank\">3</span><span class=\"ds-ledger-owner\">Hammer Dan</span><span class=\"ds-ledger-num ds-pos\">+1,204</span><span class=\"ds-ledger-num ds-neg\">-38.5</span><span class=\"ds-ledger-num ds-flat\">0</span></a>",
+      "css": ".ds-ledger-row { display: grid; grid-template-columns: 28px 1fr 80px 80px 56px; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--divider); font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink); text-decoration: none; cursor: pointer; } .ds-ledger-row:hover { background: var(--bg); } .ds-ledger-row:focus-visible { outline: 2px solid var(--ringfocus); outline-offset: 2px; border-radius: 3px; } .ds-ledger-rank { font-size: 11px; color: var(--dim); } .ds-ledger-owner { font-family: var(--font-geist-sans), system-ui, sans-serif; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-ledger-num { text-align: right; } .ds-pos { color: var(--pos); font-weight: 600; } .ds-neg { color: var(--neg); font-weight: 600; } .ds-flat { color: var(--dim); }"
+    },
+    {
+      "name": "Grade Pill",
+      "kind": "chip",
+      "refersTo": "grade-pill-a",
+      "description": "Letter-grade chip using a full pill triad (bg + border + text from one set, never mixed).",
+      "html": "<span class=\"ds-grade-pill\">A-</span>",
+      "css": ".ds-grade-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--pill-a-bg); border: 1px solid var(--pill-a-border); color: var(--pill-a-text); font-family: var(--font-geist-sans), system-ui, sans-serif; font-size: 11px; font-weight: 700; }"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Recessed field: Paper well on a Sheet card, Hairline border, ring focus.",
+      "html": "<div><label class=\"ds-label\" for=\"ds-in\">Archetype</label><input id=\"ds-in\" class=\"ds-input\" placeholder=\"The Trade Machine\" /></div>",
+      "css": ".ds-label { display: block; font-family: var(--font-geist-sans), system-ui, sans-serif; font-size: 11px; font-weight: 500; color: var(--dim); margin-bottom: 4px; } .ds-input { width: 100%; background: var(--bg); border: 1px solid var(--divider); border-radius: 4px; padding: 4px 8px; font-family: var(--font-geist-sans), system-ui, sans-serif; font-size: 13px; color: var(--ink); } .ds-input::placeholder { color: var(--dim); } .ds-input:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ringfocus); }"
+    },
+    {
+      "name": "Tooltip",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Portaled help tooltip with a mono receipts footer; the sole blurred-shadow element besides menus.",
+      "html": "<div class=\"ds-tooltip\">Net market value your trades swung, at today's prices.<div class=\"ds-tooltip-stats\"><span class=\"ds-tooltip-you\">You:</span> 1,204 &middot; +1.2&sigma; vs league</div></div>",
+      "css": "@keyframes ds-tip-in { from { opacity: 0; } to { opacity: 1; } } .ds-tooltip { width: 224px; background: var(--surface); border: 1px solid var(--divider); border-radius: 6px; padding: 6px 10px; font-family: var(--font-geist-sans), system-ui, sans-serif; font-size: 11px; line-height: 1.375; color: var(--ink); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); animation: ds-tip-in 120ms ease-out; } .ds-tooltip-stats { margin-top: 6px; border-top: 1px solid var(--divider); padding-top: 6px; font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 10px; color: var(--dim); } .ds-tooltip-you { color: var(--ink); }"
+    },
+    {
+      "name": "Vital Tile",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "The sanctioned stat tile: flat Paper well, bold tabular value over a whisper caption. Not a SaaS hero-metric card.",
+      "html": "<div class=\"ds-vital\"><div class=\"ds-vital-value\">&#127942; 2</div><div class=\"ds-vital-label\">Titles</div></div>",
+      "css": ".ds-vital { min-width: 72px; background: var(--bg); border: 1px solid var(--divider); border-radius: 10px; padding: 8px 12px; text-align: center; } .ds-vital-value { font-family: var(--font-geist-sans), system-ui, sans-serif; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); } .ds-vital-label { margin-top: 2px; font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Ledger",
+    "overview": "This interface is a ledger, not a dashboard. Every claim on screen is a line item with receipts: a signed number, set in monospace, drawn on paper-toned ground between hairline rules, one click away from the evidence beneath it. The argument in the group chat ends here because the numbers close it — a trade reads \"104 vs 56,\" a franchise reads \"B · 1580 · #3 of 12,\" and tapping anything opens the full accounting down to the signal that added or cost the points. The visual language serves that job: near-black ink on warm near-white paper, Geist Mono carrying every figure, dividers doing the work that boxes and shadows do elsewhere, and a single serif verdict line allowed to gloat at the top of a trade page.\n\nThe register is product, the temperament is Linear/Vercel: fast, high-contrast, monospace-accented, every element deliberate. Density is a feature — twelve-column standings grids, per-player stat sheets, expandable contribution breakdowns — but density is held to restraint: tight paddings, whisper-quiet uppercase labels, chrome that disappears behind the numbers. This system explicitly rejects the cluttered, ad-stuffed, gradient-and-gloss mainstream fantasy UI of ESPN and Yahoo; it is not a reskin of the Sleeper app's own visual language; and it refuses the generic SaaS dashboard — the card-grid + hero-metric template + purple gradient admin panel — even though it happens to own a violet. The violet here is a gavel, not a gradient.\n\nBoth themes are first-class. Light is the default (paper and ink); dark inverts to near-black ground with the same hairline discipline, and every semantic color re-tunes for contrast rather than merely inverting. WCAG AA is the floor in both.",
+    "keyCharacteristics": [
+      "Tabular, monospace-accented, drillable — every number is a receipt",
+      "Flat and divider-drawn: hairline rules and a one-step tonal ladder, never shadows on surfaces",
+      "Terse components with tight paddings; data-first, chrome-last",
+      "Signed numbers colored by outcome (green up, red down, gray flat)",
+      "One accent — Verdict Violet — reserved for the ruling, links, and selection",
+      "Light default + dark toggle, both AA-clean"
+    ],
+    "rules": [
+      { "name": "The Verdict Violet Rule", "body": "The accent marks the ruling: links, current selection, the \"You\" marker, the decisive interactive element. It never fills a hero, never tints a card, never gradients. If Verdict Violet covers more than a badge's worth of any screen, it is being misused.", "section": "colors" },
+      { "name": "The Signed Number Rule", "body": "Win Green and Loss Red belong to signed outcomes only — +1,204 is green, −312 is red, 0/— is Pencil Gray, and the sign character is always rendered. Labels, headers, and chrome never wear the semantic colors. A colored word is a lie; a colored number is a receipt.", "section": "colors" },
+      { "name": "The Token Gate Rule", "body": "Every color on screen comes from a --token in globals.css, in both themes. Hard-coded hex in a component is prohibited — it silently breaks dark mode. If a hue has no token, propose the token first.", "section": "colors" },
+      { "name": "The Mono Ledger Rule", "body": "Every number is Geist Mono with tabular figures. Sans-serif digits in a data column are forbidden — if two rows' numbers don't align vertically, the type is wrong.", "section": "typography" },
+      { "name": "The Serif Verdict Rule", "body": "Instrument Serif is the verdict voice and only the verdict voice: the trade-story headline and the \"beat/vs\" connector. It is prohibited in navigation, labels, buttons, tables, and any UI chrome. One gloat per page.", "section": "typography" },
+      { "name": "The Whisper Label Rule", "body": "Metadata whispers: 9–10px uppercase mono, letter-spaced, Pencil Gray. Labels never compete with the figures they caption — if a header reads louder than its column, shrink the header, don't grow the data.", "section": "typography" },
+      { "name": "The Hairline Rule", "body": "Depth is drawn, not cast. Surfaces get 1px --divider borders and the bg→surface tonal step; blurred shadows are prohibited on anything in page flow. If a card looks like it's floating, it's wrong — cards in a ledger lie flat on the page.", "section": "elevation" },
+      { "name": "The Row Is the Receipt Rule", "body": "In any table, the whole row is the interactive unit — it links to the drill-down, hovers to Ledger Paper, and expands to the breakdown. Buttons inside rows are for secondary actions only; never make the user hunt for a 12px \"view\" link.", "section": "components" },
+      { "name": "The One Ink Button Rule", "body": "There is exactly one primary button: Ink on Paper, 4px radius, opacity hover. Any screen needing a \"more important\" button than that is making an argument the numbers should be making.", "section": "components" }
+    ],
+    "dos": [
+      "Do draw every color from a globals.css token (var(--pos), not #15803d) so both themes stay correct — The Token Gate Rule.",
+      "Do set every number in Geist Mono with .tabular (tabular-nums), signed where signable (+1,204 / −312), colored by outcome per The Signed Number Rule.",
+      "Do build depth from 1px Hairline (#e5e5e0) borders and the Paper→Sheet tonal step (#fafaf7 → #ffffff); keep surfaces flat per The Hairline Rule.",
+      "Do use the five-metric vocabulary exactly: Trade Value / Total Points / Regular Season Points / Playoff Points / Toilet Bowl Points — consistent across engine, API, and UI.",
+      "Do keep labels whispering: 9–10px uppercase Geist Mono, letter-spaced 0.05–0.1em, Pencil Gray (#6b6b6b).",
+      "Do make whole rows the link, with hover:bg-bg and a drill-down behind every figure — receipts over opinions.",
+      "Do honor prefers-reduced-motion (the global neutralizer already exists) and keep motion at 120–200ms state feedback (tip-in 120ms, panel-in 200ms) — never choreography.",
+      "Do let tables swipe horizontally on phones with frozen identity columns, instead of amputating columns."
+    ],
+    "donts": [
+      "Don't ever render the string \"KTC\" in the UI — it is \"Trade Value\" or \"Value\", always. This ban extends to LLM output (the sanitizer exists for a reason).",
+      "Don't build toward ESPN / Yahoo fantasy: their cluttered, ad-stuffed, gradient-and-gloss mainstream fantasy UI is the opposite of this system. No gloss, no badge soup, no promo tiles.",
+      "Don't borrow the Sleeper app's own visual language — this is a distinct analysis layer, not a reskin of Sleeper.",
+      "Don't ship the generic SaaS dashboard: the card-grid + hero-metric template + purple gradient admin panel is prohibited slop. Verdict Violet (#7c3aed) is never a gradient, never a hero fill — if a screen leads with three big rounded metric cards, start over.",
+      "Don't put box-shadows on cards, rows, or anything in page flow. The only sanctioned shadow is shadow-lg on portaled overlays (tooltips, menus).",
+      "Don't hard-code chart or status colors — it breaks dark mode silently. Use --playoff/--warn/--window (the contention-window pill in StandingsTable.tsx, the writer swatch in LlmCostPanel.tsx, and the playoff band/label in ProductionTimeline.tsx all read from tokens).",
+      "Don't color words with Win Green / Loss Red — semantic color belongs to signed numbers and single-letter grades only.",
+      "Don't use Instrument Serif anywhere but the trade verdict and its \"beat/vs\" connector; no display type in labels, buttons, or data.",
+      "Don't add spinners mid-content or block the page on load — dashboards skeleton (DashboardSkeleton), lists dim to 60% opacity while refreshing.",
+      "Don't add cold-onboarding scaffolding, empty-state marketing, or explainer walls — the audience is 10–12 insiders who already know the league. Explain via collapsed disclosures and tooltips, not banners."
+    ]
+  }
+}

@@ -1,0 +1,124 @@
+/* ============================================================================
+   The design system is the source of truth for every token VALUE. It ships into
+   this repo as generated files under `.design/` (see `DESIGN_SYSTEM.md` and
+   `.design/SKILL.md`) — never edit a value there, and never re-declare one here.
+   A literal colour, size, weight or duration in this file is drift by
+   definition, because it cannot be changed from the one place that owns it.
+
+   Five files, in the design system's own import order (fonts first, so the
+   @font-face rules precede anything that resolves a family):
+
+     fonts       — six self-hosted variable woff2 builds + their OFL texts
+     colors      — ground, signed outcomes, franchise identity; light + dark
+     typography  — the three families, the seven-step scale, tracking
+     rhythm      — 40px pitch, radius, elevation, motion
+     stamp       — cobalt, the one second ink
+
+   `.design/tokens/base.css` and `.design/tokens/legacy-agate.css` are
+   deliberately NOT imported: base.css is the design system's own element reset
+   (Tailwind's preflight owns that here), and legacy-agate.css is a snapshot of
+   the retired predecessor, scoped to `:root[data-theme="agate"]` for the four
+   Agate kits that still render inside the design system itself. Nothing in this
+   app asks for that scope.
+
+   Dark ground: the design system keys it on `:root[data-theme="dark"]`, which is
+   exactly the attribute `components/ThemeProvider.tsx` writes to
+   `document.documentElement`. No adapter needed.
+   ========================================================================= */
+@import "../../.design/tokens/fonts.css";
+@import "../../.design/tokens/colors.css";
+@import "../../.design/tokens/typography.css";
+@import "../../.design/tokens/rhythm.css";
+@import "../../.design/tokens/stamp.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-feature-settings: "ss01" on;
+}
+
+body {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Every figure in the app. Columns must align digit-for-digit. */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* The striped ground (`.ruled` / `.ruled > *`) was DELETED here when the port
+   finished. It was Agate's one structural utility — a repeating gradient whose
+   stripes WERE the row dividers, so nothing inside a band carried a border.
+   Furniture inverts that: rows sit on a solid panel and each draws its own
+   `--rule` hairline. Two files were still applying the class as a raw string
+   long after the last component import was gone, which an import-based search
+   could not see; `tests/furniture-rules.test.ts` catches that spelling now. */
+
+/* The signed-in user's entry. A drawn line, not a glow — and on a multi-rule
+   entry it repeats on every rule so the marker reads as one bar. Furniture
+   sanctions stamp for the "you" marker; that swap is the porting pass's job,
+   not this commit's. */
+.you-marker { box-shadow: inset 3px 0 0 var(--ink); }
+
+/* The one full-bleed field the system allows: it sits behind an overlay panel
+   (ProgressModal today) and any future full-screen surface. The TopBar mobile
+   menu stays an anchored popover, so it takes NO field. */
+.overlay-field { background: var(--overlay-field); }
+
+/* ---------------------------------------------------------------------------
+   Focus. A 2px ring at 2px offset, in the focus token's colour — under
+   Furniture that resolves to cobalt (`--ringfocus: var(--stamp)`), which is one
+   of stamp's five sanctioned places.
+
+   The ring no longer forces `border-radius: 0`. That zero was a placeholder
+   from before the port — "no component draws a Furniture radius yet, so a
+   rounded ring would be the only curve on screen. It becomes
+   `var(--radius-sm)` when the controls are ported." The controls ARE ported,
+   and the zero had become a live defect: `input:focus-visible` is (0,1,1) and
+   emitted after the utilities, so it beat `.rounded-sm` (0,1,0) and every
+   rounded field SNAPPED TO SQUARE the instant it was focused or tapped.
+
+   `border-radius: inherit`-style guessing is not an option either, so the ring
+   simply does not touch radius any more: each control keeps whatever radius it
+   drew, and the 2px offset ring follows that shape.
+   ------------------------------------------------------------------------ */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--ringfocus);
+  outline-offset: 2px;
+}
+
+/* A single rule is under the minimum target, so any interactive entry keeps a
+   full tap target of its own regardless of how many rules it draws. */
+.tap { min-height: var(--tap-min); box-sizing: border-box; }
+
+@keyframes indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+/* Disclosure + tooltip reveals. Opacity only; no travel, no choreography. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-panel-in { animation: fade-in var(--dur-panel) var(--ease); }
+.animate-tip-in   { animation: fade-in var(--dur-tip) var(--ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

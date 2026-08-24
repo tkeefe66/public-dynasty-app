@@ -1,0 +1,14 @@
+{
+  "league_id": "league_2024",
+  "name": "Dynasty Bros",
+  "season": "2024",
+  "status": "complete",
+  "total_rosters": 12,
+  "previous_league_id": "league_2023",
+  "roster_positions": ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "BN", "BN", "BN"],
+  "settings": {
+    "playoff_week_start": 15,
+    "num_playoff_teams": 6
+  },
+  "scoring_settings": {"rec": 0.5, "pass_td": 4}
+}

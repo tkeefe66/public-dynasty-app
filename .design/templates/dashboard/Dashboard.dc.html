@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="League dashboard" description="Masthead, headline move, standings ledger, and the trade ledger — the league's front page." -->
+<helmet>
+<script src="./ds-base.js"></script>
+<style>body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-sans)}</style>
+</helmet>
+<x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.TopBar" league="Bloodbath Dynasty" items="{{ nav }}" hint-size="100%,44px"></x-import>
+<div style="max-width:1180px;margin:0 auto;padding:0 var(--pad) 48px">
+  <div style="margin-top:18px">
+    <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.StampBand" title="Bloodbath Dynasty" meta="12 teams · 148 trades graded · refreshed 13 Aug 2026" hint-size="100%,150px"></x-import>
+  </div>
+  <div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;margin-top:14px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim)">Headline move</span>
+      <span style="font-family:var(--font-mono);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">Wk 14 · regular season</span>
+    </div>
+    <h2 style="margin:8px 0 0;font-family:var(--font-display);font-weight:800;font-size:var(--text-lead);letter-spacing:-.032em;line-height:1.1;max-width:34ch">Reznik bought the title and it is working.</h2>
+    <p style="margin:9px 0 0;font-size:var(--text-body);line-height:1.6;color:var(--body);max-width:62ch;text-wrap:pretty">Three deadline moves, 3,940 Trade Value out the door, and 304 more started points than the franchises he took them from. One seed separates him from a bye.</p>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:26px 0 10px">
+    <h2 style="margin:0;font-family:var(--font-display);font-weight:800;font-size:var(--text-section);letter-spacing:-.026em">Standings</h2>
+    <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.SegmentControl" dc-props="{{ seasonProps }}" hint-size="260px,44px"></x-import>
+  </div>
+  <div style="display:none" data-desk="1">
+    <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Panel" hint-size="100%,300px">
+      <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Row" variant="head" cols="34px minmax(0,1fr) 74px 62px 96px 118px" hint-size="100%,44px">
+        <span>#</span><span>Franchise</span><span style="text-align:right">Rec</span><span style="text-align:right">Grade</span><span style="text-align:right">Rating</span><span style="text-align:right">Trade value</span>
+      </x-import>
+      <sc-for list="{{ teams }}" as="t" hint-placeholder-count="4">
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Row" cols="34px minmax(0,1fr) 74px 62px 96px 118px" variant="{{ t.variant }}" hint-size="100%,40px">
+          <span style="color:var(--dim)">{{ t.rank }}</span>
+          <span style="display:flex;align-items:center;gap:9px;min-width:0">
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Avatar" name="{{ t.name }}" color="{{ t.color }}" size="{{ 26 }}" hint-size="26px,26px"></x-import>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Name" hint-size="90px,18px">{{ t.name }}</x-import>
+            <sc-if value="{{ t.mine }}" hint-placeholder-val="{{ false }}"><span style="font-family:var(--font-mono);font-size:var(--text-label);letter-spacing:.14em;text-transform:uppercase;color:var(--stamp)">You</span></sc-if>
+          </span>
+          <span style="text-align:right">{{ t.rec }}</span>
+          <span style="text-align:right">
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.GradeLetter" grade="{{ t.grade }}" size="{{ 15 }}" hint-size="20px,18px"></x-import>
+          </span>
+          <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ t.rating }}" hint-size="60px,16px"></x-import>
+          <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ t.value }}" signed="{{ true }}" hint-size="80px,16px"></x-import>
+        </x-import>
+      </sc-for>
+      <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Row" variant="total" cols="34px minmax(0,1fr) 74px 62px 96px 118px" hint-size="100%,40px">
+        <span></span><span>All 12 franchises</span><span></span><span></span>
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ totalRating }}" hint-size="60px,16px"></x-import>
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Figure" value="{{ 0 }}" hint-size="80px,16px"></x-import>
+      </x-import>
+    </x-import>
+  </div>
+  <div data-mob="1">
+    <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.CardList" hint-size="100%,300px">
+      <sc-for list="{{ teams }}" as="t" hint-placeholder-count="4">
+        <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.EntryCard" variant="{{ t.variant }}" hint-size="100%,86px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Avatar" name="{{ t.name }}" color="{{ t.color }}" size="{{ 30 }}" hint-size="30px,30px"></x-import>
+            <span style="flex:1;min-width:0">
+              <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Name" on="card" hint-size="90px,20px">{{ t.name }}</x-import>
+            </span>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.GradeLetter" grade="{{ t.grade }}" size="{{ 26 }}" hint-size="26px,28px"></x-import>
+          </div>
+          <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.MetaLine" hint-size="100%,26px">
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Meta" label="Rank" hint-size="60px,14px">{{ t.rank }} of 12</x-import>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Meta" label="Rec" hint-size="60px,14px">{{ t.rec }}</x-import>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Meta" label="Rating" hint-size="60px,14px">{{ t.rating }}</x-import>
+            <x-import component-from-global-scope="AgateDynastyAnalyzerDesignSystem_5c2c22.Meta" label="Trade value" tone="{{ t.tone }}" hint-size="70px,14px">{{ t.valueText }}</x-import>
+          </x-import>
+        </x-import>
+      </sc-for>
+    </x-import>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:760}}">
+class Component extends DCLogic {
+  state = { season: "All-time" };
+  componentDidMount() {
+    // The mobile split, applied to a template: rows above 700px, cards at or
+    // below. A card's edge IS the entry boundary, so a wrapped entry can never
+    // be cut in half by a divider. Both bodies hold the same data — every
+    // interaction has to drive both, which is the bug that keeps recurring.
+    const sync = () => {
+      const wide = window.matchMedia("(min-width: 701px)").matches;
+      this.el?.querySelectorAll("[data-desk]").forEach((e) => (e.style.display = wide ? "block" : "none"));
+      this.el?.querySelectorAll("[data-mob]").forEach((e) => (e.style.display = wide ? "none" : "block"));
+    };
+    this.el = document.body;
+    sync();
+    this._mq = window.matchMedia("(min-width: 701px)");
+    this._mq.addEventListener("change", sync);
+  }
+  componentWillUnmount() { this._mq?.removeEventListener("change", () => {}); }
+
+  renderVals() {
+    const all = [
+      { rank: 1, name: "Reznik", rec: "61-42", grade: "A", rating: 1742, value: 3940, color: "var(--id-1)", mine: false },
+      { rank: 2, name: "Okafor", rec: "58-45", grade: "A-", rating: 1688, value: 1180, color: "var(--id-2)", mine: true },
+      { rank: 3, name: "Brandt", rec: "52-51", grade: "B", rating: 1580, value: 310, color: "var(--id-3)", mine: false },
+      { rank: 4, name: "Cavanaugh", rec: "49-54", grade: "C+", rating: 1511, value: -1790, color: "var(--id-4)", mine: false },
+    ];
+    const teams = all.map((t) => ({
+      ...t,
+      variant: t.mine ? "mine" : "body",
+      tone: t.value > 0 ? "pos" : "neg",
+      valueText: (t.value > 0 ? "+" : "\u2212") + Math.abs(t.value).toLocaleString("en-US"),
+    }));
+    return {
+      teams,
+      // Reconciles with the rows: a headline figure that does not equal what is
+      // beneath it is a lie, and this ledger shows 4 of 12 by convention.
+      totalRating: 18240,
+      // Handlers reach an <x-import> through dc-props, NOT through an attribute:
+      // HTML lowercases attribute names, so onChange="{{ fn }}" arrives on the
+      // component as `onchange` and the control silently never fires.
+      seasonProps: {
+        label: "Season",
+        options: ["All-time", "2025", "2024", "2023"],
+        value: this.state.season,
+        onChange: (season) => this.setState({ season }),
+      },
+      nav: [
+        { label: "Dashboard", icon: "table", on: true },
+        { label: "Trades", icon: "swap" },
+        { label: "Franchises", icon: "season" },
+        { label: "Bets" },
+        { label: "How this works" },
+        { label: "Settings" },
+      ],
+    };
+  }
+}
+
+</script>
+</body>
+</html>

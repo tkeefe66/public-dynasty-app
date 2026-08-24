@@ -1,0 +1,78 @@
+/* ============================================================================
+   RHYTHM, SHAPE, ELEVATION, MOTION — Furniture.
+
+   Agate had no vocabulary for the middle three: radius 0, no shadow, and a
+   26px lockstep pitch inherited from print. All four are named here, and each
+   has exactly ONE sanctioned value. A second radius or a second elevation is
+   how a system starts drifting, so the drift guard should assert these rather
+   than ban the properties outright.
+   ========================================================================= */
+
+:root {
+  /* ---- Rhythm. 26px was a print constraint; 40px is a touch target with room
+     for a name and a figure on one line. Density is no longer the point. ---- */
+  --rule-pitch: 40px;      /* @kind spacing */
+  /* every interactive row claims a real target regardless of content height */
+  --tap-min: 44px;         /* @kind spacing */
+  /* between sibling cards, chips, controls */
+  --gap: 9px;              /* @kind spacing */
+  /* panel padding and page gutter */
+  --pad: 18px;             /* @kind spacing */
+  --gutter: 18px;          /* @kind spacing */
+  /* <= 700px */
+  --gutter-sm: 14px;       /* @kind spacing */
+
+  /* ---- Shape. Two radii and a pill. There is no third. ---- */
+  /* panels, cards, heroes */
+  --radius: 16px;          /* @kind radius */
+  /* controls, inputs, inline chips */
+  --radius-sm: 8px;        /* @kind radius */
+  /* segmented controls, filter chips */
+  --radius-pill: 99px;     /* @kind radius */
+
+  /* ---- Elevation. One resting shadow, one lifted. Both are near-neutral
+     and very soft: a panel should read as laid on the page, not floating. ---- */
+  --shadow: 0 1px 2px rgba(20,21,26,.05), 0 6px 18px -10px rgba(20,21,26,.18); /* @kind shadow */
+  --shadow-lift: 0 2px 4px rgba(20,21,26,.06), 0 14px 30px -12px rgba(20,21,26,.24); /* @kind shadow */
+
+  /* ---- Stroke weights. ---- */
+  /* separates rows within a panel */
+  --hair: 1px;             /* @kind spacing */
+  --stroke-plot-lead: 2.5px;
+  --stroke-plot-other: 1.25px;
+
+  /* ---- Motion. Opacity and colour only; nothing travels, nothing bounces. ---- */
+  --dur-hover: 160ms;      /* @kind other */
+  --dur-panel: 160ms;      /* @kind other */
+  --dur-tip: 120ms;        /* @kind other */
+  --ease: ease-out;        /* @kind other */
+
+  /* ---- Compatibility aliases. The ~40 screens in ui_kits/furniture/ and its
+     kit.css were authored against --fx-* names, from when Furniture was a
+     proposal living beside Agate. The canonical names above are the API;
+     these keep the existing screens working and should not be used in new
+     work. Delete them once nothing references them. ---- */
+  --fx-gap: var(--gap);
+  --fx-pad: var(--pad);
+  --fx-radius: var(--radius);
+  --fx-radius-sm: var(--radius-sm);
+  --fx-radius-pill: var(--radius-pill);
+  --fx-shadow: var(--shadow);
+  --fx-shadow-lift: var(--shadow-lift);
+}
+
+:root[data-theme="dark"],
+:root[data-theme="furniture-dark"],
+[data-theme="dark"][data-theme],
+[data-theme="furniture-dark"][data-theme] {
+  /* Shadow is the one thing that cannot survive a ground flip: a black shadow
+     on a near-black surface is invisible, so elevation darkens instead of
+     softening. Geometry and rhythm are ground-independent and do not repeat. */
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px -10px rgba(0,0,0,.6);
+  --shadow-lift: 0 2px 4px rgba(0,0,0,.4), 0 14px 30px -12px rgba(0,0,0,.7);
+  /* re-declared: var() in a custom property is substituted where it is
+     DECLARED, so the :root alias froze the light shadow and did not follow
+     this override. Any alias pointing at a themed value needs this. */
+  --fx-shadow: var(--shadow);
+  --fx-shadow-lift: var(--shadow-lift);
+}

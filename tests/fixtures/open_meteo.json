@@ -1,0 +1,8 @@
+{
+  "hourly": {
+    "time": ["2025-11-09T18:00"],
+    "temperature_2m": [28.0],
+    "wind_speed_10m": [22.0],
+    "precipitation": [0.4]
+  }
+}

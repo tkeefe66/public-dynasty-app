@@ -1,0 +1,46 @@
+[
+  {
+    "letter": "A+",
+    "delta": 385
+  },
+  {
+    "letter": "A",
+    "delta": 316
+  },
+  {
+    "letter": "A-",
+    "delta": 248
+  },
+  {
+    "letter": "B+",
+    "delta": 187
+  },
+  {
+    "letter": "B",
+    "delta": 124
+  },
+  {
+    "letter": "B-",
+    "delta": 60
+  },
+  {
+    "letter": "C+",
+    "delta": 19
+  },
+  {
+    "letter": "C",
+    "delta": -60
+  },
+  {
+    "letter": "C-",
+    "delta": -124
+  },
+  {
+    "letter": "D+",
+    "delta": -187
+  },
+  {
+    "letter": "D",
+    "delta": -261
+  }
+]

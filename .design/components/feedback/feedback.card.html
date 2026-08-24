@@ -1,0 +1,56 @@
+<!-- @dsCard group="Components" viewport="700x380" name="Feedback" subtitle="A ruling, a state message, the one loader, and a definition." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Feedback</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+body{margin:0;padding:16px 18px;background:var(--bg);font-family:var(--font-sans);color:var(--ink)}
+.grid{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.cell{display:grid;gap:8px}
+.cap{font-family:var(--font-mono);font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { RulingStamp, StateMessage, IndeterminateBar, Tooltip, Panel, Row, Figure } = window.AgateDynastyAnalyzerDesignSystem_5c2c22;
+const Cap = ({ children, style }) => <div className="cap" style={style}>{children}</div>;
+function Demo() {
+  return (
+    <div className="grid" style={{ gap: 18 }}>
+      <div className="cell" style={{ width: 262 }}>
+        <Cap>Ruling — the verdict is the headline</Cap>
+        <RulingStamp verdict="Trade of the week" winner="Reznik" detail="Won four of five lenses, by 304 started points and 3,940 Trade Value." tag="Lopsided" />
+      </div>
+      <div className="cell" style={{ flex: 1, minWidth: 300 }}>
+        <Cap>Empty state — always with a way out</Cap>
+        <StateMessage title="No trades yet this season" body="Nothing has moved since the draft. Trades appear here within a minute of processing in Sleeper." action="See 2024 trades" style={{ padding: "18px 18px" }} />
+      </div>
+      <div className="cell" style={{ width: 236 }}>
+        <Cap>The one loader</Cap>
+        <IndeterminateBar label="Reading your leagues" />
+        <Cap style={{ marginTop: 10 }}>Definition — hover the mark</Cap>
+        <Panel>
+          <Row cols="minmax(0,1fr) 44px">
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              Draft Skill
+              <Tooltip title="Draft Skill" body="How much more your picks produced than the average pick at the same slot." formula="Σ(actual − slot expectation) / picks" />
+            </span>
+            <Figure value={72} />
+          </Row>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script>
+</body>
+</html>

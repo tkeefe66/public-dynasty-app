@@ -1,0 +1,18 @@
+[
+  {
+    "draft_id": "draft_2024_a",
+    "round": 1,
+    "pick_no": 1,
+    "draft_slot": 1,
+    "roster_id": 5,
+    "player_id": "p_rookie_a"
+  },
+  {
+    "draft_id": "draft_2024_a",
+    "round": 2,
+    "pick_no": 13,
+    "draft_slot": 1,
+    "roster_id": 2,
+    "player_id": "p_rookie_b"
+  }
+]
