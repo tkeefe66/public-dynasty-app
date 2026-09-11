@@ -8,8 +8,8 @@ const TRADE: LatestTrade = {
   date: "2026-08-07",
   week: 1,
   parties: [
-    { user_id: "u1", owner_name: "Smitty", avatar_url: null, team_name: null },
-    { user_id: "u2", owner_name: "Cormac", avatar_url: null, team_name: null },
+    { user_id: "u1", owner_name: "Reese", avatar_url: null, team_name: null },
+    { user_id: "u2", owner_name: "Casey", avatar_url: null, team_name: null },
   ],
   assets_short: "Stefon Diggs ↔ 2027 2nd",
   swing_ktc: 619,
@@ -58,8 +58,8 @@ describe("TradeCard", () => {
   it("shows each owner exactly once", () => {
     render(<TradeCard leagueId="123" trade={TRADE} />);
     // Would be 2 if both a desktop and a phone variant rendered.
-    expect(screen.getAllByText("Smitty")).toHaveLength(1);
-    expect(screen.getAllByText("Cormac")).toHaveLength(1);
+    expect(screen.getAllByText("Reese")).toHaveLength(1);
+    expect(screen.getAllByText("Casey")).toHaveLength(1);
   });
 
   it("keeps the haul and the value on the phone", () => {

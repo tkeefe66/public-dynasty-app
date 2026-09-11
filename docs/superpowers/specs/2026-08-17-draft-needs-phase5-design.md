@@ -517,8 +517,8 @@ replacement reports its margin too. Every row then says something:
 
 | owner | going in |
 |---|---|
-| Amir | **TE −60 · RB −24** |
-| Keegan | softest: QB **+8** |
+| Avery | **TE −60 · RB −24** |
+| Blair | softest: QB **+8** |
 
 `—` survives only for an owner with no reconstructable roster at all.
 

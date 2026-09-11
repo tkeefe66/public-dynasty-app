@@ -91,14 +91,14 @@ describe("OwnerDeepDive", () => {
     render(
       <OwnerDeepDive
         leagueId="L" detail={DETAIL}
-        profile={{ archetype: "The Loaded One", roast: "bought, not built" }}
+        profile={{ archetype: "The Planner", roast: "always checking the waiver wire" }}
         others={OTHERS} onProfilesChange={() => {}}
       />,
     );
     expect(screen.getByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("B+")).toBeInTheDocument();           // franchise letter
-    expect(screen.getByText("The Loaded One")).toBeInTheDocument();
-    expect(screen.getByText(/bought, not built/)).toBeInTheDocument();
+    expect(screen.getByText("The Planner")).toBeInTheDocument();
+    expect(screen.getByText(/always checking the waiver wire/)).toBeInTheDocument();
     // Rings strip from track record — rendered once for desktop (one rule)
     // and once for mobile (two rules of two); both exist in jsdom regardless
     // of viewport, so this asserts at least one visible instance exists

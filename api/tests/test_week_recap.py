@@ -31,8 +31,8 @@ def _entry(team: float, opp: float, opp_rid: int, *, starters=None, points=None)
 
 
 def _week(week: int) -> dict:
-    """Two games. Tom 120.5 beats Mike 100.25 (margin 20.25); Amir 140.0 beats
-    Joey 90.0 (margin 50.0) — so Amir owns both the high score and the blowout."""
+    """Two games. Taylor 120.5 beats Morgan 100.25 (margin 20.25); Avery 140.0 beats
+    Drew 90.0 (margin 50.0) — so Avery owns both the high score and the blowout."""
     return {
         ("LG", week, 1): _entry(120.5, 100.25, 2),
         ("LG", week, 2): _entry(100.25, 120.5, 1),
@@ -214,7 +214,7 @@ def test_blowout_margin_reconciles_with_the_two_scores():
 
 def test_traded_points_counts_only_started_trade_acquired_players():
     matchups = _week(4)
-    # Tom started p1 (acquired by trade, 22.5) and p2 (drafted, 30.0); p3 was
+    # Taylor started p1 (acquired by trade, 22.5) and p2 (drafted, 30.0); p3 was
     # acquired by trade but benched, so it must not count.
     matchups[("LG", 4, 1)] = _entry(
         120.5, 100.25, 2,

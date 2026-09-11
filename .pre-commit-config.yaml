@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: publication-content
+        name: Check staged content for secrets and private identifiers
+        entry: python3 scripts/check_publication.py
+        language: system
+        pass_filenames: false
+        always_run: true

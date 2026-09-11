@@ -299,13 +299,13 @@ function trade(over: Partial<LatestTrade> = {}): LatestTrade {
   return {
     trade_id: "tx1", date: "2025-08-29", week: 2,
     parties: [
-      { user_id: "u_a", owner_name: "Bobby" },
-      { user_id: "u_b", owner_name: "Joey" },
+      { user_id: "u_a", owner_name: "Blair" },
+      { user_id: "u_b", owner_name: "Drew" },
     ],
     assets_short: "David Montgomery ↔ Saquon Barkley",
     swing_ktc: 12483, swing_prod: 121.5,
-    value_winner: { user_id: "u_a", owner_name: "Bobby" },
-    production_winner: { user_id: "u_a", owner_name: "Bobby" },
+    value_winner: { user_id: "u_a", owner_name: "Blair" },
+    production_winner: { user_id: "u_a", owner_name: "Blair" },
     production_split: [179.8, 58.3],
     ...over,
   };
@@ -313,28 +313,28 @@ function trade(over: Partial<LatestTrade> = {}): LatestTrade {
 
 describe("tradeHeadline", () => {
   it("names one winner when both lenses agree", () => {
-    expect(tradeHeadline(trade())).toBe("Bobby won this one on both counts.");
+    expect(tradeHeadline(trade())).toBe("Blair won this one on both counts.");
   });
 
   it("names the tension when the lenses disagree", () => {
     const t = trade({
-      production_winner: { user_id: "u_b", owner_name: "Joey" },
+      production_winner: { user_id: "u_b", owner_name: "Drew" },
       production_split: [58.3, 179.8],
     });
-    expect(tradeHeadline(t)).toBe("Bobby won the value. Joey won the field.");
+    expect(tradeHeadline(t)).toBe("Blair won the value. Drew won the field.");
   });
 
   it("falls back to both names when a winner is missing", () => {
     const t = trade({ value_winner: null, production_winner: null });
     expect(tradeHeadline(t)).toBe(
-      "Bobby & Joey's trade is still the loudest swing on the board.",
+      "Blair & Drew's trade is still the loudest swing on the board.",
     );
   });
 
   it("falls back when only the production winner is missing", () => {
     const t = trade({ production_winner: null });
     expect(tradeHeadline(t)).toBe(
-      "Bobby & Joey's trade is still the loudest swing on the board.",
+      "Blair & Drew's trade is still the loudest swing on the board.",
     );
   });
 });
@@ -348,7 +348,7 @@ describe("pointsReading", () => {
 
   it("marks the right side as the winner when the lenses disagree", () => {
     const t = trade({
-      production_winner: { user_id: "u_b", owner_name: "Joey" },
+      production_winner: { user_id: "u_b", owner_name: "Drew" },
       production_split: [58.3, 179.8],
     });
     expect(pointsReading(t)).toEqual({

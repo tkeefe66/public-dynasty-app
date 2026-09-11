@@ -44,7 +44,7 @@ const NO_MARGINS: LensMargins = { value: null, total: null, regular: null, playo
 
 function renderTable(rows: AssetLine[], totals = TOTALS) {
   return render(
-    <TradeStatTable ownerName="Oliver" userId="u1" rows={rows} totals={totals}
+    <TradeStatTable ownerName="Quinn" userId="u1" rows={rows} totals={totals}
                     winnersByLens={NO_WINNERS} marginsByLens={NO_MARGINS} />,
   );
 }
@@ -101,7 +101,7 @@ describe("trade asset cards (phone)", () => {
       production_total: 0, production_regular: 0, production_playoff: 0, production_toilet: 0,
       production_started: 0,
       flip: {
-        to_owner: "Cormac", trade_id: null, league_id: null, date: null,
+        to_owner: "Casey", trade_id: null, league_id: null, date: null,
         became: [player("Emmett Johnson", { ktc: 2559 })],
       },
     };
@@ -162,7 +162,7 @@ describe("trade asset cards (phone)", () => {
 
   function renderScored(rows: AssetLine[]) {
     return render(
-      <TradeStatTable ownerName="Oliver" userId="u1" rows={rows}
+      <TradeStatTable ownerName="Quinn" userId="u1" rows={rows}
                       totals={{ ktc: 4200, total: 90.1, regular: 60, playoff: 20, toilet: 0, started: 74.5 }}
                       winnersByLens={NO_WINNERS} marginsByLens={SCORED} />,
     );

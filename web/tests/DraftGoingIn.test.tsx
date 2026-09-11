@@ -30,7 +30,7 @@ describe("DraftGoingIn", () => {
     render(
       <DraftGoingIn
         owners={[
-          { user_id: "u1", owner: { user_id: "u1", owner_name: "Joey" }, graded_picks: 0, total_picks: 7, production_total: 0 },
+          { user_id: "u1", owner: { user_id: "u1", owner_name: "Drew" }, graded_picks: 0, total_picks: 7, production_total: 0 },
         ]}
         needs={[{
           user_id: "u1", holes: ["WR", "WR", "RB"], drafted_into: ["WR", "WR", "RB"],
@@ -177,7 +177,7 @@ describe("DraftGoingIn", () => {
     render(
       <DraftGoingIn
         owners={[
-          { user_id: "u1", owner: { user_id: "u1", owner_name: "Joey" }, graded_picks: 0, total_picks: 7, production_total: 0 },
+          { user_id: "u1", owner: { user_id: "u1", owner_name: "Drew" }, graded_picks: 0, total_picks: 7, production_total: 0 },
         ]}
         needs={[{
           user_id: "u1", holes: ["RB"], drafted_into: ["RB"], started: 0,

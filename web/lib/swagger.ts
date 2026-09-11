@@ -63,14 +63,14 @@ export function areRivals(
   );
 }
 
-/** An owner's archetype label, if set ("The Loaded One"). */
+/** An owner's archetype label, if set ("The Planner"). */
 export function archetypeOf(
   uid: string | undefined, profiles: ProfilesMap,
 ): string {
   return pick(uid ? profiles[uid]?.archetype : undefined, "");
 }
 
-/** An owner's signature roast, if set ("bought, not built"). */
+/** An owner's signature roast, if set ("always checking the waiver wire"). */
 export function roastOf(
   uid: string | undefined, profiles: ProfilesMap,
 ): string {
@@ -106,7 +106,7 @@ export function verdict(m: Matchup, value: string): string {
   return `${winner} ${WIN_VERB[m.lens]} ${target} for ${magnitude(value)} ${VALUE_NOUN[m.lens]}.`;
 }
 
-/** Heist card name line ("Mike fleeced rival Jory"). */
+/** Heist card name line ("Morgan fleeced rival Ellis"). */
 export function winnerLine(m: Matchup): string {
   const { winner, loser, rivals } = resolve(m);
   return `${winner} ${WIN_VERB[m.lens]} ${rivals ? "rival " : ""}${loser}`;

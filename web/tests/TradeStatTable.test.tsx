@@ -132,11 +132,11 @@ describe("realizedTotals — reconciliation with margins_by_lens", () => {
    *
    *  Shipped bug: the guard tested `rows.length === 1` (did the SIDE receive one
    *  asset?) when the question is whether the BECAME GROUP has one. A real trade
-   *  showed it — Oliver received two assets, so the guard stayed quiet, and the
+   *  showed it — Quinn received two assets, so the guard stayed quiet, and the
    *  flip of Chris Olave resolved to a single player:
    *
    *      Chris Olave  FLIPPED →
-   *        traded to Cormac · May 2, 2026 → became
+   *        traded to Casey · May 2, 2026 → became
    *        2026 1st → Emmett Johnson   2,559  0.0 …
    *        TOTAL                       2,559  0.0 …   ← the same row again
    */
@@ -144,13 +144,13 @@ describe("realizedTotals — reconciliation with margins_by_lens", () => {
     label: "2026 1st", kind: "pick", player_id: "pick1", ktc: 0,
     production_total: 0, production_regular: 0, production_playoff: 0, production_toilet: 0,
     production_started: 0,
-    flip: { to_owner: "Cormac", trade_id: null, league_id: null, date: null, became },
+    flip: { to_owner: "Casey", trade_id: null, league_id: null, date: null, became },
   });
   const kept = player("Stribling", { ktc: 3353 });
 
   it("omits the became subtotal when the flip resolved to ONE asset", () => {
     render(
-      <TradeStatTable ownerName="Oliver" userId="u1"
+      <TradeStatTable ownerName="Quinn" userId="u1"
                       rows={[flipTo([player("Emmett Johnson", { ktc: 2559 })]), kept]}
                       totals={{ ktc: 5912, total: 0, regular: 0, playoff: 0, toilet: 0, started: 0 }}
                       winnersByLens={NO_WINNERS} marginsByLens={NO_MARGINS} />,
@@ -164,7 +164,7 @@ describe("realizedTotals — reconciliation with margins_by_lens", () => {
 
   it("keeps the became subtotal when the flip resolved to TWO assets", () => {
     render(
-      <TradeStatTable ownerName="Oliver" userId="u1"
+      <TradeStatTable ownerName="Quinn" userId="u1"
                       rows={[flipTo([player("A", { ktc: 100 }), player("B", { ktc: 200 })]), kept]}
                       totals={{ ktc: 3653, total: 0, regular: 0, playoff: 0, toilet: 0, started: 0 }}
                       winnersByLens={NO_WINNERS} marginsByLens={NO_MARGINS} />,

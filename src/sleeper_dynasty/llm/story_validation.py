@@ -110,10 +110,10 @@ def _subject_did(text: str, owner: str, verbs: str, name: str) -> bool:
     """True if `owner` is the subject tying a verb in `verbs` to `name`.
 
     Anchoring on the owner name as the subject is what keeps this precise: the
-    same verb+player is *correct* for the other side ("Amir shipped Mike Evans"
-    when Amir gave him), and only a reversal when the receiving owner is the one
-    doing the selling ("Tom sold Mike Evans" when Tom got him). The possessive
-    ("Tom's pattern...") is excluded so it is never read as the subject. Misses
+    same verb+player is *correct* for the other side ("Avery shipped Mike Evans"
+    when Avery gave him), and only a reversal when the receiving owner is the one
+    doing the selling ("Taylor sold Mike Evans" when Taylor got him). The possessive
+    ("Taylor's pattern...") is excluded so it is never read as the subject. Misses
     pronoun-subject reversals on purpose; the epithet rule and the upstream
     deterministic fields cover those, and a false positive would loop forever.
     """

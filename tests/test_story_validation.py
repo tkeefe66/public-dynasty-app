@@ -14,14 +14,14 @@ from sleeper_dynasty.models.trade_story import TradeStoryFacts
 
 
 def _facts(tom_received="Mike Evans (WR)", tom_given="2026 3rd pick · 2027 2nd pick"):
-    """A Mike-Evans-shaped trade: Tom received the WR and gave the picks."""
+    """A Mike-Evans-shaped trade: Taylor received the WR and gave the picks."""
     return TradeStoryFacts(
         trade_id="t", season=2026, is_offseason=True,
         winner_user_id="u_amir", lopsidedness=0.5, margins={},
         sides=[
-            {"user_id": "u_tom", "owner_name": "Tom",
+            {"user_id": "u_tom", "owner_name": "Taylor",
              "received_summary": tom_received, "given_summary": tom_given},
-            {"user_id": "u_amir", "owner_name": "Amir",
+            {"user_id": "u_amir", "owner_name": "Avery",
              "received_summary": tom_given, "given_summary": tom_received},
         ],
         owners={},
@@ -38,14 +38,14 @@ def test_repair_strips_em_dash_and_double_hyphen():
 
 
 def test_repair_is_idempotent_and_leaves_clean_text():
-    clean = "Amir robbed the vault and never looked back."
+    clean = "Avery robbed the vault and never looked back."
     assert repair_prose(clean) == clean
 
 
 def test_tidy_headline_strips_trailing_period_and_markdown():
-    assert tidy_headline("Amir robs the vault.") == "Amir robs the vault"
-    assert tidy_headline("## Amir robs the vault") == "Amir robs the vault"
-    assert tidy_headline("**Amir robs the vault**") == "Amir robs the vault"
+    assert tidy_headline("Avery robs the vault.") == "Avery robs the vault"
+    assert tidy_headline("## Avery robs the vault") == "Avery robs the vault"
+    assert tidy_headline("**Avery robs the vault**") == "Avery robs the vault"
 
 
 # --- violations (trigger regeneration) ---
@@ -53,16 +53,16 @@ def test_tidy_headline_strips_trailing_period_and_markdown():
 def test_clean_story_has_no_violations():
     facts = _facts()
     v = find_violations(
-        "Amir fleeces Tom on the Evans deal",
-        "Amir shipped Mike Evans and walked off with two picks. Tom bought "
+        "Avery fleeces Taylor on the Evans deal",
+        "Avery shipped Mike Evans and walked off with two picks. Taylor bought "
         "high on a fading receiver's market.",
         facts,
     )
     # "bought high on ... receiver's market" -> contains an epithet, see below;
     # keep the clean case epithet-free:
     v = find_violations(
-        "Amir fleeces Tom on the Evans deal",
-        "Amir shipped Mike Evans for two future picks. Tom is betting the "
+        "Avery fleeces Taylor on the Evans deal",
+        "Avery shipped Mike Evans for two future picks. Taylor is betting the "
         "picks beat the veteran.",
         facts,
     )
@@ -70,22 +70,22 @@ def test_clean_story_has_no_violations():
 
 
 def test_reversal_received_player_described_as_sold():
-    # Tom RECEIVED Mike Evans; saying Tom "sold" him is the reversal bug.
+    # Taylor RECEIVED Mike Evans; saying Taylor "sold" him is the reversal bug.
     facts = _facts()
     v = find_violations(
-        "Tom sells low again",
-        "Tom sold Mike Evans for a bag of future picks.",
+        "Taylor sells low again",
+        "Taylor sold Mike Evans for a bag of future picks.",
         facts,
     )
     assert any("revers" in s.lower() or "direction" in s.lower() for s in v)
 
 
 def test_reversal_given_player_described_as_acquired():
-    # Amir GAVE Mike Evans; saying Amir "acquired" him is reversed.
+    # Avery GAVE Mike Evans; saying Avery "acquired" him is reversed.
     facts = _facts()
     v = find_violations(
-        "Amir loads up",
-        "Amir acquired Mike Evans to chase a title.",
+        "Avery loads up",
+        "Avery acquired Mike Evans to chase a title.",
         facts,
     )
     assert any("revers" in s.lower() or "direction" in s.lower() for s in v)
@@ -95,20 +95,20 @@ def test_flipping_a_received_player_is_not_a_reversal():
     # The persona explicitly allows "flipped him" for a received player.
     facts = _facts()
     v = find_violations(
-        "Tom keeps wheeling",
-        "Tom flipped Mike Evans days later for even more picks.",
+        "Taylor keeps wheeling",
+        "Taylor flipped Mike Evans days later for even more picks.",
         facts,
     )
     assert v == []
 
 
 def test_bare_positional_epithet_is_flagged():
-    # The exact reported prose: Tom received the WR, but the story calls him
+    # The exact reported prose: Taylor received the WR, but the story calls him
     # "the veteran receiver" and reverses the direction around the epithet.
     facts = _facts()
     v = find_violations(
-        "Tom sells low on the vet",
-        "Tom sold low on the veteran receiver and bought high on picks.",
+        "Taylor sells low on the vet",
+        "Taylor sold low on the veteran receiver and bought high on picks.",
         facts,
     )
     assert any("epithet" in s.lower() for s in v)
@@ -117,8 +117,8 @@ def test_bare_positional_epithet_is_flagged():
 def test_over_long_headline_is_flagged():
     facts = _facts()
     v = find_violations(
-        "Amir absolutely fleeces Tom in the most lopsided heist of the entire offseason",
-        "Amir shipped Mike Evans for picks.",
+        "Avery absolutely fleeces Taylor in the most lopsided heist of the entire offseason",
+        "Avery shipped Mike Evans for picks.",
         facts,
     )
     assert any("headline" in s.lower() for s in v)
@@ -126,5 +126,5 @@ def test_over_long_headline_is_flagged():
 
 def test_short_punchy_headline_is_allowed():
     facts = _facts()
-    v = find_violations("Grand larceny", "Amir shipped Mike Evans for picks.", facts)
+    v = find_violations("Grand larceny", "Avery shipped Mike Evans for picks.", facts)
     assert all("headline" not in s.lower() for s in v)

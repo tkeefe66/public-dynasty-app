@@ -67,7 +67,7 @@ tracks FLEX eligibility, not some general noise in the method. RB and WR carry t
 because they are the positions most often worth playing in FLEX; TE's gap is real but smaller
 because TE wins FLEX far less often.
 
-**Concrete case that surfaced this.** Owner "Amir" (`ChocGummyBear`, `user_id
+**Concrete case that surfaced this.** Owner "Avery" (fictional display name and handle) (`fictional_avery_example`, `user_id
 900000000000000003`) starts Kenny Gainwell (193.1 pts, RB1) and Rachaad White (133.2 pts, RB2).
 
 - Against the honest 24-deep bar (#24 = Henderson, 158.8): `133.2 − 158.8 = −25.6` — **a real
@@ -75,10 +75,10 @@ because TE wins FLEX far less often.
 - Against the FLEX-inflated 34-deep bar the engine actually draws today (#34 = Irving, 119.4):
   `133.2 − 119.4 = +13.8` — **reads as no hole at all.**
 
-The panel currently reports Amir has zero holes and surfaces `softest RB +14` — worded as
+The panel currently reports Avery has zero holes and surfaces `softest RB +14` — worded as
 reassurance. It is masking a real, replacement-level-thin RB2. The mechanism: because *other*
 owners chose to start extra RBs in their own FLEX slots this year, every RB slot leaguewide —
-including owners like Amir who never used RB in FLEX at all — gets graded against a bar that has
+including owners like Avery who never used RB in FLEX at all — gets graded against a bar that has
 nothing to do with their own roster shape.
 
 ## Full-league measured impact (old model vs. new model)
@@ -107,9 +107,9 @@ construction; cross-checked against the real cached `vetoed` flag and **no flip 
 |---|---|---|---|---|---|---|---|---|---|
 | bigegos01 | WR2 | WR | Justin Jefferson (176.1) | 147.2 | +28.9 | No | 182.1 | −6.0 | **Yes** |
 | bigegos01 | FLEX1 | WR | Quentin Johnston (156.4) | 147.2 | +9.2 | No | 182.1 | −25.7 | **Yes** |
-| ChocGummyBear | RB2 | RB | Rachaad White (133.2) | 119.4 | +13.8 | No | 158.8 | −25.6 | **Yes** |
-| ChocGummyBear | WR2 | WR | Stefon Diggs (180.9) | 147.2 | +33.7 | No | 182.1 | −1.2 | **Yes** |
-| ChocGummyBear | FLEX1 | WR | Keenan Allen (167.4) | 147.2 | +20.2 | No | 182.1 | −14.7 | **Yes** |
+| fictional_avery_example | RB2 | RB | Rachaad White (133.2) | 119.4 | +13.8 | No | 158.8 | −25.6 | **Yes** |
+| fictional_avery_example | WR2 | WR | Stefon Diggs (180.9) | 147.2 | +33.7 | No | 182.1 | −1.2 | **Yes** |
+| fictional_avery_example | FLEX1 | WR | Keenan Allen (167.4) | 147.2 | +20.2 | No | 182.1 | −14.7 | **Yes** |
 | CormacHatesYou | FLEX2 | WR | Rashee Rice (148.1) | 147.2 | +0.9 | No | 182.1 | −34.0 | **Yes** |
 | johnago | FLEX1 | RB | Zach Charbonnet (136.5) | 119.4 | +17.1 | No | 158.8 | −22.3 | **Yes** |
 | johnago | FLEX2 | RB | Bucky Irving (119.4) | 119.4 | 0.0 | No | 158.8 | −39.4 | **Yes** |
@@ -133,9 +133,9 @@ called a hole; it only ever surfaces ones the old model was hiding.
   clear it trivially; 2 owners (`crh121`, `Bobster565`) roster none, so there is no K slot to grade
   for them at all (not a hole — nothing to compare).
 - Owners who read **zero holes** under the old model and gain at least one under the new model:
-  **`ChocGummyBear` only** (Amir — 0 → 3: RB2, WR2, FLEX1). This is the case that surfaced the bug
+  **`fictional_avery_example` only** (Avery — 0 → 3: RB2, WR2, FLEX1). This is the case that surfaced the bug
   and it is not an isolated artifact of that one owner — see the per-owner counts below.
-- Per-owner hole counts, old → new, every owner whose count changed: `ChocGummyBear` 0→3,
+- Per-owner hole counts, old → new, every owner whose count changed: `fictional_avery_example` 0→3,
   `CormacHatesYou` 1→2, `johnago` 1→3, `waterboyboucher` 1→3, `keegs246` 2→3,
   `Parksalottafantasay` 3→4, `bigegos01` 3→5, `oliverc7` 2→5. Unchanged: `tkeefe6689` (3→3, same
   slots), `MikeyJauquet`, `crh121`, `Bobster565` (0→0 for all three).

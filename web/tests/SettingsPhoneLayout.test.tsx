@@ -24,10 +24,11 @@ vi.mock("@/lib/api", () => ({
   refreshStream: (...args: unknown[]) => refreshStream(...args),
 }));
 
+// Fictional owner names and handles; IDs are local mock keys.
 const OWNERS = [
-  { user_id: "u1", sleeper_name: "tkeefe", display_name: "Tom" },
-  { user_id: "u2", sleeper_name: "joeybats", display_name: null },
-  { user_id: "u3", sleeper_name: "amir", display_name: "Amir" },
+  { user_id: "u1", sleeper_name: "fictional_taylor_example", display_name: "Taylor" },
+  { user_id: "u2", sleeper_name: "fictional_drew_example", display_name: null },
+  { user_id: "u3", sleeper_name: "fictional_avery_example", display_name: "Avery" },
 ];
 
 beforeEach(() => {
@@ -81,27 +82,27 @@ describe("OwnerNamesForm — one card per owner", () => {
 
   it("prefills from display_name and falls back to empty, not the handle", () => {
     render(<OwnerNamesForm leagueId="L" initial={OWNERS} />);
-    expect((screen.getByLabelText("tkeefe") as HTMLInputElement).value).toBe("Tom");
+    expect((screen.getByLabelText("fictional_taylor_example") as HTMLInputElement).value).toBe("Taylor");
     // display_name null → empty value, with the handle only as a placeholder.
-    const blank = screen.getByLabelText("joeybats") as HTMLInputElement;
+    const blank = screen.getByLabelText("fictional_drew_example") as HTMLInputElement;
     expect(blank.value).toBe("");
-    expect(blank.placeholder).toBe("joeybats");
+    expect(blank.placeholder).toBe("fictional_drew_example");
   });
 
   it("still submits the whole owner map from one primary button", async () => {
     putOwnerNames.mockResolvedValue(undefined);
     render(<OwnerNamesForm leagueId="L" initial={OWNERS} />);
 
-    fireEvent.change(screen.getByLabelText("joeybats"), {
-      target: { value: "Joey" },
+    fireEvent.change(screen.getByLabelText("fictional_drew_example"), {
+      target: { value: "Drew" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save names" }));
 
     await waitFor(() => expect(putOwnerNames).toHaveBeenCalledTimes(1));
     expect(putOwnerNames).toHaveBeenCalledWith("L", {
-      u1: "Tom",
-      u2: "Joey",
-      u3: "Amir",
+      u1: "Taylor",
+      u2: "Drew",
+      u3: "Avery",
     });
     await screen.findByRole("button", { name: "Saved" });
   });
