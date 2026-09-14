@@ -546,6 +546,7 @@ function PointsCell({ reading }: { reading: PointsReading }) {
 
 export function HeadlineMoves({ data, leagueId }: Props) {
   const lead = selectLead(data, leagueId);
+  const isWeekRecap = data.phase === "regular";
 
   const headline = lead.href ? (
     <Link href={lead.href} className="hover:underline">{lead.headline}</Link>
@@ -585,19 +586,23 @@ export function HeadlineMoves({ data, leagueId }: Props) {
             <span className="font-mono text-label uppercase tracking-[0.11em] text-dim">{lead.phaseNote}</span>
           </div>
 
-          <h2 className="mt-2 max-w-[34ch] font-display text-lead font-extrabold leading-[1.05] tracking-[var(--track-lead)]">
-            {headline}
-          </h2>
-          <p className="mt-2 max-w-[62ch] text-prose leading-relaxed text-body">{lead.body}</p>
+          <div className={isWeekRecap ? "grid items-center gap-x-6 gap-y-3 md:grid-cols-[minmax(0,1fr)_auto]" : undefined}>
+            <div className="min-w-0">
+              <h2 className="mt-2 max-w-[34ch] font-display text-lead font-extrabold leading-[1.05] tracking-[var(--track-lead)]">
+                {headline}
+              </h2>
+              <p className="mt-2 max-w-[62ch] text-prose leading-relaxed text-body">{lead.body}</p>
+            </div>
 
-          {exit && (
-            <Link
-              href={exit.href}
-              className="mt-3 inline-flex min-h-tap items-center gap-1 rounded-pill border border-ink px-3.5 font-mono text-label font-bold uppercase tracking-[0.11em] transition-colors hover:bg-ink hover:text-bg"
-            >
-              {exit.label} →
-            </Link>
-          )}
+            {exit && (
+              <Link
+                href={exit.href}
+                className={`${isWeekRecap ? "w-fit justify-self-end whitespace-nowrap" : "mt-3"} inline-flex min-h-tap items-center gap-1 rounded-pill border border-ink px-3.5 font-mono text-label font-bold uppercase tracking-[0.11em] transition-colors hover:bg-ink hover:text-bg`}
+              >
+                {exit.label} →
+              </Link>
+            )}
+          </div>
         </div>
 
         <FigureStrip cells={lead.cells} />
