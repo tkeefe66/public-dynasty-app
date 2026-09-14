@@ -58,6 +58,19 @@ export function dashboard(
   );
 }
 
+export interface AnalystEdition {
+  season: number;
+  week: number;
+  league_name: string;
+  generated_at: string;
+  model: string;
+  markdown: string;
+}
+
+export function analystArchive(leagueId: string): Promise<{ editions: AnalystEdition[] }> {
+  return jsonFetch(`${BASE}/league/${leagueId}/analyst`);
+}
+
 export function tradesList(
   leagueId: string,
   opts: { year?: Year | string; lens?: Lens | string } = {},

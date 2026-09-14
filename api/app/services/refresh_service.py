@@ -120,6 +120,8 @@ async def refresh_league(
     log.info("refresh complete for %s (%d trades)",
              league_id, len(entry.resolved_trades or []))
     await _snapshot_ratings(client, league_id, entry, cache_dir)
+    from app.services.analyst import generate_analyst
+    await generate_analyst(client, entry, cache_dir, skip_llm=await _llm_over_budget(cache_dir))
     return entry
 
 

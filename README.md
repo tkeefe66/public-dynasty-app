@@ -144,6 +144,39 @@ is best-effort — if a source is down, those jokes are simply omitted.
 
 ## Web app — local development
 
+### The Analyst: saved weekly recaps
+
+Each league has an Analyst page at `/league/<id>/analyst`, linked from the
+homepage's weekly recap card. Editions have stable links using
+`?edition=<season>-<week>` and remain readable after the season ends.
+
+The existing automatic/manual league refresh generates missing completed
+regular-season editions for the current NFL season. Sleeper must have advanced
+to the next week, and every matchup must have scores and starter data. Existing
+editions are never regenerated, including on a forced refresh. Missed weeks are
+filled oldest first. An unavailable model, missing API key, exhausted monthly
+LLM budget, or incomplete results leaves the edition unsaved for a later retry.
+
+The writer uses matchup results, reconstructed standings through that week,
+bench decisions, player performances, and saved owner profiles. The newest
+edition can include an upcoming-week preview using that week's projections;
+missed-week recaps omit forecasts rather than treating today's forecast as
+historical knowledge. Forecast failures do not prevent saving the recap.
+
+Editions persist as individual files under
+`TRADE_GRADER_CACHE_DIR/analyst/<league_id>/<season>-<week>.json`, on the backend's
+existing persistent volume. Each stores the exact prose, source facts, optional
+outlook/lore, model, and publication time. Publication is atomic and write-once;
+concurrent refreshes share a per-league file lock. Cache invalidation/schema
+changes do not remove editions, and the existing volume backup includes them.
+Corrupt archives fail closed instead of overwriting saved history. The archive
+API uses the league membership guard and does not admit public link-preview tokens.
+
+Generation needs `ANTHROPIC_API_KEY` and available LLM budget. Automatic timing
+uses `TRADE_GRADER_AUTO_REFRESH` and `TRADE_GRADER_REFRESH_INTERVAL_SECONDS`
+(default three hours); generation begins on an eligible refresh after rollover,
+not immediately at the Monday game's final whistle.
+
 The frontend proxies `/api/*` to the backend via Next.js rewrites, so run both.
 
 ```bash

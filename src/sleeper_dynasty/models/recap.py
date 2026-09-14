@@ -46,6 +46,7 @@ class MatchupRecap:
             "winner_points": self.winner_points,
             "loser_points": self.loser_points,
             "margin": self.margin,
+            "tied": self.margin == 0,
             "blowout": self.blowout, "nailbiter": self.nailbiter,
         }
 

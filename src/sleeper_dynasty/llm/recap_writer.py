@@ -15,6 +15,7 @@ import anthropic
 
 from sleeper_dynasty.llm._usage import usage_dict
 from sleeper_dynasty.llm.usage import report
+from sleeper_dynasty.llm.trade_story_writer import sanitize_prose
 from sleeper_dynasty.models.recap import OutlookFacts, RecapFacts
 
 logger = logging.getLogger(__name__)
@@ -46,12 +47,14 @@ class RecapWriter:
         model: str = DEFAULT_MODEL,
         persona: str | None = None,
         cost_store=None,  # optional LlmCostStore instance
+        league_id: str = "",
     ) -> None:
         self.model = model
         self.persona = persona or load_default_persona()
         # api_key=None lets the SDK read ANTHROPIC_API_KEY from the env.
-        self._client = anthropic.Anthropic(api_key=api_key)
+        self._client = anthropic.Anthropic(api_key=api_key, timeout=90.0, max_retries=2)
         self._cost_store = cost_store
+        self._league_id = league_id
 
     def build_request(
         self, facts: RecapFacts, lore: str | None,
@@ -112,7 +115,7 @@ class RecapWriter:
                 self._cost_store.record(
                     model=self.model,
                     writer="recap",
-                    league_id="",
+                        league_id=self._league_id,
                     input_tokens=u["input_tokens"],
                     output_tokens=u["output_tokens"],
                     cache_read_input_tokens=u["cache_read_input_tokens"],
@@ -120,4 +123,9 @@ class RecapWriter:
                 )
             except Exception:
                 logger.warning("failed to record recap LLM cost", exc_info=True)
-        return resp.content[0].text
+        if getattr(resp, "stop_reason", None) == "max_tokens":
+            raise ValueError("Analyst output was truncated; refusing to save an incomplete edition")
+        text = "\n".join(block.text for block in resp.content if getattr(block, "text", None))
+        if not text.strip():
+            raise ValueError("Analyst returned no text; retry generation")
+        return sanitize_prose(text)

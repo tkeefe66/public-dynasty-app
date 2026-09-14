@@ -94,6 +94,16 @@ def _seed_member(maker, *, google_sub: str, league_id: str, is_admin: bool = Fal
 # ── League routes ─────────────────────────────────────────────────────────────
 
 
+def test_analyst_archive_is_private_to_league_members(client, db_maker):
+    # Mutation: mount Analyst without the league guard, or admit OG tokens.
+    url = "/api/league/L1/analyst"
+    assert client.get(url).status_code == 401
+    assert client.get(url, headers=_auth(_og_token())).status_code == 401
+    assert client.get(url, headers=_auth(_token())).status_code == 403
+    _seed_member(db_maker, google_sub="g-2", league_id="L1")
+    assert client.get(url, headers=_auth(_token(sub="g-2"))).status_code == 200
+
+
 def test_league_route_401_without_token(client):
     resp = client.get("/api/league/L1/owner-names")
     assert resp.status_code == 401

@@ -92,6 +92,8 @@ def create_app() -> FastAPI:
     app.include_router(health.router)  # open: liveness probe
     from app.routes import league
     app.include_router(league.router, dependencies=league_guard)
+    from app.routes import analyst
+    app.include_router(analyst.router, dependencies=league_guard)
     from app.routes import refresh
     app.include_router(refresh.router, dependencies=league_guard)
     from app.routes import owner

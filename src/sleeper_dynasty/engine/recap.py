@@ -170,6 +170,8 @@ def build_luck_notes(
     for a, b in pairs:
         a_pts, b_pts = a.points or 0.0, b.points or 0.0
         w, l = (a, b) if a_pts >= b_pts else (b, a)
+        if a_pts == b_pts:
+            continue
         winners.append((owner_by_roster.get(w.roster_id, "Unknown"),
                         w.points or 0.0))
         losers.append((owner_by_roster.get(l.roster_id, "Unknown"),
@@ -177,6 +179,9 @@ def build_luck_notes(
 
     lucky: list[LuckNote] = []
     unlucky: list[LuckNote] = []
+
+    if not winners:
+        return lucky, unlucky
 
     lowest_winner = min(winners, key=lambda x: x[1])
     lucky.append(LuckNote(

@@ -129,7 +129,7 @@ function tradeOfWeekContent(
  * before the field existed) keeps the placeholder skeleton below rather than
  * fabricating figures.
  * ------------------------------------------------------------------------ */
-function weekRecapContent(data: DashboardResp): LeadContent {
+function weekRecapContent(data: DashboardResp, leagueId: string): LeadContent {
   const recap = data.week_recap;
 
   if (!recap) {
@@ -138,6 +138,8 @@ function weekRecapContent(data: DashboardResp): LeadContent {
       kicker: week ? `Week ${week} recap` : "Week recap",
       phaseNote: "In season",
       headline: "This week's results land once the week is final.",
+      actionHref: `/league/${leagueId}/analyst`,
+      actionLabel: "Read The Analyst",
       body: "High score, biggest blowout, and points from trade-acquired starters appear here after the last game of the week is scored.",
       cells: [
         { label: "High", value: NO_FIGURE, text: NO_FIGURE_TEXT },
@@ -160,6 +162,8 @@ function weekRecapContent(data: DashboardResp): LeadContent {
 
   return {
     kicker: `Week ${recap.week} recap`,
+    actionHref: `/league/${leagueId}/analyst?edition=${recap.season}-${recap.week}`,
+    actionLabel: "Read The Analyst",
     phaseNote: "In season",
     headline: `${high} put up ${recap.high_score.points.toFixed(1)}.`,
     body: (
@@ -432,7 +436,7 @@ function selectLead(data: DashboardResp, leagueId: string): LeadContent {
   const phase = data.phase ?? "offseason";
   switch (phase) {
     case "regular":
-      return weekRecapContent(data);
+      return weekRecapContent(data, leagueId);
     case "post":
       return bracketWatchContent(data);
     case "draft":
