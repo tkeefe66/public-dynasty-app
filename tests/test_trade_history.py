@@ -20,6 +20,37 @@ from tests.helpers import load_fixture
 from tests.helpers import wire_transaction_protocol
 
 
+@pytest.mark.parametrize("traded_at,leg,expected_week", [
+    (datetime(2026, 6, 25, tzinfo=timezone.utc), 1, 0),
+    (datetime(2026, 8, 31, tzinfo=timezone.utc), 1, 0),
+    (datetime(2025, 12, 20, tzinfo=timezone.utc), 1, 0),
+    (datetime(2026, 9, 12, tzinfo=timezone.utc), 1, 1),
+    (datetime(2026, 10, 1, tzinfo=timezone.utc), 4, 4),
+    (datetime(2027, 1, 1, tzinfo=timezone.utc), 17, 17),
+])
+def test_offseason_trade_counts_opening_week(traded_at, leg, expected_week):
+    # Captured Sleeper shape: summer trades have leg=1, just like Week 1
+    # trades. IDs/assets are synthetic; keeping leg=1 must fail this test.
+    from sleeper_dynasty.engine.trade_grader import grade_hindsight_production
+
+    raw = {
+        "transaction_id": "summer-trade", "leg": leg,
+        "created": int(traded_at.timestamp() * 1000),
+        "status": "complete", "type": "trade", "settings": None,
+        "roster_ids": [1, 2], "adds": {"p1": 1}, "drops": {"p1": 2},
+        "draft_picks": [], "waiver_budget": [],
+    }
+    trade = normalize_trade(raw, {1: "alice", 2: "bob"}, "L", 2026)
+    assert trade.week == expected_week
+    totals = grade_hindsight_production(
+        ResolvedTrade(trade, trade.sides),
+        {("L", 1, 1): {"players": ["p1"], "starters": ["p1"],
+                         "players_points": {"p1": 23.5}}},
+        {"L": {1: "alice", 2: "bob"}}, {"L": 2026},
+    )
+    assert totals["alice"] == (23.5 if expected_week == 0 else 0.0)
+
+
 def test_normalize_two_team_trade_with_pick_and_player():
     raw_tx = load_fixture("transactions_trade.json")[0]
     # roster 1 -> user "u_alice"; roster 2 -> user "u_bob"

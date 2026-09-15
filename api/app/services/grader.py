@@ -695,6 +695,7 @@ class GraderService:
         _now = datetime.now(tz=timezone.utc)
         _llm_interval = _get_settings().llm_min_interval_seconds
         _prev_llm_at = None
+        _prev_entry = None
         if cache_dir is not None:
             from app.services.chain_cache import ChainCache
             _prev_entry = ChainCache(cache_dir=cache_dir).read(
@@ -770,6 +771,21 @@ class GraderService:
                 trade_stories, owner_dossiers = {}, {}
                 supporting.setdefault("warnings", []).append(
                     f"trade stories skipped: {e}")
+
+        # A cost/throttle skip may carry an offseason narrative into the first
+        # scored refresh. Omit that stale story until it can be regenerated;
+        # the deterministic ruling and score tables remain available. Never
+        # drop a newly generated story or spend extra to bypass the budget.
+        if _prev_entry is not None:
+            for tx, story in list(trade_stories.items()):
+                prior_grade = (_prev_entry.grades or {}).get(tx) or {}
+                current_grade = grades.get(tx) or {}
+                was_scored = any((prior_grade.get("production_total") or {}).values())
+                is_scored = any((current_grade.get("production_total") or {}).values())
+                if (is_scored and not was_scored
+                        and story == (_prev_entry.trade_stories or {}).get(tx)):
+                    del trade_stories[tx]
+                    log.info("trade %s: withholding unscored story after first points", tx)
 
         # Draft inputs (best-effort: empty -> signals 0).
         traded_picks: list = []
@@ -2002,8 +2018,8 @@ class GraderService:
     ) -> dict[str, dict[str, Any]]:
         """Compute the per-trade "became" grade (value + production of the
         bounded walk's terminal players), mirroring the trade-stories stage:
-        eager during refresh, cached, and incrementally skipped when a trade's
-        terminal set is unchanged. Best-effort — a failure logs and leaves that
+        eager during every refresh. A stable terminal set does not imply stable
+        scores or player values. Best-effort — a failure logs and leaves that
         trade's became empty; it never fails the refresh.
         """
         await progress_cb("became", "Grading what trades became")
@@ -2014,20 +2030,12 @@ class GraderService:
             from sleeper_dynasty.engine.lineage import terminal_assets
             from sleeper_dynasty.engine.regrade import build_became_grade
 
-            prior: dict[str, dict] = {}
-            if cache_dir is not None:
-                from app.services.chain_cache import ChainCache
-                prev = ChainCache(cache_dir=cache_dir).read(
-                    current_league_id, max_age_seconds=10 ** 9)
-                prior = prev.became_grades if prev else {}
-
             became: dict[str, dict[str, Any]] = {}
             for rt in resolved:
                 tx = rt.trade.transaction_id
                 try:
                     terms = terminal_assets(resolved_dicts, tx)
-                    # Include current pick values for any terminal picks in the
-                    # hash so a price-table update invalidates the cache entry.
+                    # Include current pick values in the diagnostic fingerprint.
                     pick_table = supporting.get("pick_value_table") or {}
                     pick_vals = {
                         f"{t['season']},{t['round']}": getattr(
@@ -2043,10 +2051,9 @@ class GraderService:
                         {"terms": terms, "pick_vals": pick_vals},
                         sort_keys=True).encode()
                     h = hashlib.sha256(blob).hexdigest()[:16]
-                    prev_entry = prior.get(tx)
-                    if prev_entry and prev_entry.get("terminal_hash") == h:
-                        became[tx] = prev_entry  # incremental skip
-                        continue
+                    # Keep the terminal fingerprint for diagnostics, but always
+                    # grade against this refresh's scores, ownership and values.
+                    # A new week or a stat correction need not change the assets.
                     trade_dict = next(
                         r for r in resolved_dicts
                         if r["trade"]["transaction_id"] == tx)

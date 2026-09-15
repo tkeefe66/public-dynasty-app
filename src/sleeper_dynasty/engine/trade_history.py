@@ -142,14 +142,28 @@ def normalize_trade(
         sides[sender].given.append(FaabAsset(amount=amount))
         sides[receiver].received.append(FaabAsset(amount=amount))
 
+    traded_at = datetime.fromtimestamp(
+        int(raw_tx["created"]) / 1000.0, tz=timezone.utc
+    )
+    week = int(raw_tx.get("leg", 0))
+    # Sleeper buckets spring/summer transactions into leg 1. That is a feed
+    # bucket, not a played NFL week: excluding it loses opening-week scoring.
+    # Only normalize positively pre-season dates; September trades retain
+    # Sleeper's week and the existing same-week exclusion. Compare full dates
+    # against the league season so January of the following year stays intact.
+    completed_at = datetime.fromtimestamp(
+        int(raw_tx.get("status_updated") or raw_tx["created"]) / 1000.0,
+        tz=timezone.utc,
+    )
+    if week == 1 and completed_at < datetime(season, 9, 1, tzinfo=timezone.utc):
+        week = 0
+
     return Trade(
         transaction_id=str(raw_tx["transaction_id"]),
         league_id=league_id,
         season=season,
-        week=int(raw_tx.get("leg", 0)),
-        traded_at=datetime.fromtimestamp(
-            int(raw_tx["created"]) / 1000.0, tz=timezone.utc
-        ),
+        week=week,
+        traded_at=traded_at,
         sides=sides,
     )
 

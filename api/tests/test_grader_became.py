@@ -1,6 +1,8 @@
 import asyncio
 from datetime import datetime
 
+import pytest
+
 from app.services.grader import GraderService
 from app.services.chain_cache import ChainCacheEntry
 from sleeper_dynasty.models.player import KTCValue
@@ -81,9 +83,8 @@ def test_run_populates_became_grades():
     assert entry.became_grades["t1"].get("terminal_hash")
 
 
-def test_run_skips_recompute_when_terminal_set_unchanged(tmp_path):
-    # First run writes a cache; second run with a sentinel prior hash should
-    # reuse the prior became entry rather than recompute (incremental skip).
+def test_run_keeps_terminal_fingerprint_stable_when_assets_unchanged(tmp_path):
+    # The fingerprint describes the assets, not freshness of their grades.
     matchups = {("L", 5, 1): {"players": ["p1"], "starters": ["p1"],
                               "players_points": {"p1": 18.0}}}
     async def cb(stage, message, **x): ...
@@ -102,4 +103,73 @@ def test_run_skips_recompute_when_terminal_set_unchanged(tmp_path):
 
     second = asyncio.run(run_once())
     h2 = second.became_grades["t1"]["terminal_hash"]
-    assert h1 == h2  # terminal set unchanged -> stable hash (skip path valid)
+    assert h1 == h2
+
+
+def test_became_refresh_updates_scores_and_values_without_new_trade(tmp_path):
+    # Reusing by terminal asset IDs alone must fail: same roster, new scores
+    # (including a correction within the same week), and a new market value.
+    from app.services.chain_cache import ChainCache
+
+    async def cb(stage, message, **extra):
+        pass
+
+    async def go():
+        resolved, _ = await _history()
+        from dataclasses import asdict
+        resolved_dicts = [asdict(rt) for rt in resolved]
+        supporting = await _supporting_factory()()
+        grader = GraderService()
+        kwargs = dict(resolved=resolved, resolved_dicts=resolved_dicts,
+                      supporting=supporting, current_league_id="L",
+                      cache_dir=tmp_path, progress_cb=cb)
+        first = await grader._compute_became(**kwargs)
+        entry = ChainCacheEntry(
+            league_id="L", chain=[], resolved_trades=[], grades={}, owners={},
+            playoff_weeks_by_league={}, roster_to_user_by_league={},
+            league_name_by_id={}, league_season_by_id={}, cached_at="",
+            became_grades=first)
+        ChainCache(tmp_path).write("L", entry)
+        for points, value in [(18.0, 6100), (20.5, 5900)]:
+            supporting["matchups"] = {
+                ("L", 5, 1): {"players": ["p1"], "starters": ["p1"],
+                              "players_points": {"p1": points}}}
+            supporting["ktc_by_player_id"]["p1"].superflex_value = value
+            result = await grader._compute_became(**kwargs)
+            actual = result["t1"]["grades"]["u_mike"]
+            assert actual["production"] == points
+            assert actual["regular"] == points
+            assert actual["ktc"] == value
+            entry.became_grades = result
+            ChainCache(tmp_path).write("L", entry)
+
+    asyncio.run(go())
+
+
+@pytest.mark.parametrize("skip_llm", [True, False])
+def test_refresh_drops_unscored_story_when_first_points_arrive(tmp_path, skip_llm):
+    from app.services.chain_cache import ChainCache
+
+    async def cb(stage, message, **extra):
+        pass
+
+    async def go():
+        kwargs = dict(client=_FakeClient(), current_league_id="L", progress_cb=cb,
+                      cache_dir=tmp_path, _build_trade_history=_history)
+        first = await GraderService().run(
+            **kwargs, _pull_supporting_data=_supporting_factory(),
+            _story_writer=_Writer())
+        first.trade_stories["t1"] = {
+            "verdict": "No points yet", "body": "The season has not started.",
+            "facts_hash": "old", "generated_at": first.cached_at}
+        first.llm_generated_at = first.cached_at
+        ChainCache(tmp_path).write("L", first)
+        second = await GraderService().run(
+            **kwargs, skip_llm=skip_llm, _story_writer=_Writer(),
+            _pull_supporting_data=_supporting_factory({
+                ("L", 5, 1): {"players": ["p1"], "starters": ["p1"],
+                              "players_points": {"p1": 18.0}}}))
+        assert second.grades["t1"]["production_total"]["u_mike"] == 18.0
+        assert "t1" not in second.trade_stories
+
+    asyncio.run(go())
