@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Panel } from "./furniture/Panel";
 import type { AnalystEdition } from "@/lib/api";
+import { AnalystShare } from "./AnalystShare";
 
 // A small, deliberately text-only Markdown subset. Model output never becomes
 // HTML, executable links, images, or embedded content.
@@ -11,7 +12,7 @@ function inline(text: string) {
   );
 }
 
-function Article({ markdown }: { markdown: string }) {
+export function Article({ markdown }: { markdown: string }) {
   const blocks = markdown.trim().split(/\n\s*\n/);
   return <div className="space-y-5 text-prose leading-relaxed text-body break-words">
     {blocks.map((block, i) => {
@@ -71,6 +72,7 @@ export function AnalystArchive({ leagueId, editions, selected }: {
               <p className="mt-2 text-body">{edition.league_name}</p>
               <p className="mt-3 text-sm text-dim">Published {new Date(edition.generated_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })} · AI-written from league results</p>
               {edition.correction_note && <p className="mt-3 text-sm text-body"><strong>Corrected edition:</strong> {edition.correction_note}</p>}
+              <AnalystShare key={`${edition.season}-${edition.week}`} leagueId={leagueId} season={edition.season} week={edition.week} />
             </header>
             <Article markdown={edition.markdown} />
             {edition.original_markdown && <details className="mt-8 border-t border-rule pt-4">

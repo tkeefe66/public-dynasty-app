@@ -94,6 +94,9 @@ def create_app() -> FastAPI:
     app.include_router(league.router, dependencies=league_guard)
     from app.routes import analyst
     app.include_router(analyst.router, dependencies=league_guard)
+    from app.routes import analyst_sharing
+    app.include_router(analyst_sharing.router, dependencies=league_guard)
+    app.include_router(analyst_sharing.public_router)
     from app.routes import refresh
     app.include_router(refresh.router, dependencies=league_guard)
     from app.routes import owner

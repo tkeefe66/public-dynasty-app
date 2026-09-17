@@ -43,6 +43,15 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_analyst_share_management_rejects_nonmembers_and_og_tokens(client, db_maker):
+    # Mutation: treat OG or membership in another league as authority to publish/revoke.
+    _seed_member(db_maker, google_sub="g-1", league_id="other")
+    path = "/api/league/private/analyst/2026/1/share"
+    assert client.post(path, headers=_auth(_token())).status_code == 403
+    assert client.delete(path, headers=_auth(_token())).status_code == 403
+    assert client.post(path, headers=_auth(_og_token())).status_code == 401
+
+
 @pytest.fixture()
 def db_maker(tmp_path):
     """Per-test SQLite DB wired into the app via a get_db override."""

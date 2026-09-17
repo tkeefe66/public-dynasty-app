@@ -14,7 +14,7 @@ export function Telemetry() {
   const last = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!pathname || pathname === last.current) return;
+    if (!pathname || pathname.startsWith("/share/analyst/") || pathname === last.current) return;
     last.current = pathname;
     const body = JSON.stringify({ path: pathname });
     try {

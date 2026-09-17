@@ -25,6 +25,10 @@ export default auth((req) => {
   const isLoggedIn = !!req.auth;
   const isLogin = nextUrl.pathname === "/login";
 
+  // Only this single-article capability route is public. The backend validates
+  // its token on every read; league pages and the private API remain gated.
+  if (/^\/share\/analyst\/[^/]+\/?$/.test(nextUrl.pathname)) return;
+
   if (isLogin) {
     if (isLoggedIn) {
       return Response.redirect(new URL("/", nextUrl));

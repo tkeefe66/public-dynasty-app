@@ -4,6 +4,13 @@ import { withSentryConfig } from "@sentry/nextjs";
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  async headers() {
+    return [{ source: "/share/analyst/:token", headers: [
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+      { key: "Cache-Control", value: "private, no-store, max-age=0" },
+    ] }];
+  },
   // Load instrumentation.ts (Sentry server/edge init) on Next 14.
   experimental: { instrumentationHook: true },
   // The transparent /api rewrite was replaced by an explicit catch-all Route
