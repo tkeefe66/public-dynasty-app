@@ -15,6 +15,8 @@ from app.services.analyst_store import AnalystStore
 from app.services.name_override_store import NameOverrideStore
 from app.services.profile_store import ProfileStore
 from app.services.analyst_outlook import upcoming_outlook
+from app.services.analyst_bets import load_bets_snapshot
+from sleeper_dynasty.engine.recap_race import build_race_context
 from sleeper_dynasty.engine.recap import build_recap_facts
 from sleeper_dynasty.api.projections import normalize_projection
 from sleeper_dynasty.llm.cost_store import LlmCostStore
@@ -76,7 +78,8 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                     or int(state.get("season", 0)) != league.season):
                 return
             last_week = min(int(state.get("week", 0)) - 1, (league.playoff_week_start or 15) - 1, 18)
-            existing = {(d["season"], d["week"]) for d in store.editions(league_id)}
+            saved_editions = store.editions(league_id)
+            existing = {(d["season"], d["week"]) for d in saved_editions}
             if correction_week is not None:
                 if not correction_reason or not correction_reason.strip():
                     raise ValueError("Explicit correction requires a reader-visible reason")
@@ -97,6 +100,7 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                 results = await client.get_matchup_results(league_id, week)
                 if not complete_results(results, rosters, week):
                     raise ValueError(f"Week {week} results are incomplete; retry after Sleeper scores every matchup")
+                before = rosters
                 rosters = advance_standings(rosters, results)
                 if correction_week is not None and week != correction_week:
                     continue
@@ -124,6 +128,35 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                 outlook = None
                 if week + 1 == int(state.get("week", 0)):
                     outlook = await upcoming_outlook(client, league, week + 1, current_rosters, players)
+                upcoming = []
+                try:
+                    if week < league.playoff_week_start - 1:
+                        upcoming = await client.get_matchup_results(league_id, week + 1)
+                        upcoming = [r for r in upcoming if r.week == week + 1]
+                except Exception:
+                    log.warning("Analyst next-week pairings unavailable; omitting matchup stakes", exc_info=True)
+                # Compare the latest complete reconstruction with Sleeper's
+                # authoritative record; do not present unsupported league rules
+                # as an official playoff race.
+                current_by_id = {r.roster_id: r for r in current_rosters}
+                verified = week != last_week or all(
+                    (r.wins, r.losses, r.ties) == (current_by_id[r.roster_id].wins,
+                        current_by_id[r.roster_id].losses, current_by_id[r.roster_id].ties)
+                    and math.isclose(r.points_for, current_by_id[r.roster_id].points_for, abs_tol=0.011)
+                    for r in rosters
+                )
+                facts.standings_race = build_race_context(before, rosters, league, week,
+                                                         verified=verified, upcoming=upcoming)
+                if not facts.standings_race["available"]:
+                    log.warning("Analyst standings claims omitted for league=%s week=%s: %s",
+                                league_id, week, facts.standings_race["reason"])
+                prior = next((e for e in saved_editions if e["season"] == league.season and e["week"] < week
+                              and e["facts"].get("bets", {}).get("available")), None)
+                if week == last_week:
+                    facts.bets = await load_bets_snapshot(league_id, league.season, current_rosters,
+                        datetime.now(timezone.utc), prior["facts"]["bets"] if prior else None)
+                else:
+                    facts.bets = {"available": False, "reason": "Historical bet states are unavailable; do not backdate today's ledger."}
                 markdown = await asyncio.to_thread(active_writer.write, facts, lore=lore, outlook=outlook)
                 if not isinstance(markdown, str) or not markdown.strip():
                     raise ValueError("Analyst returned empty text; retry on next refresh")

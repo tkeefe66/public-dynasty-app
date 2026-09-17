@@ -92,6 +92,8 @@ class RecapFacts:
     goats: list[PlayerLine]
     busts: list[PlayerLine]
     lineups: list[dict[str, Any]] = field(default_factory=list)
+    standings_race: dict[str, Any] = field(default_factory=dict)
+    bets: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -108,6 +110,8 @@ class RecapFacts:
             "goats": [p.to_dict() for p in self.goats],
             "busts": [p.to_dict() for p in self.busts],
             "lineups": self.lineups,
+            "standings_race": self.standings_race,
+            "bets": self.bets,
         }
 
 

@@ -171,6 +171,17 @@ The packet includes starter ownership and legal, independent bench substitutions
 Bye alerts are omitted until an explicit verified bye source is available;
 absence from a scoreboard is not evidence of a bye.
 
+Each new edition also saves a read-only snapshot of the current season's Bets
+ledger (terms, participants, recorded stakes, open/settled status) and computed
+standings consequences. Bet descriptions are not interpreted as settlement
+rules: the recap never settles bets or invents progress toward ambiguous terms.
+Missing historical editions omit today's ledger instead of backdating it.
+Before/after overall ranks, changing record gaps, points-for tiebreaks, and
+conditional next-matchup gaps ground the standings narrative. Emphasis moves
+from early trends to the developing race to playoff coverage in the final four
+regular-season weeks. Clinching/elimination uses conservative record bounds;
+unsupported league rules or mismatched records suppress standings claims.
+
 Editions persist as individual files under
 `TRADE_GRADER_CACHE_DIR/analyst/<league_id>/<season>-<week>.json`, on the backend's
 existing persistent volume. Each stores the exact prose, source facts, optional

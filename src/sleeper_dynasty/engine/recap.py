@@ -264,9 +264,9 @@ def build_player_beats(
 
 
 def build_standings(rosters: list[Roster]) -> list[dict]:
-    """Standings snapshot sorted by wins desc, then points_for desc."""
+    """Overall snapshot sorted by win equivalents, then points for."""
     ordered = sorted(
-        rosters, key=lambda r: (r.wins, r.points_for), reverse=True
+        rosters, key=lambda r: (r.wins + r.ties / 2, r.points_for), reverse=True
     )
     return [
         {

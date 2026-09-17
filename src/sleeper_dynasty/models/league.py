@@ -22,6 +22,7 @@ class League:
     # dynasty-only until recently and an adapter that omits it must never
     # silently demote a league.
     format: str = "dynasty"
+    standings_settings: dict = field(default_factory=dict)
 
 
 @dataclass

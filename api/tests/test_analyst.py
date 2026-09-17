@@ -6,6 +6,13 @@ import pytest
 from sleeper_dynasty.models.league import League, MatchupResult, Roster
 
 
+@pytest.fixture(autouse=True)
+def isolated_bet_snapshot(monkeypatch):
+    monkeypatch.setattr("app.services.analyst.load_bets_snapshot", AsyncMock(return_value={
+        "available": True, "as_of": "2026-09-17T12:00:00+00:00", "active": [], "resolved": [],
+    }))
+
+
 def setup_league():
     league = League("123", "Test League", 2026, 2, ["QB", "BN"], {}, 15, 2, "in_season")
     client = SimpleNamespace(
@@ -29,6 +36,49 @@ def setup_league():
     writer = Mock(model="test-model")
     writer.write.return_value = "## Week one\nAlice wins."
     return client, entry, writer
+
+
+@pytest.mark.asyncio
+async def test_bets_and_standings_reach_writer_and_saved_edition(tmp_path, monkeypatch):
+    # Mutation: build context but never pass it to the writer or archive it.
+    from dataclasses import replace
+    from app.services.analyst import generate_analyst
+    from app.services.analyst_store import AnalystStore
+    client, entry, writer = setup_league()
+    client.get_rosters.return_value = [replace(r, wins=1 if r.roster_id == 1 else 0,
+                                              losses=0 if r.roster_id == 1 else 1,
+                                              points_for=25 if r.roster_id == 1 else 15)
+                                        for r in client.get_rosters.return_value]
+    snapshot = {"available": True, "active": [{"id": "wager", "stake": "$25.00", "terms": "Higher finish"}], "resolved": []}
+    loader = AsyncMock(return_value=snapshot)
+    monkeypatch.setattr("app.services.analyst.load_bets_snapshot", loader)
+    await generate_analyst(client, entry, tmp_path, writer=writer)
+    packet = writer.write.call_args.args[0]
+    assert packet.bets == snapshot
+    assert packet.standings_race["emphasis"] == "early_trends"
+    stored = AnalystStore(tmp_path).editions("123")[0]
+    snapshot["active"][0]["stake"] = "$50.00"
+    assert stored["facts"]["bets"]["active"][0]["stake"] == "$25.00"
+    assert stored["facts"]["standings_race"]["teams"][0]["record_after"] == [1, 0, 0]
+
+
+@pytest.mark.asyncio
+async def test_catchup_does_not_backdate_current_bets(tmp_path, monkeypatch):
+    # Mutation: attach today's active bets to every missing historical week.
+    from dataclasses import replace
+    from app.services.analyst import generate_analyst
+    from app.services.analyst_store import AnalystStore
+    client, entry, writer = setup_league()
+    client.get_nfl_state.return_value["week"] = 3
+    results = client.get_matchup_results.return_value
+    client.get_matchup_results.side_effect = lambda lid, week: [replace(r, week=week) for r in results]
+    loader = AsyncMock(return_value={"available": True, "active": [], "resolved": []})
+    monkeypatch.setattr("app.services.analyst.load_bets_snapshot", loader)
+    await generate_analyst(client, entry, tmp_path, writer=writer)
+    editions = AnalystStore(tmp_path).editions("123")
+    assert editions[0]["facts"]["bets"]["available"] is True
+    assert editions[1]["facts"]["bets"]["available"] is False
+    loader.assert_awaited_once()
 
 
 @pytest.mark.asyncio
