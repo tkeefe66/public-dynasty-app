@@ -48,6 +48,23 @@ async def test_save_once_survives_refresh_and_reopen(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_explicit_correction_generation_and_failure_preserve_published_text(tmp_path):
+    # Mutation: skip existing editions even on an explicit correction, or publish a failed draft.
+    from app.services.analyst import generate_analyst
+    from app.services.analyst_store import AnalystStore
+    client, entry, writer = setup_league()
+    await generate_analyst(client, entry, tmp_path, writer=writer)
+    writer.write.side_effect = ValueError("review rejected")
+    await generate_analyst(client, entry, tmp_path, writer=writer, correction_week=1, correction_reason="Accuracy fixes")
+    assert AnalystStore(tmp_path).editions("123")[0]["revision"] == 1
+    writer.write.side_effect = None
+    writer.write.return_value = "Reviewed correction"
+    await generate_analyst(client, entry, tmp_path, writer=writer, correction_week=1, correction_reason="Accuracy fixes")
+    assert AnalystStore(tmp_path).editions("123")[0]["markdown"] == "Reviewed correction"
+    assert AnalystStore(tmp_path).editions("123")[0]["revision"] == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("state", [
     {"season": "2026", "week": 1, "season_type": "regular"},
     {"season": "2025", "week": 2, "season_type": "regular"},
@@ -111,6 +128,27 @@ def test_archive_endpoint_exists_and_is_league_scoped(client):
     response = client.get("/api/league/123/analyst")
     assert response.status_code == 200
     assert response.json() == {"editions": []}
+
+
+@pytest.mark.asyncio
+async def test_correction_preserves_original_and_survives_normal_refresh(tmp_path):
+    # Mutation: overwrite the original or let automatic refresh replace a correction.
+    from app.services.analyst import generate_analyst
+    from app.services.analyst_store import AnalystStore
+    client, entry, writer = setup_league()
+    await generate_analyst(client, entry, tmp_path, writer=writer)
+    store = AnalystStore(tmp_path)
+    original_path = store.edition_path("123", 2026, 1)
+    before = original_path.read_bytes()
+    edition = store.editions("123")[0]
+    store.save_correction("123", {**edition, "markdown": "Corrected facts."}, "Correct ownership and bye claims.")
+    await generate_analyst(client, entry, tmp_path, writer=writer)
+    corrected = store.editions("123")[0]
+    assert corrected["revision"] == 2
+    assert corrected["markdown"] == "Corrected facts."
+    assert corrected["original_markdown"] == edition["markdown"]
+    assert original_path.read_bytes() == before
+    assert writer.write.call_count == 1
 
 
 @pytest.mark.asyncio

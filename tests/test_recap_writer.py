@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock, patch
+import pytest
 
 from sleeper_dynasty.llm.recap_writer import load_default_persona, load_lore_template, RecapWriter
 from sleeper_dynasty.models.recap import RecapFacts, OutlookFacts
@@ -41,7 +42,9 @@ def test_write_calls_client_and_returns_text():
     fake_resp = MagicMock()
     fake_resp.content = [MagicMock(text="THE ANALYST SPEAKS")]
     fake_client = MagicMock()
-    fake_client.messages.create.return_value = fake_resp
+    review = MagicMock()
+    review.content = [MagicMock(text='{"approved": true, "violations": []}')]
+    fake_client.messages.create.side_effect = [fake_resp, review]
 
     writer = RecapWriter(api_key="test", model="claude-opus-4-8")
     with patch.object(writer, "_client", fake_client):
@@ -50,7 +53,7 @@ def test_write_calls_client_and_returns_text():
     # Model + system prompt were passed.
     _, kwargs = fake_client.messages.create.call_args
     assert kwargs["model"] == "claude-opus-4-8"
-    assert "The Analyst" in str(kwargs["system"])
+    assert "fact" in str(kwargs["system"]).lower()
 
 
 def test_build_request_includes_outlook_when_present():
@@ -69,7 +72,9 @@ def test_write_records_cost_when_cost_store_provided():
     fake_resp.usage.input_tokens = 800
     fake_resp.usage.output_tokens = 300
     fake_client = MagicMock()
-    fake_client.messages.create.return_value = fake_resp
+    review = MagicMock()
+    review.content = [MagicMock(text='{"approved": true, "violations": []}')]
+    fake_client.messages.create.side_effect = [fake_resp, review]
 
     mock_cost_store = MagicMock()
 
@@ -77,8 +82,26 @@ def test_write_records_cost_when_cost_store_provided():
     with patch.object(writer, "_client", fake_client):
         writer.write(_facts(), lore=None)
 
-    mock_cost_store.record.assert_called_once()
-    call_kwargs = mock_cost_store.record.call_args.kwargs
+    assert [c.kwargs["writer"] for c in mock_cost_store.record.call_args_list] == ["recap", "recap_review"]
+    call_kwargs = mock_cost_store.record.call_args_list[0].kwargs
     assert call_kwargs["writer"] == "recap"
     assert call_kwargs["input_tokens"] == 800
     assert call_kwargs["output_tokens"] == 300
+
+
+@pytest.mark.parametrize("review_text", [
+    '{"approved": false, "violations": ["Wrong player ownership"]}',
+    '{"approved": true, "violations": ["Illegal QB for TE swap"]}',
+    '{"approved": "true", "violations": []}',
+    '{}', 'not json',
+])
+def test_review_failure_blocks_draft(review_text):
+    # Mutation: return the draft without requiring a strict, clean review.
+    draft, review = MagicMock(), MagicMock()
+    draft.content = [MagicMock(text="An unsupported claim.")]
+    review.content = [MagicMock(text=review_text)]
+    writer = RecapWriter(api_key="test")
+    writer._client = MagicMock()
+    writer._client.messages.create.side_effect = [draft, review]
+    with pytest.raises(ValueError, match="review"):
+        writer.write(_facts())

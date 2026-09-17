@@ -10,6 +10,15 @@ const editions = [
 ];
 
 describe("The Analyst", () => {
+  it("labels a correction and preserves readable original text", () => {
+    // Mutation: silently replace the article without exposing the original.
+    render(<AnalystArchive leagueId="123" editions={[{
+      ...editions[0], revision: 2, correction_note: "Corrected ownership.", original_markdown: "Original draft.",
+    }]} />);
+    expect(screen.getByText("Corrected ownership.")).toBeInTheDocument();
+    expect(screen.getByText("View original edition (contains corrected errors)")).toBeInTheDocument();
+    expect(screen.getByText("Original draft.")).toBeInTheDocument();
+  });
   it("links the homepage recap to its own league archive", () => {
     // Mutation: omit the link or send it to another league.
     render(<HeadlineMoves data={{ phase: "regular", phase_week: 1 } as DashboardResp} leagueId="123" />);

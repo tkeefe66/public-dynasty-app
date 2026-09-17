@@ -163,6 +163,14 @@ edition can include an upcoming-week preview using that week's projections;
 missed-week recaps omit forecasts rather than treating today's forecast as
 historical knowledge. Forecast failures do not prevent saving the recap.
 
+Drafts now require a separate factual-review call before publication. Rejected,
+malformed, unavailable, or truncated reviews leave the edition unpublished.
+Draft and review usage are attributed separately (`recap` / `recap_review`).
+This model-based check is a safeguard, not a guarantee of factual correctness.
+The packet includes starter ownership and legal, independent bench substitutions.
+Bye alerts are omitted until an explicit verified bye source is available;
+absence from a scoreboard is not evidence of a bye.
+
 Editions persist as individual files under
 `TRADE_GRADER_CACHE_DIR/analyst/<league_id>/<season>-<week>.json`, on the backend's
 existing persistent volume. Each stores the exact prose, source facts, optional
@@ -171,6 +179,13 @@ concurrent refreshes share a per-league file lock. Cache invalidation/schema
 changes do not remove editions, and the existing volume backup includes them.
 Corrupt archives fail closed instead of overwriting saved history. The archive
 API uses the league membership guard and does not admit public link-preview tokens.
+
+Explicit operator corrections use `generate_analyst(..., correction_week=week,
+correction_reason=reason)`. They pass the same generation/review checks and append
+a revision under `analyst/<league_id>/revisions/<season>-<week>/`; the original
+file is never changed. The page shows the latest revision, its correction note,
+and expandable original text. Scheduled and forced refreshes do not correct or
+overwrite an existing edition.
 
 Generation needs `ANTHROPIC_API_KEY` and available LLM budget. Automatic timing
 uses `TRADE_GRADER_AUTO_REFRESH` and `TRADE_GRADER_REFRESH_INTERVAL_SECONDS`

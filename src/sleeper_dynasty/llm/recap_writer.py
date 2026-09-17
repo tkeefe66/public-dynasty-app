@@ -91,17 +91,8 @@ class RecapWriter:
         }]
         return system, messages
 
-    def write(
-        self, facts: RecapFacts, lore: str | None = None,
-        outlook: "OutlookFacts | None" = None,
-    ) -> str:
-        """Call Claude and return the recap markdown.
-
-        Raises anthropic.APIError subclasses on auth/rate-limit/timeout; the
-        CLI surfaces an actionable message.
-        """
-        system, messages = self.build_request(facts, lore, outlook)
-        logger.info("Requesting recap from %s (week %d)", self.model, facts.week)
+    def _request(self, system, messages, *, stage: str) -> str:
+        logger.info("Requesting %s from %s", stage, self.model)
         resp = self._client.messages.create(
             model=self.model,
             max_tokens=MAX_TOKENS,
@@ -114,8 +105,8 @@ class RecapWriter:
                 u = usage_dict(resp.usage)
                 self._cost_store.record(
                     model=self.model,
-                    writer="recap",
-                        league_id=self._league_id,
+                    writer=stage,
+                    league_id=self._league_id,
                     input_tokens=u["input_tokens"],
                     output_tokens=u["output_tokens"],
                     cache_read_input_tokens=u["cache_read_input_tokens"],
@@ -124,8 +115,36 @@ class RecapWriter:
             except Exception:
                 logger.warning("failed to record recap LLM cost", exc_info=True)
         if getattr(resp, "stop_reason", None) == "max_tokens":
-            raise ValueError("Analyst output was truncated; refusing to save an incomplete edition")
+            raise ValueError(f"Analyst {stage} was truncated; refusing publication")
         text = "\n".join(block.text for block in resp.content if getattr(block, "text", None))
         if not text.strip():
-            raise ValueError("Analyst returned no text; retry generation")
-        return sanitize_prose(text)
+            raise ValueError(f"Analyst {stage} returned no text; retry generation")
+        return text
+
+    def write(
+        self, facts: RecapFacts, lore: str | None = None,
+        outlook: "OutlookFacts | None" = None,
+    ) -> str:
+        """Generate once, then require a separate factual review before saving.
+
+        The review is an additional model-based safeguard, not a proof of truth.
+        Provider failures, malformed verdicts and flagged claims fail closed.
+        No paid retry loop occurs within an edition attempt.
+        """
+        system, messages = self.build_request(facts, lore, outlook)
+        text = sanitize_prose(self._request(system, messages, stage="recap"))
+        review_prompt = resources.files(_PROMPTS).joinpath("analyst_review.md").read_text()
+        evidence = {"facts": facts.to_dict(), "outlook": outlook.to_dict() if outlook else None, "draft": text}
+        raw = self._request(
+            [{"type": "text", "text": review_prompt}],
+            [{"role": "user", "content": json.dumps(evidence)}],
+            stage="recap_review",
+        )
+        try:
+            verdict = json.loads(raw)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Analyst review returned invalid JSON; refusing publication") from exc
+        if not isinstance(verdict, dict) or verdict.get("approved") is not True or verdict.get("violations") != []:
+            logger.warning("Analyst factual review rejected week %s: %s", facts.week, verdict)
+            raise ValueError("Analyst factual review did not approve the draft; refusing publication")
+        return text

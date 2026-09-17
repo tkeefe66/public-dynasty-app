@@ -57,13 +57,14 @@ class BenchRegret:
     points_left_on_bench: float
     benched_hero: PlayerLine
     started_dud: PlayerLine
+    legal_swaps: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "owner": self.owner,
             "points_left_on_bench": self.points_left_on_bench,
-            "benched_hero": self.benched_hero.to_dict(),
-            "started_dud": self.started_dud.to_dict(),
+            "legal_swaps": self.legal_swaps,
+            "basis": "Hindsight optimal total across the full lineup; individual swaps are independent, not additive.",
         }
 
 
@@ -90,6 +91,7 @@ class RecapFacts:
     heroes: list[PlayerLine]
     goats: list[PlayerLine]
     busts: list[PlayerLine]
+    lineups: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -105,6 +107,7 @@ class RecapFacts:
             "heroes": [p.to_dict() for p in self.heroes],
             "goats": [p.to_dict() for p in self.goats],
             "busts": [p.to_dict() for p in self.busts],
+            "lineups": self.lineups,
         }
 
 

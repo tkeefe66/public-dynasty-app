@@ -54,7 +54,8 @@ def advance_standings(rosters, results):
     return list(by_id.values())
 
 
-async def generate_analyst(client, entry, cache_dir: Path, *, skip_llm=False, writer=None):
+async def generate_analyst(client, entry, cache_dir: Path, *, skip_llm=False, writer=None,
+                           correction_week: int | None = None, correction_reason: str | None = None):
     """Catch up missing regular-season editions in order; retry on next refresh.
 
 No historic-season bulk generation. The first current-season refresh catches up
@@ -76,7 +77,12 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                 return
             last_week = min(int(state.get("week", 0)) - 1, (league.playoff_week_start or 15) - 1, 18)
             existing = {(d["season"], d["week"]) for d in store.editions(league_id)}
-            if not any((league.season, w) not in existing for w in range(1, last_week + 1)):
+            if correction_week is not None:
+                if not correction_reason or not correction_reason.strip():
+                    raise ValueError("Explicit correction requires a reader-visible reason")
+                if not 1 <= correction_week <= last_week or (league.season, correction_week) not in existing:
+                    raise ValueError("Only an already published completed week can be corrected")
+            elif not any((league.season, w) not in existing for w in range(1, last_week + 1)):
                 return
             rosters = await client.get_rosters(league_id)
             overrides = NameOverrideStore(cache_dir=cache_dir).read(league_id)
@@ -92,7 +98,9 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                 if not complete_results(results, rosters, week):
                     raise ValueError(f"Week {week} results are incomplete; retry after Sleeper scores every matchup")
                 rosters = advance_standings(rosters, results)
-                if (league.season, week) in existing:
+                if correction_week is not None and week != correction_week:
+                    continue
+                if correction_week is None and (league.season, week) in existing:
                     continue
                 if writer is None:
                     from app.services.refresh_service import _llm_over_budget
@@ -119,14 +127,19 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                 markdown = await asyncio.to_thread(active_writer.write, facts, lore=lore, outlook=outlook)
                 if not isinstance(markdown, str) or not markdown.strip():
                     raise ValueError("Analyst returned empty text; retry on next refresh")
-                store.save(league_id, {
+                edition = {
                     "season": league.season, "week": week, "league_name": league.name,
                     "generated_at": datetime.now(timezone.utc).isoformat(),
                     "model": active_writer.model, "markdown": markdown.strip(),
                     "facts": facts.to_dict(),
                     "outlook": outlook.to_dict() if outlook else None,
                     "lore": lore,
-                })
+                }
+                if correction_week is not None:
+                    # Already holds the generation claim; retain it through publication.
+                    store.save_correction(league_id, edition, correction_reason, claimed=True)
+                else:
+                    store.save(league_id, edition)
                 log.info("Saved Analyst league=%s season=%s week=%s", league_id, league.season, week)
     except Exception:
         log.exception("Analyst generation failed for %s; saved editions preserved; retry on next refresh", league_id)

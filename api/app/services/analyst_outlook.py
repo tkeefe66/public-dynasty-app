@@ -6,7 +6,7 @@ from sleeper_dynasty.api.projections import normalize_projection
 from sleeper_dynasty.api.weather import fetch_game_weather
 from sleeper_dynasty.engine.lineup import solve_optimal_lineup
 from sleeper_dynasty.engine.outlook import build_matchup_previews, build_weather_notes
-from sleeper_dynasty.models.recap import ByeTrouble, OutlookFacts
+from sleeper_dynasty.models.recap import OutlookFacts
 
 log = logging.getLogger(__name__)
 
@@ -35,15 +35,9 @@ async def upcoming_outlook(client, league, week, rosters, players):
         outlook = OutlookFacts(week=week, matchups=previews, byes=[], weather=[], playoff_stakes=[])
         try:
             games = await fetch_week_schedule(league.season, week)
-            playing = {g[side] for g in games for side in ("home", "away")}
-            # Only infer byes from a substantive schedule; an empty/partial
-            # response cannot turn every roster into a bye-week disaster.
-            if len(games) >= 12:
-                for roster in rosters:
-                    idle = [players[p].full_name for p in roster.players
-                            if p in players and players[p].team and players[p].team not in playing]
-                    if idle:
-                        outlook.byes.append(ByeTrouble(names[roster.roster_id], idle, None, None))
+            # Absence from a scoreboard is not affirmative evidence of a bye:
+            # feeds can be partial, and ESPN WSH != Sleeper WAS. Until we have
+            # an explicit, season/week-verified bye source, omit these claims.
             weather = {}
             for game in games:
                 if not game.get("indoor"):

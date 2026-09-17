@@ -11,7 +11,7 @@ import json
 import os
 import re
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -27,6 +27,9 @@ class AnalystEdition(BaseModel):
     facts: dict
     outlook: dict | None = None
     lore: str | None = None
+    revision: int = Field(default=1, ge=1)
+    correction_note: str | None = None
+    original_markdown: str | None = None
 
 
 class AnalystStore:
@@ -44,8 +47,19 @@ class AnalystStore:
         return self.league_dir(league_id) / f"{season}-{week:02d}.json"
 
     def editions(self, league_id: str) -> list[dict]:
-        return [AnalystEdition.model_validate_json(p.read_text()).model_dump()
-                for p in sorted(self.league_dir(league_id).glob("*.json"), reverse=True)]
+        editions = []
+        for p in sorted(self.league_dir(league_id).glob("*.json"), reverse=True):
+            original = AnalystEdition.model_validate_json(p.read_text()).model_dump()
+            revisions = sorted((p.parent / "revisions" / p.stem).glob("*.json"))
+            if revisions:
+                latest = AnalystEdition.model_validate_json(revisions[-1].read_text()).model_dump()
+                if (latest["season"], latest["week"]) != (original["season"], original["week"]):
+                    raise ValueError("Analyst revision belongs to a different edition")
+                latest["original_markdown"] = original["markdown"]
+                editions.append(latest)
+            else:
+                editions.append(original)
+        return editions
 
     @contextmanager
     def claim(self, league_id: str):
@@ -65,6 +79,27 @@ class AnalystStore:
     def save(self, league_id: str, edition: dict) -> None:
         data = AnalystEdition.model_validate(edition).model_dump()
         path = self.edition_path(league_id, data["season"], data["week"])
+        self._write_once(path, data)
+
+    def save_correction(self, league_id: str, edition: dict, reason: str, *, claimed: bool = False) -> None:
+        """Explicit operator correction; never called by automatic generation."""
+        if not reason.strip():
+            raise ValueError("A correction needs a reader-visible reason")
+        data = AnalystEdition.model_validate(edition).model_dump()
+        with (nullcontext(True) if claimed else self.claim(league_id)) as acquired:
+            if not acquired:
+                raise RuntimeError("Analyst generation is in progress; retry correction later")
+            current = next((e for e in self.editions(league_id)
+                            if (e["season"], e["week"]) == (data["season"], data["week"])), None)
+            if current is None:
+                raise ValueError("Cannot correct an edition that has not been published")
+            data.update(revision=current["revision"] + 1, correction_note=reason.strip(), original_markdown=None)
+            original = self.edition_path(league_id, data["season"], data["week"])
+            path = original.parent / "revisions" / original.stem / f'{data["revision"]:06d}.json'
+            self._write_once(path, data)
+
+    @staticmethod
+    def _write_once(path: Path, data: dict) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         # Hard-link a fully flushed temp file. Unlike replace(), link() can
         # never overwrite an existing edition, even outside the claim lock.

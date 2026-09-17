@@ -65,6 +65,9 @@ export interface AnalystEdition {
   generated_at: string;
   model: string;
   markdown: string;
+  revision?: number;
+  correction_note?: string | null;
+  original_markdown?: string | null;
 }
 
 export function analystArchive(leagueId: string): Promise<{ editions: AnalystEdition[] }> {

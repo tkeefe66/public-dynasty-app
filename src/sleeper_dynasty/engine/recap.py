@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from sleeper_dynasty.engine.lineup import solve_optimal_lineup
+from sleeper_dynasty.engine.lineup import BENCH_SLOTS, SLOT_ELIGIBILITY, solve_optimal_lineup
 from sleeper_dynasty.models.league import MatchupResult, Roster
 from sleeper_dynasty.models.player import Player
 from sleeper_dynasty.models.recap import (
@@ -140,6 +140,23 @@ def build_bench_regret(
     hero_pid, hero_pts = max(benched, key=lambda x: x[1])
     dud_pid, dud_pts = min(started, key=lambda x: x[1])
 
+    swaps = []
+    slots = [s for s in roster_positions if s not in BENCH_SLOTS]
+    # Sleeper's starters array is ordered by league starter slot. Do not
+    # infer a swap when a malformed response has lost that correspondence.
+    if len(slots) == len(result.starters):
+        for slot, starter in zip(slots, result.starters):
+            for bench, points in benched:
+                gain = round(points - result.players_points.get(starter, 0.0), 2)
+                if positions_by_player.get(bench) in SLOT_ELIGIBILITY.get(slot, set()) and gain > 0:
+                    swaps.append({
+                        "slot": slot,
+                        "benched_player": PlayerLine(bench, owner, points, positions_by_player.get(bench)).to_dict(),
+                        "started_player": PlayerLine(starter, owner, result.players_points.get(starter, 0.0), positions_by_player.get(starter)).to_dict(),
+                        "points_gained": gain,
+                    })
+    swaps.sort(key=lambda s: s["points_gained"], reverse=True)
+
     return BenchRegret(
         owner=owner,
         points_left_on_bench=left,
@@ -151,6 +168,7 @@ def build_bench_regret(
             player=dud_pid, owner=owner, points=dud_pts,
             position=positions_by_player.get(dud_pid),
         ),
+        legal_swaps=swaps[:3],
     )
 
 
@@ -326,6 +344,9 @@ def build_recap_facts(
     for reg in regrets:
         _resolve_line(reg.benched_hero, players)
         _resolve_line(reg.started_dud, players)
+        for swap in reg.legal_swaps:
+            for key in ("benched_player", "started_player"):
+                swap[key]["player"] = _player_label(swap[key]["player"], players)
 
     return RecapFacts(
         week=week,
@@ -340,4 +361,10 @@ def build_recap_facts(
         heroes=heroes,
         goats=goats,
         busts=busts,
+        lineups=[{
+            "owner": owner_by_roster.get(r.roster_id, "Unknown"),
+            "starters": [PlayerLine(_player_label(p, players), owner_by_roster.get(r.roster_id, "Unknown"),
+                                   r.players_points.get(p, 0), positions_by_player.get(p)).to_dict()
+                         for p in r.starters if p != "0"],
+        } for r in results],
     )

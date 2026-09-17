@@ -91,6 +91,21 @@ def test_bench_regret_none_when_lineup_optimal():
     assert regret is None
 
 
+def test_bench_packet_describes_legal_swap_not_unrelated_lowest_scorer():
+    # Mutation: pair the highest bench QB with the lowest-scoring TE.
+    result = _result(1, 1, 1, 21.66, ["qb", "te"],
+                     {"qb": 21.66, "te": 0, "bench": 38.44})
+    regret = build_bench_regret(result, ["QB", "TE"],
+                              {"qb": "QB", "te": "TE", "bench": "QB"}, "Owner")
+    packet = regret.to_dict()
+    assert packet["legal_swaps"] == [{
+        "slot": "QB", "benched_player": {"player": "bench", "owner": "Owner", "points": 38.44, "position": "QB"},
+        "started_player": {"player": "qb", "owner": "Owner", "points": 21.66, "position": "QB"},
+        "points_gained": 16.78,
+    }]
+    assert "started_dud" not in packet
+
+
 from sleeper_dynasty.engine.recap import build_luck_notes
 
 
