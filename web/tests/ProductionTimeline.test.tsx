@@ -108,14 +108,62 @@ test("phase rail (not an amber band) marks postseason weeks", () => {
   expect(postRect).not.toHaveAttribute("opacity");
 });
 
-test("measures divide the plot whole: 5 desktop rules over multiples of 100", () => {
+function axisValues(plot: Element) {
+  return Array.from(plot.querySelectorAll('text[text-anchor="end"]'))
+    .map((text) => text.textContent ?? "")
+    .filter((text) => /^[\d,.]+$/.test(text))
+    .map((text) => Number(text.replaceAll(",", "")));
+}
+
+test.each([0.18, 25, 32.2, 100, 4321])("fits a %s-point total to the available height on both viewports", (max) => {
+  // Mutation caught: restoring the 100/150-point tick floor flattens small totals.
+  const scaled = lines.map((line) => ({ ...line, byMetric: {
+    ...line.byMetric,
+    total: line.byMetric.total.map((p) => ({ ...p, value: p.value * max / 25 })),
+  } }));
   const { container } = render(
-    <ProductionTimeline axis={axis} lines={lines} defaultMetric="total" />,
+    <ProductionTimeline axis={axis} lines={scaled} defaultMetric="total" />,
   );
-  const desktop = within(desktopPlot(container));
-  // max value is 25 -> step is the smallest multiple of 100 that covers it
-  // over 5 rules, i.e. 100 -> measures are 500,400,300,200,100,0.
-  ["500", "400", "300", "200", "100", "0"].forEach((v) => {
-    expect(desktop.getByText(v)).toBeInTheDocument();
-  });
+  for (const plot of container.querySelectorAll('[data-variant]')) {
+    const ticks = axisValues(plot);
+    expect(ticks.at(-1)).toBe(0);
+    expect(ticks[0]).toBeGreaterThan(max); // headroom above the peak
+    expect(ticks[0]).toBeLessThanOrEqual(max * 2.5);
+    expect(new Set(ticks).size).toBe(ticks.length);
+    const points = plot.querySelector("polyline")!.getAttribute("points")!
+      .split(" ").map((point) => Number(point.split(",")[1]));
+    const gridY = Array.from(plot.querySelectorAll('line[x1]'))
+      .slice(0, ticks.length).map((line) => Number(line.getAttribute("y1")));
+    expect((points[0] - points.at(-1)!) / (gridY.at(-1)! - gridY[0])).toBeGreaterThanOrEqual(0.4);
+  }
+});
+
+test("rescales when switching metrics or hiding the larger side", () => {
+  // Mutation caught: computing the range from hidden metrics or hidden sides.
+  const mixed = lines.map((line) => ({ ...line, byMetric: {
+    ...line.byMetric,
+    started: line.byMetric.total.map((p) => ({ ...p, value: p.value / 100 })),
+  } }));
+  const { container, rerender } = render(<ProductionTimeline axis={axis} lines={mixed} defaultMetric="total" />);
+  const totalTop = axisValues(desktopPlot(container))[0];
+  fireEvent.click(screen.getByRole("button", { name: /started/i }));
+  expect(axisValues(desktopPlot(container))[0]).toBeLessThan(totalTop / 10);
+  fireEvent.click(screen.getByRole("button", { name: /total/i }));
+  expect(axisValues(desktopPlot(container))[0]).toBe(totalTop);
+  rerender(<ProductionTimeline axis={axis} lines={[mixed[1]]} defaultMetric="total" />);
+  expect(axisValues(desktopPlot(container))[0]).toBeLessThan(totalTop);
+});
+
+test.each([0, 24.9, 25])("keeps endpoint labels readable when the second side ends at %s", (value) => {
+  // Mutation caught: anchoring every label directly at its endpoint overlaps close/tied scores.
+  const close = [lines[0], { ...lines[1], byMetric: {
+    ...lines[1].byMetric,
+    total: lines[1].byMetric.total.map((p, i) => ({ ...p, value: i ? value : 0 })),
+  } }];
+  const { container } = render(<ProductionTimeline axis={axis} lines={close} defaultMetric="total" />);
+  const plot = desktopPlot(container);
+  const labelY = ["Tom", "Mikey"].map((name) => Number(within(plot).getByText(name).getAttribute("y")));
+  expect(Math.abs(labelY[0] - labelY[1])).toBeGreaterThanOrEqual(30);
+  const baseline = Number(within(plot).getByText("0").getAttribute("y")) - 4;
+  expect(Math.max(...labelY) + 13).toBeLessThanOrEqual(baseline);
 });

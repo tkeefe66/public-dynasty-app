@@ -5,23 +5,19 @@ import type { ProductionMetric, ProductionPoint } from "../lib/types";
 import { SegmentControl } from "./SegmentControl";
 
 /* ---------------------------------------------------------------------------
- * THE PLOT — design_handoff_agate/DESIGN.md § "The Plot" + CLAUDE_CODE.md
- * § Commit 5 + Agate System.dc.html §05. Ink on ground, no hue anywhere:
- *   - Series are told apart by STROKE WEIGHT, not color — 2.5px solid ink
- *     for the metric's winner, 1.25px dashed for the other side(s). A solo
- *     line (the owner page's single-side view) is always solid.
+ * Production plot — Furniture identity strokes, with heavier weight for the
+ * metric's winner. Both sides share a zero-based scale fitted to visible data.
  *   - No legend. Each line is labelled at its own right end with the owner
- *     (Archivo 700 13px) and final figure (mono 10px) — the plot's own right
- *     gutter. Mobile has no room there, so the two labels stack above the
- *     plot instead (still naming the stroke via a mini swatch, still no key).
+ *     and final figure in the right gutter. Nearby labels separate vertically
+ *     and connect back to their endpoints. Mobile labels stack above the plot
+ *     instead (still naming the stroke via a mini swatch, still no key).
  *   - The phase rail (one 26px rule under the axis, solid ink for postseason
  *     weeks, empty for regular) replaces the old amber playoff band AND the
  *     per-side injury tints — injury context still lives in the page's own
  *     Injury Impact block, just not painted onto the chart.
- *   - Plot height is a whole number of 26px rules — five desktop, three
- *     mobile — so gridlines share the ledger's own pitch. Measures divide
- *     whole: the step is the smallest multiple of 100 (desktop) / 150
- *     (mobile) such that step * rules covers the data's max.
+ *   - Plot height starts at five 26px rules on desktop, three on mobile,
+ *     and grows to fit extra labels. Tick intervals use readable steps, with
+ *     headroom above the peak rather than a fixed minimum point range.
  * ------------------------------------------------------------------------ */
 
 /** The identity STROKE ramp, by series position. Six values, and a plot never
@@ -68,15 +64,18 @@ const DISPLAY = "var(--font-bricolage), 'Bricolage Grotesque', system-ui, sans-s
 // Geometry per breakpoint. Desktop reserves a right gutter for the
 // end-of-line labels; mobile has none (labels stack above the plot instead).
 const GEOM = {
-  desktop: { w: 1080, padL: 46, padR: 118, padT: 18, rules: 5, base: 100 },
-  mobile: { w: 360, padL: 40, padR: 14, padT: 20, rules: 3, base: 150 },
+  desktop: { w: 1080, padL: 46, padR: 118, padT: 18, rules: 5 },
+  mobile: { w: 360, padL: 40, padR: 14, padT: 20, rules: 3 },
 } as const;
 type Variant = keyof typeof GEOM;
 const RULE = 26; // --rule-pitch, mirrored here since SVG can't read the token.
 
-function measureStep(max: number, rules: number, base: number): number {
-  if (max <= 0) return base;
-  return Math.ceil(max / rules / base) * base;
+function measureStep(max: number, rules: number): number {
+  if (max <= 0) return 1;
+  const target = (max * 1.1) / rules;
+  const magnitude = 10 ** Math.floor(Math.log10(target));
+  const step = [1, 2, 2.5, 5, 10].find((factor) => factor * magnitude >= target)!;
+  return step * magnitude;
 }
 
 function fmtFigure(v: number): string {
@@ -122,9 +121,8 @@ export function ProductionTimeline({
 
   const max = Math.max(...tSeries.flatMap((s) => s.pts.map((p) => p.value)), 0);
 
-  // The winner's line is solid; every other side is dashed. A solo line
-  // (owner page's "Got" / "Gave" solo view) is always solid — there's no
-  // other side to lose to.
+  // The winner's line is heavier. A solo line in the owner's Got/Gave view
+  // receives the same emphasis.
   const finalValue = (pts: ProductionPoint[]) => (pts.length ? pts[pts.length - 1].value : 0);
   const winnerKey = tSeries.length === 0 ? undefined
     : tSeries.length === 1 ? tSeries[0].key
@@ -186,7 +184,8 @@ export function ProductionTimeline({
   function renderPlot(variant: Variant) {
     const g = GEOM[variant];
     const plotW = g.w - g.padL - g.padR;
-    const plotH = RULE * g.rules;
+    const labelGap = 32;
+    const plotH = Math.max(RULE * g.rules, variant === "desktop" ? (tSeries.length - 1) * labelGap + 24 : 0);
     const baselineY = g.padT + plotH;
     const railY = baselineY + 24;
     const railH = 17;
@@ -194,13 +193,28 @@ export function ProductionTimeline({
     const plotRight = g.w - g.padR;
 
     const x = (i: number) => (n <= 1 ? g.padL : g.padL + (i / (n - 1)) * plotW);
-    const step = measureStep(max, g.rules, g.base);
+    const step = measureStep(max, g.rules);
     const topVal = step * g.rules;
     const y = (v: number) => g.padT + plotH - (topVal > 0 ? (v / topVal) * plotH : 0);
-    const measures = Array.from({ length: g.rules + 1 }, (_, k) => topVal - k * step);
+    const measures = Array.from({ length: g.rules + 1 }, (_, k) => Number(((g.rules - k) * step).toPrecision(12)));
+    const tickDigits = Math.min(20, Math.max(0, 1 - Math.floor(Math.log10(step))));
     const path = (pts: ProductionPoint[]) => pts.map((p, i) => `${x(i)},${y(p.value)}`).join(" ");
     const xticks = variant === "desktop" ? desktopTicks(x) : mobileTicks();
     const segs = phaseSegments(x, g.padL, plotRight);
+
+    // Keep each owner + score together, away from neighboring labels and
+    // the week axis. Sorting preserves vertical order; connectors keep the
+    // true endpoint visible even when its label needs to move.
+    const endLabels = tSeries.flatMap((s, si) => s.pts.length ? [{
+      s, si, cy: y(finalValue(s.pts)), labelY: y(finalValue(s.pts)),
+    }] : []).sort((a, b) => a.cy - b.cy);
+    endLabels.forEach((label, i) => {
+      label.labelY = Math.max(label.cy, i ? endLabels[i - 1].labelY + labelGap : g.padT + 12);
+    });
+    for (let i = endLabels.length - 1; i >= 0; i--) {
+      endLabels[i].labelY = Math.min(endLabels[i].labelY,
+        i === endLabels.length - 1 ? baselineY - 12 : endLabels[i + 1].labelY - labelGap);
+    }
 
     return (
       <svg viewBox={`0 0 ${g.w} ${H}`} width="100%" role="img"
@@ -210,7 +224,7 @@ export function ProductionTimeline({
             <line x1={g.padL} y1={y(v)} x2={plotRight} y2={y(v)}
                   stroke={i === measures.length - 1 ? "var(--ink)" : "var(--rule)"} strokeWidth="1" />
             <text x={g.padL - 8} y={y(v) + 4} textAnchor="end" fill="var(--dim)"
-                  fontFamily={MONO} fontSize="10">{v.toLocaleString()}</text>
+                  fontFamily={MONO} fontSize="10">{v.toLocaleString(undefined, { maximumFractionDigits: tickDigits })}</text>
           </g>
         ))}
 
@@ -299,18 +313,16 @@ export function ProductionTimeline({
 
             {/* end-of-line labels — the plot's own right gutter. Mobile has
                 none; its labels stack above the plot instead (see JSX below). */}
-            {variant === "desktop" && tSeries.map((s) => {
-              if (s.pts.length === 0) return null;
+            {variant === "desktop" && endLabels.map(({ s, si, cy, labelY }) => {
               const solid = s.key === winnerKey;
-              const cy = y(s.pts[s.pts.length - 1].value);
               const stubX2 = plotRight + 10;
               return (
                 <g key={`${s.key}-end`}>
-                  <line x1={plotRight} y1={cy} x2={stubX2} y2={cy} stroke="var(--ink)"
-                        strokeWidth={solid ? 2.5 : 1.25} strokeDasharray={solid ? undefined : "5 3"} />
-                  <text x={stubX2 + 6} y={cy - 2} fill="var(--ink)" fontFamily={DISPLAY} fontSize="13"
+                  <path d={`M ${plotRight} ${cy} L ${plotRight + 4} ${cy} L ${stubX2} ${labelY}`}
+                        fill="none" stroke={seriesStroke(si)} strokeWidth={solid ? 2.5 : 1.75} />
+                  <text x={stubX2 + 6} y={labelY - 2} fill="var(--ink)" fontFamily={DISPLAY} fontSize="13"
                         fontWeight="700" letterSpacing="-0.02em">{s.label}</text>
-                  <text x={stubX2 + 6} y={cy + 11} fill="var(--dim)" fontFamily={MONO} fontSize="10">
+                  <text x={stubX2 + 6} y={labelY + 11} fill="var(--dim)" fontFamily={MONO} fontSize="10">
                     {fmtFigure(s.pts[s.pts.length - 1].value)}
                   </text>
                 </g>
