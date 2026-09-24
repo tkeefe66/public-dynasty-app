@@ -1,7 +1,7 @@
 import json
+from importlib import import_module
 
 import anthropic
-import httpx
 import pytest
 
 from sleeper_dynasty.llm.cost_store import LlmCostStore
@@ -70,6 +70,15 @@ def _verdict(value=None, *, name="submit_recap_review"):
 
 @pytest.fixture
 def writer_factory():
+    # Anthropic 1.x uses httpx2; older supported SDKs use httpx. Build the
+    # transport with the installed SDK's public default client's HTTP package.
+    http = import_module(
+        next(
+            base.__module__.split(".")[0]
+            for base in anthropic.DefaultHttpxClient.__mro__
+            if base.__name__ == "Client"
+        )
+    )
     clients = []
 
     def make(responses, *, cost_store=None):
@@ -83,12 +92,14 @@ def writer_factory():
             response = responses[index]
             if callable(response):
                 response = response(payload)
-            return httpx.Response(200, json=response)
+            return http.Response(200, json=response)
 
         client = anthropic.Anthropic(
             api_key="test",
             max_retries=0,
-            http_client=httpx.Client(transport=httpx.MockTransport(handle)),
+            http_client=anthropic.DefaultHttpxClient(
+                transport=http.MockTransport(handle)
+            ),
         )
         writer = RecapWriter(
             api_key="test", cost_store=cost_store, league_id="test-league"
