@@ -76,7 +76,7 @@ export function AnalystArchive({ leagueId, editions, selected }: {
             </header>
             <Article markdown={edition.markdown} />
             {edition.original_markdown && <details className="mt-8 border-t border-rule pt-4">
-              <summary className="min-h-tap cursor-pointer text-sm text-dim">View original edition (contains corrected errors)</summary>
+              <summary className="min-h-tap cursor-pointer text-sm text-dim">View original edition</summary>
               <Article markdown={edition.original_markdown} />
             </details>}
           </> : <>

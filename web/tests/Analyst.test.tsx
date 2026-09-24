@@ -16,7 +16,7 @@ describe("The Analyst", () => {
       ...editions[0], revision: 2, correction_note: "Corrected ownership.", original_markdown: "Original draft.",
     }]} />);
     expect(screen.getByText("Corrected ownership.")).toBeInTheDocument();
-    expect(screen.getByText("View original edition (contains corrected errors)")).toBeInTheDocument();
+    expect(screen.getByText("View original edition")).toBeInTheDocument();
     expect(screen.getByText("Original draft.")).toBeInTheDocument();
   });
   it("links the homepage recap to its own league archive", () => {
