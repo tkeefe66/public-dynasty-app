@@ -163,11 +163,17 @@ edition can include an upcoming-week preview using that week's projections;
 missed-week recaps omit forecasts rather than treating today's forecast as
 historical knowledge. Forecast failures do not prevent saving the recap.
 
-Drafts now require a separate factual-review call before publication. Rejected,
-malformed, unavailable, or truncated reviews leave the edition unpublished.
-Draft and review usage are attributed separately (`recap` / `recap_review`).
+Haiku drafts require a separate Sonnet factual review before publication. An
+actionable rejection gets one correction using the original facts and reviewer
+feedback, followed by a fresh review of the corrected draft. A second rejection,
+malformed verdict, provider error, or truncation leaves the edition unpublished.
+Each attempt makes at most four generation calls with five-minute request
+timeouts and no automatic SDK retries. A timeout logs unknown provider usage;
+it is not treated as a free call. Usage is attributed to the actual model and
+stage (`recap`, `recap_repair`, `recap_review`).
 This model-based check is a safeguard, not a guarantee of factual correctness.
-The packet includes starter ownership and legal, independent bench substitutions.
+The packet includes starter ownership and legal, independent bench substitutions,
+with each substitution's resulting score, margin, and win/tie/loss computed in Python.
 Bye alerts are omitted until an explicit verified bye source is available;
 absence from a scoreboard is not evidence of a bye.
 

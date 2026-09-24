@@ -1,7 +1,7 @@
 import pytest
 
+from sleeper_dynasty.engine.recap import build_matchup_recaps
 from sleeper_dynasty.models.league import MatchupResult
-from sleeper_dynasty.engine.recap import build_matchup_recaps, OWNER_BY_ROSTER
 
 
 def _result(week, mid, rid, pts, starters=None, pp=None):
@@ -20,7 +20,7 @@ def test_pairs_by_matchup_id_and_flags_blowout():
         _result(9, 1, 1, 142.3), _result(9, 1, 2, 98.1),
         _result(9, 2, 3, 100.0), _result(9, 2, 4, 97.0),
     ]
-    recaps, high, low = build_matchup_recaps(results, OWNERS)
+    recaps, _high, _low = build_matchup_recaps(results, OWNERS)
     blowout = next(r for r in recaps if r.winner == "Team A")
     assert blowout.loser == "Team B"
     assert blowout.margin == pytest.approx(44.2)
@@ -142,7 +142,7 @@ def test_heroes_and_goats_rank_starters_only():
     ]
     owners = {1: "A", 2: "B"}
     positions = {"p1": "WR", "p2": "RB", "p3": "QB", "p4": "TE"}
-    heroes, goats, busts = build_player_beats(
+    heroes, goats, _busts = build_player_beats(
         results, owners, positions, projections={}
     )
     # p3 has 99 but was BENCHED -> excluded. p1 (41) is top hero.
@@ -157,7 +157,7 @@ def test_busts_flag_underperformers_vs_projection():
         MatchupResult(9, 1, 1, 50.0, starters=["p1"], players=["p1"],
                       players_points={"p1": 4.0}),
     ]
-    heroes, goats, busts = build_player_beats(
+    _heroes, _goats, busts = build_player_beats(
         results, {1: "A"}, {"p1": "WR"}, projections={"p1": 22.0}
     )
     assert busts[0].player == "p1"
@@ -216,3 +216,63 @@ def test_build_recap_facts_resolves_names_and_nests():
     assert facts.heroes[0].player == "Josh Allen (QB, BUF)"
     # Bench regret hero name resolved too.
     assert facts.bench_regret[0].benched_hero.player == "Bench Star (WR, MIA)"
+
+
+@pytest.mark.parametrize(
+    "opponent_points, result_after, margin",
+    [
+        (112.58, "win", 2.42),
+        (115.0, "tie", 0.0),
+        (115.01, "loss", -0.01),
+    ],
+)
+def test_swap_result_is_computed_from_one_gain_and_exact_matchup(
+    opponent_points, result_after, margin
+):
+    # Mutation: treat a tie as a win, compare against the wrong score, or sum independent swaps.
+    players = {
+        "starter": Player("starter", "Starter", "K", "AAA"),
+        "bench": Player("bench", "Bench", "K", "AAA"),
+        "other_bench": Player("other_bench", "Other Bench", "K", "AAA"),
+        "receiver": Player("receiver", "Receiver", "WR", "AAA"),
+        "opponent": Player("opponent", "Opponent", "WR", "BBB"),
+    }
+    results = [
+        MatchupResult(
+            2,
+            1,
+            1,
+            100.0,
+            ["starter", "receiver"],
+            list(players)[:-1],
+            {"starter": 1, "bench": 16, "other_bench": 10, "receiver": 99},
+        ),
+        MatchupResult(
+            2,
+            1,
+            2,
+            opponent_points,
+            ["opponent"],
+            ["opponent"],
+            {"opponent": opponent_points},
+        ),
+    ]
+    facts = build_recap_facts(
+        2,
+        "Test League",
+        results,
+        [],
+        {1: "A", 2: "B"},
+        players,
+        ["K", "WR", "BN"],
+        {},
+    )
+    swaps = facts.to_dict()["bench_regret"][0]["legal_swaps"]
+    assert swaps[0]["matchup_effect"] == {
+        "team_points": 115.0,
+        "opponent_points": opponent_points,
+        "margin": margin,
+        "result": result_after,
+    }
+    assert swaps[1]["matchup_effect"]["team_points"] == 109.0
+    assert swaps[1]["matchup_effect"]["result"] == "loss"

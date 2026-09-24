@@ -42,6 +42,7 @@ def setup_league():
 async def test_bets_and_standings_reach_writer_and_saved_edition(tmp_path, monkeypatch):
     # Mutation: build context but never pass it to the writer or archive it.
     from dataclasses import replace
+
     from app.services.analyst import generate_analyst
     from app.services.analyst_store import AnalystStore
     client, entry, writer = setup_league()
@@ -66,6 +67,7 @@ async def test_bets_and_standings_reach_writer_and_saved_edition(tmp_path, monke
 async def test_catchup_does_not_backdate_current_bets(tmp_path, monkeypatch):
     # Mutation: attach today's active bets to every missing historical week.
     from dataclasses import replace
+
     from app.services.analyst import generate_analyst
     from app.services.analyst_store import AnalystStore
     client, entry, writer = setup_league()
@@ -206,9 +208,11 @@ async def test_catches_up_weeks_and_survives_cache_invalidation_and_backup(tmp_p
     # Mutation: generate only the latest week, or erase editions during cache reset.
     import tarfile
     from dataclasses import replace
+
     from app.services.analyst import generate_analyst
     from app.services.analyst_store import AnalystStore
     from app.services.backup_service import archive_cache
+
     from sleeper_dynasty.cache import FileCache
     client, entry, writer = setup_league()
     results = client.get_matchup_results.return_value
@@ -231,6 +235,7 @@ async def test_concurrent_refresh_calls_writer_once(tmp_path):
     # Mutation: remove the cross-process generation claim.
     import asyncio
     import time
+
     from app.services.analyst import generate_analyst
     from app.services.analyst_store import AnalystStore
     client, entry, writer = setup_league()
@@ -250,10 +255,76 @@ async def test_concurrent_refresh_calls_writer_once(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_shared_refresh_invokes_generation_after_writing_cache(tmp_path, monkeypatch):
+@pytest.mark.parametrize("approved", [True, False])
+async def test_real_writer_publishes_only_an_approved_correction(tmp_path, approved):
+    # Mutation: save the initial rejected draft or the correction without its final approval.
+    from anthropic.types import Message
+    from app.services.analyst import generate_analyst
+    from app.services.analyst_store import AnalystStore
+
+    from sleeper_dynasty.llm.recap_writer import RecapWriter
+
+    def response(content, stop_reason):
+        return Message.model_validate(
+            {
+                "id": "msg_synthetic",
+                "type": "message",
+                "role": "assistant",
+                "model": "test-model",
+                "content": content,
+                "stop_reason": stop_reason,
+                "stop_sequence": None,
+                "usage": {"input_tokens": 10, "output_tokens": 10},
+            }
+        )
+
+    def verdict(ok):
+        return response(
+            [
+                {
+                    "type": "tool_use",
+                    "id": "toolu_synthetic",
+                    "name": "submit_recap_review",
+                    "input": {
+                        "approved": ok,
+                        "violations": [] if ok else ["Wrong score"],
+                    },
+                }
+            ],
+            "tool_use",
+        )
+
+    client, entry, _ = setup_league()
+    writer = RecapWriter(api_key="test")
+    writer._request = Mock(
+        side_effect=[
+            response(
+                [{"type": "text", "text": "Alice scored 250 points."}], "end_turn"
+            ),
+            verdict(False),
+            response([{"type": "text", "text": "Alice scored 25 points."}], "end_turn"),
+            verdict(approved),
+        ]
+    )
+    try:
+        await generate_analyst(client, entry, tmp_path, writer=writer)
+        saved = AnalystStore(tmp_path).editions("123")
+        assert [e["markdown"] for e in saved] == (
+            ["Alice scored 25 points."] if approved else []
+        )
+        assert writer._request.call_count == 4
+    finally:
+        writer._client.close()
+
+
+@pytest.mark.asyncio
+async def test_shared_refresh_invokes_generation_after_writing_cache(
+    tmp_path, monkeypatch
+):
     # Mutation: implement the generator but never call it from scheduled/manual refresh.
     from app.services import analyst, refresh_service
     from app.services.chain_cache import ChainCache
+
     from tests.test_refresh_service import _entry
     entry = _entry(league_id="123")
     monkeypatch.setattr(refresh_service.GraderService, "run", AsyncMock(return_value=entry))

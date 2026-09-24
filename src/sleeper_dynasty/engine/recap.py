@@ -8,12 +8,21 @@ real past-week Sleeper data.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from sleeper_dynasty.engine.lineup import BENCH_SLOTS, SLOT_ELIGIBILITY, solve_optimal_lineup
+from sleeper_dynasty.engine.lineup import (
+    BENCH_SLOTS,
+    SLOT_ELIGIBILITY,
+    solve_optimal_lineup,
+)
 from sleeper_dynasty.models.league import MatchupResult, Roster
 from sleeper_dynasty.models.player import Player
 from sleeper_dynasty.models.recap import (
-    BenchRegret, LuckNote, MatchupRecap, PlayerLine, RecapFacts,
+    BenchRegret,
+    LuckNote,
+    MatchupRecap,
+    PlayerLine,
+    RecapFacts,
 )
 
 logger = logging.getLogger(__name__)
@@ -140,7 +149,7 @@ def build_bench_regret(
     hero_pid, hero_pts = max(benched, key=lambda x: x[1])
     dud_pid, dud_pts = min(started, key=lambda x: x[1])
 
-    swaps = []
+    swaps: list[dict[str, Any]] = []
     slots = [s for s in roster_positions if s not in BENCH_SLOTS]
     # Sleeper's starters array is ordered by league starter slot. Do not
     # infer a swap when a malformed response has lost that correspondence.
@@ -333,6 +342,34 @@ def build_recap_facts(
             owner_by_roster.get(r.roster_id, "Unknown"),
         )
         if regret is not None:
+            opponents = [
+                opponent
+                for opponent in results
+                if r.matchup_id is not None
+                and opponent.matchup_id == r.matchup_id
+                and opponent.roster_id != r.roster_id
+            ]
+            if (
+                len(opponents) == 1
+                and r.points is not None
+                and opponents[0].points is not None
+            ):
+                opponent_points = opponents[0].points
+                for swap in regret.legal_swaps:
+                    # Each legal swap is an independent hindsight scenario.
+                    # Give both models the computed outcome, not mental arithmetic.
+                    team_points = round(r.points + swap["points_gained"], 2)
+                    margin = round(team_points - opponent_points, 2)
+                    swap["matchup_effect"] = {
+                        "team_points": team_points,
+                        "opponent_points": opponent_points,
+                        "margin": margin,
+                        "result": "win"
+                        if margin > 0
+                        else "loss"
+                        if margin < 0
+                        else "tie",
+                    }
             regrets.append(regret)
     # Most egregious first; keep the worst few.
     regrets.sort(key=lambda b: b.points_left_on_bench, reverse=True)

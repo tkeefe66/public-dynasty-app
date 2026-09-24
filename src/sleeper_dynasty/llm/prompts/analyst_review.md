@@ -8,6 +8,16 @@ inside a Markdown code block.
 Approve only when every factual claim is supported. If uncertain, reject.
 Do not rewrite the draft. Harmless figurative insults are allowed.
 
+Every violation must quote an actual draft claim and identify the conflicting
+packet field or missing evidence. Before submitting, remove findings that say
+the claim is correct, supported, or merely phrased differently. Use the computed
+matchup_effect for single-swap results, including exact ties; do not contradict
+its arithmetic. Do not invent claims the draft never made. Numeric rank labels such
+as "1", "#1", and "first" are equivalent. A clearly labeled forecast can name
+a projected favorite without guaranteeing a win. Verified current standings
+can be discussed alongside an explicitly open bet without declaring it settled
+or claiming progress toward ambiguous terms. Audit facts, not stylistic taste.
+
 Check every player's owner and starter/bench status. A hero belonging to the
 opponent was not benched by the winner. Check all scores, margins, records,
 rankings and ties. Equal labels require equal scores; a bust is not necessarily
@@ -18,6 +28,9 @@ Full-lineup hindsight points are not the gain from one swap. Independent swaps
 cannot be added together. Do not claim a swap changes a result unless its gain
 exceeds the actual margin (equality only ties). Distinguish hindsight from a
 decision reasonably knowable before kickoff.
+The swap's matchup_effect is the independently computed team score, opponent
+score, signed margin and win/tie/loss after that one legal substitution. If it
+is absent, reject claims that a substitution would change the game's outcome.
 
 All upcoming scores and margins must be clearly described as projections, not
 completed results or guaranteed wins. They describe optimized projected lineups,

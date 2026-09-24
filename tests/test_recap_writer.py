@@ -69,7 +69,7 @@ def _verdict(value=None, *, name="submit_recap_review"):
 
 
 @pytest.fixture
-def writer_factory():
+def writer_factory(monkeypatch):
     # Anthropic 1.x uses httpx2; older supported SDKs use httpx. Build the
     # transport with the installed SDK's public default client's HTTP package.
     http = import_module(
@@ -81,32 +81,49 @@ def writer_factory():
     )
     clients = []
 
+    real_client = anthropic.Anthropic
+
     def make(responses, *, cost_store=None):
         requests = []
 
         def handle(request):
             payload = json.loads(request.content)
+            payload["_timeout"] = request.extensions.get("timeout")
             requests.append(payload)
             index = len(requests) - 1
             assert index < len(responses), "Unexpected paid retry"
             response = responses[index]
+            if response == "timeout":
+                raise http.ReadTimeout("Synthetic provider timeout", request=request)
+            if isinstance(response, int):
+                return http.Response(
+                    response,
+                    json={
+                        "type": "error",
+                        "error": {
+                            "type": "rate_limit_error",
+                            "message": "Synthetic provider failure",
+                        },
+                    },
+                )
             if callable(response):
                 response = response(payload)
             return http.Response(200, json=response)
 
-        client = anthropic.Anthropic(
-            api_key="test",
-            max_retries=0,
-            http_client=anthropic.DefaultHttpxClient(
-                transport=http.MockTransport(handle)
+        monkeypatch.setattr(
+            anthropic,
+            "Anthropic",
+            lambda **kwargs: real_client(
+                **kwargs,
+                http_client=anthropic.DefaultHttpxClient(
+                    transport=http.MockTransport(handle)
+                ),
             ),
         )
         writer = RecapWriter(
             api_key="test", cost_store=cost_store, league_id="test-league"
         )
-        writer._client.close()
-        writer._client = client
-        clients.append(client)
+        clients.append(writer._client)
         return writer, requests
 
     yield make
@@ -192,11 +209,14 @@ def test_full_length_recap_finishes_without_a_paid_retry(writer_factory):
 @pytest.mark.parametrize(
     "verdict",
     [
-        {"approved": False, "violations": ["Wrong player ownership"]},
+        {"approved": False, "violations": []},
         {"approved": True, "violations": ["Illegal QB for TE swap"]},
         {"approved": "true", "violations": []},
         {"approved": 1, "violations": []},
         {"approved": True},
+        {"approved": False, "violations": [""]},
+        {"approved": False, "violations": "Wrong score"},
+        {"approved": False, "violations": [42]},
         {},
     ],
 )
@@ -259,7 +279,9 @@ def test_truncation_blocks_publication_and_still_records_cost(
     assert [r["writer"] for r in records] == (
         ["recap"] if stage == "recap" else ["recap", "recap_review"]
     )
-    assert all(r["cost_usd"] == 0.0023 for r in records)
+    assert [r["cost_usd"] for r in records] == (
+        [0.0023] if stage == "recap" else [0.0023, 0.0069]
+    )
     assert len(requests) == len(responses)
 
 
@@ -276,6 +298,114 @@ def test_write_records_both_stages_in_real_cost_ledger(writer_factory, tmp_path)
     writer.write(_facts())
     records = store.read_all()
     assert [r["writer"] for r in records] == ["recap", "recap_review"]
-    assert all(
-        r["league_id"] == "test-league" and r["cost_usd"] == 0.0023 for r in records
+    assert all(r["league_id"] == "test-league" for r in records)
+    assert [r["model"] for r in records] == [
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-6",
+    ]
+    assert [r["cost_usd"] for r in records] == [0.0023, 0.0069]
+
+
+def test_review_uses_sonnet_and_longer_deadline(writer_factory):
+    # Mutation: send factual review to the draft model, or retain the 90-second timeout.
+    writer, requests = writer_factory(
+        [
+            _message([_text("Draft")]),
+            _message([_verdict()], stop_reason="tool_use"),
+        ]
     )
+    writer.write(_facts())
+    assert requests[0]["model"] == "claude-haiku-4-5-20251001"
+    assert requests[1]["model"] == "claude-sonnet-4-6"
+    assert all(request["_timeout"]["read"] == 300 for request in requests)
+
+
+def test_rejection_is_corrected_with_evidence_then_reviewed_again(
+    writer_factory, tmp_path
+):
+    # Mutation: return the rejected draft, omit its feedback, or skip the corrected review.
+    violations = ["The packet says 158 points; the draft says 185."]
+    store = LlmCostStore(tmp_path)
+    writer, requests = writer_factory(
+        [
+            _message([_text("Team A scored 185 points.")]),
+            _message(
+                [_verdict({"approved": False, "violations": violations})],
+                stop_reason="tool_use",
+            ),
+            _message([_text("Team A scored 158 points.")]),
+            _message([_verdict()], stop_reason="tool_use"),
+        ],
+        cost_store=store,
+    )
+    outlook = OutlookFacts(week=10, matchups=[], byes=[], weather=[], playoff_stakes=[])
+    result = writer.write(_facts(), lore="Team A is my brother.", outlook=outlook)
+    assert result == "Team A scored 158 points."
+    assert len(requests) == 4
+    repair = json.dumps(requests[2]["messages"])
+    assert "185 points" in repair and violations[0] in repair
+    assert "158.0" in repair and "my brother" in repair and "OUTLOOK" in repair
+    review = json.loads(requests[3]["messages"][0]["content"])
+    assert review["draft"] == result
+    assert review["facts"] == _facts().to_dict()
+    assert review["outlook"] == outlook.to_dict()
+    assert [r["writer"] for r in store.read_all()] == [
+        "recap",
+        "recap_review",
+        "recap_repair",
+        "recap_review",
+    ]
+    assert [r["model"] for r in store.read_all()] == [
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-6",
+    ]
+
+
+def test_second_rejection_stops_after_one_correction(writer_factory):
+    # Mutation: keep spending on revisions, or publish despite the second rejection.
+    rejection = _message(
+        [_verdict({"approved": False, "violations": ["Wrong score"]})],
+        stop_reason="tool_use",
+    )
+    writer, requests = writer_factory(
+        [
+            _message([_text("Bad draft")]),
+            rejection,
+            _message([_text("Still bad")]),
+            rejection,
+        ]
+    )
+    with pytest.raises(ValueError, match="after one correction"):
+        writer.write(_facts())
+    assert len(requests) == 4
+
+
+@pytest.mark.parametrize("failure", ["timeout", 429, 500])
+def test_provider_failure_is_not_automatically_retried(writer_factory, failure, caplog):
+    # Mutation: restore SDK retries, multiplying calls after uncertain provider failures.
+    writer, requests = writer_factory([failure])
+    with pytest.raises(anthropic.APIError):
+        writer.write(_facts())
+    assert len(requests) == 1
+    assert "usage unknown" in caplog.text
+
+
+@pytest.mark.parametrize("stage", ["recap_repair", "second_review"])
+def test_failed_correction_never_returns_the_first_draft(writer_factory, stage):
+    # Mutation: fall back to rejected text when correction or its review fails.
+    responses = [
+        _message([_text("Wrong score")]),
+        _message(
+            [_verdict({"approved": False, "violations": ["Wrong score"]})],
+            stop_reason="tool_use",
+        ),
+    ]
+    if stage == "second_review":
+        responses.append(_message([_text("Corrected score")]))
+    responses.append("timeout")
+    writer, requests = writer_factory(responses)
+    with pytest.raises(anthropic.APITimeoutError):
+        writer.write(_facts())
+    assert len(requests) == len(responses)

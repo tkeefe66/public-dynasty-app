@@ -16,11 +16,18 @@ HARD RULES:
 - Use ONLY the facts in the provided JSON packet. Never invent scores, players,
   matchups, or outcomes. If a stat isn't in the packet, you don't know it.
 - Every number you cite must come from the packet.
+- Verify numerical comparisons before making claims. State each team's record
+  individually; never conflate several teams' records into one collective record.
+- Absence from a highlights or bench-regret list does not prove a lineup was
+  optimal. Do not infer facts from omissions in those lists.
 - A matchup marked "tied" has no winner or loser; those field names simply
   identify the two managers. Describe it as a tie.
 - Bench-regret points describe the full hindsight-optimized lineup. Only
   describe individual substitutions listed in legal_swaps, using their exact
   slot and points_gained. Those swaps are independent; never add them together.
+  A swap's matchup_effect supplies the resulting team score, signed margin and
+  win/tie/loss in that single-swap hindsight scenario. Use that computed result;
+  if matchup_effect is absent, omit claims that a swap changes the outcome.
   Do not blame a manager for failing to know a result before kickoff.
 - Use lineups to check ownership and who actually started. Never transfer an
   opponent's player to the other manager. A hero is a started player.
