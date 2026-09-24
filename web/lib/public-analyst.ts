@@ -1,5 +1,6 @@
 import "server-only";
 import { cache } from "react";
+import type { AnalystSource } from "./api";
 
 export const publicAnalyst = cache(async (token: string) => {
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
@@ -9,5 +10,6 @@ export const publicAnalyst = cache(async (token: string) => {
   return response.json() as Promise<{
     season: number; week: number; league_name: string; generated_at: string;
     markdown: string; revision: number; correction_note: string | null;
+    sources?: AnalystSource[]; context_note?: string | null;
   }>;
 });

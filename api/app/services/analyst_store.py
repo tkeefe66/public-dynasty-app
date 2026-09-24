@@ -14,7 +14,25 @@ import tempfile
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from sleeper_dynasty.api.player_context import safe_source_url
+
+
+class AnalystSource(BaseModel):
+    publisher: str
+    title: str
+    published_at: str | None = None
+    url: str | None = None
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def safe_url(cls, value):
+        for domain in ("rotowire.com", "rotoballer.com", "fantasypros.com", "nflverse.com"):
+            safe = safe_source_url(value, domain)
+            if safe:
+                return safe
+        return None
 
 
 class AnalystEdition(BaseModel):
@@ -30,6 +48,8 @@ class AnalystEdition(BaseModel):
     revision: int = Field(default=1, ge=1)
     correction_note: str | None = None
     original_markdown: str | None = None
+    sources: list[AnalystSource] = Field(default_factory=list)
+    context_note: str | None = None
 
 
 class AnalystStore:

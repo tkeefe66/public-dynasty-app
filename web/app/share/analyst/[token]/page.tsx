@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Article } from "@/components/AnalystArchive";
+import { AnalystSources } from "@/components/AnalystSources";
 import { publicAnalyst } from "@/lib/public-analyst";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export default async function SharedAnalyst({ params }: { params: { token: strin
       {edition.correction_note && <p className="mt-3 text-sm text-body"><strong>Corrected edition.</strong> This page shows the latest corrected article.</p>}
     </header>
     <article><Article markdown={edition.markdown} /></article>
+    <AnalystSources sources={edition.sources} note={edition.context_note} />
     <footer className="mt-10 border-t border-rule pt-5 text-sm text-dim">Shared from The Analyst. This link gives access to this recap only.</footer>
   </main>;
 }

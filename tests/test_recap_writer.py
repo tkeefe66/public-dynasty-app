@@ -161,6 +161,22 @@ def test_build_request_includes_outlook_when_present(writer_factory):
     assert '"week": 10' in str(messages)
 
 
+def test_player_context_is_identical_in_draft_and_review(writer_factory):
+    # Mutation: leave news out of serialization or send it only to the writer.
+    facts = _facts()
+    facts.player_context = {"players": [{"player": "Test QB", "usage": {"offense_snaps": 3},
+                                         "news": [{"text": "Left with knee injury"}]}]}
+    writer, requests = writer_factory([
+        _message([_text("The quarterback's injury shortened his outing.")]),
+        _message([_verdict()], stop_reason="tool_use"),
+    ])
+    writer.write(facts)
+    draft_text = requests[0]["messages"][0]["content"][0]["text"]
+    draft = json.loads(draft_text.split("```json\n")[1].split("\n```")[0])
+    review = json.loads(requests[1]["messages"][0]["content"])
+    assert draft["player_context"] == facts.player_context == review["facts"]["player_context"]
+
+
 def test_write_requires_structured_review_and_returns_sanitized_draft(writer_factory):
     # Mutation: request unstructured JSON text, or parse review text instead of tool input.
     def review_response(request):

@@ -22,6 +22,17 @@ from app.services.chain_cache import ChainCacheEntry
 FAKE_USER = SimpleNamespace(id="test-user", email="admin@test.local", is_admin=True)
 
 
+@pytest.fixture(autouse=True)
+def isolate_player_context_network(monkeypatch):
+    """Source tests inject public payloads; no API test reaches real news feeds."""
+    from sleeper_dynasty.api.player_context import PlayerContextClient, SourceUnavailable
+
+    async def refuse(*args, **kwargs):
+        raise SourceUnavailable("Public context networking disabled in tests")
+
+    monkeypatch.setattr(PlayerContextClient, "_request", refuse)
+
+
 # ---------------------------------------------------------------------------
 # Cache-directory isolation — the mirror of ``tests/conftest.py``
 # ---------------------------------------------------------------------------

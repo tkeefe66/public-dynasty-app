@@ -94,6 +94,7 @@ class RecapFacts:
     lineups: list[dict[str, Any]] = field(default_factory=list)
     standings_race: dict[str, Any] = field(default_factory=dict)
     bets: dict[str, Any] = field(default_factory=dict)
+    player_context: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -112,6 +113,7 @@ class RecapFacts:
             "lineups": self.lineups,
             "standings_race": self.standings_race,
             "bets": self.bets,
+            "player_context": self.player_context,
         }
 
 

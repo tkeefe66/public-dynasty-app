@@ -16,6 +16,7 @@ from app.services.name_override_store import NameOverrideStore
 from app.services.profile_store import ProfileStore
 from app.services.analyst_outlook import upcoming_outlook
 from app.services.analyst_bets import load_bets_snapshot
+from app.services.player_context import load_player_context
 from sleeper_dynasty.engine.recap_race import build_race_context
 from sleeper_dynasty.engine.recap import build_recap_facts
 from sleeper_dynasty.api.projections import normalize_projection
@@ -122,6 +123,13 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                     {r.roster_id: r.owner_name for r in rosters}, players,
                     league.roster_positions, projections,
                 )
+                try:
+                    facts.player_context = await load_player_context(
+                        cache_dir, league.season, week, results, players)
+                except Exception:
+                    log.warning("Analyst player context unavailable; using verified scores only", exc_info=True)
+                    facts.player_context = {"players": [], "sources": [],
+                        "note": "Player news and snap context were unavailable for this edition. No explanation for low scores is assumed."}
                 log.info("Generating Analyst league=%s season=%s week=%s", league_id, league.season, week)
                 # Missed weeks get a retrospective only. A current forecast
                 # cannot be presented as what we knew several weeks ago.
@@ -167,6 +175,8 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                     "facts": facts.to_dict(),
                     "outlook": outlook.to_dict() if outlook else None,
                     "lore": lore,
+                    "sources": facts.player_context.get("sources", []),
+                    "context_note": facts.player_context.get("note"),
                 }
                 if correction_week is not None:
                     # Already holds the generation claim; retain it through publication.

@@ -63,3 +63,26 @@ def test_refresh_all_known_noop_when_no_leagues(tmp_path: Path):
 
     asyncio.run(refresh_all_known(tmp_path, _client_factory=FakeClient))
     assert created == []  # no client created when there's nothing to refresh
+
+
+def test_refresh_collects_news_even_when_llm_budget_exhausted(tmp_path, monkeypatch):
+    # Mutation: put news collection inside the budget-gated recap writer path.
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from app.services.refresh_service import refresh_league
+    from app.services.player_context_store import PlayerContextStore
+    from sleeper_dynasty.api.player_context import PlayerContextClient
+    from datetime import datetime, timezone
+    entry = _entry()
+    monkeypatch.setattr("app.services.refresh_service.GraderService.run", AsyncMock(return_value=entry))
+    monkeypatch.setattr("app.services.refresh_service._llm_over_budget", AsyncMock(return_value=True))
+    now_ms = int(datetime.now(timezone.utc).timestamp()*1000)
+    monkeypatch.setattr(PlayerContextClient, "news", AsyncMock(return_value={"test-qb": [
+        {"source": "rotowire", "published": now_ms, "metadata": {"title": "Injury exit", "description": "Three snaps."}}]}))
+    platform = SimpleNamespace(get_nfl_state=AsyncMock(return_value={"season": "2026", "season_type": "regular", "week": 3}),
+                               get_rosters=AsyncMock(return_value=[SimpleNamespace(players=["test-qb"])]))
+    result = asyncio.run(refresh_league(platform, "L", cache_dir=tmp_path))
+    saved = PlayerContextStore(tmp_path).read("news:2026:test-qb")
+    assert saved is not None
+    assert saved["items"][0]["text"] == "Three snaps."
+    assert result.league_id == "L"

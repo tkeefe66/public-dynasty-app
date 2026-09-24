@@ -7,6 +7,32 @@ Tools for analyzing [Sleeper](https://sleeper.com) fantasy-football leagues — 
 
 Both share one grading engine: the `src/sleeper_dynasty/` Python package.
 
+### Weekly recap player context
+
+The web app's league refresh collects free player news from Sleeper's
+unauthenticated, undocumented GraphQL endpoint for rostered players. News is
+shared across leagues, fetched at most every six hours per player, and preserved
+under `player_context/` on the existing persistent cache volume. Rate limits and
+source failures retain observations and impose a backoff; scores still refresh.
+The existing automatic refresh scheduler performs collection even when no new
+recap is due or model generation is budget-gated. It must be enabled for ongoing
+collection; manual refreshes also collect.
+
+The Analyst combines those dated observations with nflverse weekly offensive
+snap counts, stable player-ID mappings and the NFL schedule. Both writer and
+reviewer receive the evidence. Limited playing time (at most 25% of offensive
+snaps) is an opportunity flag, never an injury diagnosis. News must support any
+claim about the reason. Missing usage stays unknown. Reports first observed after
+a historical edition's cutoff are excluded, so old catch-up editions may have no
+news. Collection begins on rollout; it cannot reconstruct past knowledge.
+
+Each new edition saves its evidence and displays publisher/source links on both
+private and shared pages. Shared responses expose source metadata, not raw news
+text or private facts. Existing editions remain unchanged; explicit corrections
+use the existing correction path. No subscription or new model call is added;
+the larger facts packet uses the existing recap model budget. Sleeper can change
+its undocumented news interface, so source availability is reported in the edition.
+
 ---
 
 ## Architecture

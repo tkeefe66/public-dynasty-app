@@ -58,6 +58,13 @@ export function dashboard(
   );
 }
 
+export interface AnalystSource {
+  publisher: string;
+  title: string;
+  published_at?: string | null;
+  url?: string | null;
+}
+
 export interface AnalystEdition {
   season: number;
   week: number;
@@ -68,6 +75,8 @@ export interface AnalystEdition {
   revision?: number;
   correction_note?: string | null;
   original_markdown?: string | null;
+  sources?: AnalystSource[];
+  context_note?: string | null;
 }
 
 export function analystArchive(leagueId: string): Promise<{ editions: AnalystEdition[] }> {

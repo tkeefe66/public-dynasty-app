@@ -1,10 +1,11 @@
 import logging
 
 from fastapi import APIRouter, HTTPException, Path, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.deps import get_cache_dir
 from app.services.analyst_shares import AnalystShares
+from app.services.analyst_store import AnalystSource
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -23,6 +24,8 @@ class PublicEdition(BaseModel):
     markdown: str
     revision: int
     correction_note: str | None
+    sources: list[AnalystSource] = Field(default_factory=list)
+    context_note: str | None = None
 
 
 def store():

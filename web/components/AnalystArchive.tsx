@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Panel } from "./furniture/Panel";
 import type { AnalystEdition } from "@/lib/api";
 import { AnalystShare } from "./AnalystShare";
+import { AnalystSources } from "./AnalystSources";
 
 // A small, deliberately text-only Markdown subset. Model output never becomes
 // HTML, executable links, images, or embedded content.
@@ -75,6 +76,7 @@ export function AnalystArchive({ leagueId, editions, selected }: {
               <AnalystShare key={`${edition.season}-${edition.week}`} leagueId={leagueId} season={edition.season} week={edition.week} />
             </header>
             <Article markdown={edition.markdown} />
+            <AnalystSources sources={edition.sources} note={edition.context_note} />
             {edition.original_markdown && <details className="mt-8 border-t border-rule pt-4">
               <summary className="min-h-tap cursor-pointer text-sm text-dim">View original edition</summary>
               <Article markdown={edition.original_markdown} />

@@ -64,6 +64,26 @@ async def test_bets_and_standings_reach_writer_and_saved_edition(tmp_path, monke
 
 
 @pytest.mark.asyncio
+async def test_player_context_reaches_writer_archive_and_source_metadata(tmp_path, monkeypatch):
+    # Mutation: fetch player context but never use it in the published edition.
+    from app.services.analyst import generate_analyst
+    from app.services.analyst_store import AnalystStore
+    context = {"players": [{"player": "Player One", "usage": {"offense_snaps": 3},
+                            "news": [{"text": "Exited with injury"}]}],
+               "sources": [{"publisher": "RotoBaller", "title": "Early exit", "published_at": "2026-09-14T02:00:00Z",
+                            "url": "https://www.rotoballer.com/player-news/example/1"}], "note": "Partial snap coverage."}
+    loader = AsyncMock(return_value=context)
+    monkeypatch.setattr("app.services.analyst.load_player_context", loader, raising=False)
+    client, entry, writer = setup_league()
+    await generate_analyst(client, entry, tmp_path, writer=writer)
+    saved = AnalystStore(tmp_path).editions("123")[0]
+    assert writer.write.call_args.args[0].player_context == context
+    assert saved["facts"]["player_context"] == context
+    assert saved["sources"] == context["sources"]
+    assert saved["context_note"] == "Partial snap coverage."
+
+
+@pytest.mark.asyncio
 async def test_catchup_does_not_backdate_current_bets(tmp_path, monkeypatch):
     # Mutation: attach today's active bets to every missing historical week.
     from dataclasses import replace
