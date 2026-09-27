@@ -46,6 +46,9 @@ A real, user-selected ten-team keeper league was imported for 2025 and 2026:
   for all 20 team-season records. No player IDs were left unresolved.
 - The completed season produced ten `v2_keeper` ratings. Current-season teams are
   unrated until completed-season evidence can be linked to their owners.
+- The saved 2025 records show one champion, one runner-up, four playoff teams,
+  and three title-path round wins. All 217 unique historical drop dates survived
+  normalization; third-place games are excluded from title-path production.
 
 Yahoo masks manager GUIDs with a shared placeholder. The adapter keeps those
 teams distinct by season; it does **not** assume matching team numbers or names
@@ -56,6 +59,8 @@ The DynastyProcess ID map lags newer players. A fallback accepts only a unique
 normalized name and eligible position in Sleeper's public player universe;
 ambiguous names require matching NFL team evidence. Unknown starters stop grading,
 and a trade with an unmapped asset is excluded in full with a coverage warning.
+Missing roster resources also stop grading. Multi-week championships are explicitly
+unsupported until their aggregate-round semantics have been validated.
 
 Recorded tests preserve Yahoo's real numeric wrappers and fragmented objects.
 Their league keys, team names, and manager identities are synthetic. Raw captures

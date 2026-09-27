@@ -159,7 +159,10 @@ async def _refresh_ids(ids, cache_dir, refresh_fn, client_factory):
             log.exception("auto-refresh: league %s failed", lid)
         finally:
             if client is not None:
-                await client.close()
+                try:
+                    await client.close()
+                except Exception:
+                    log.exception("auto-refresh: client cleanup failed for league %s", lid)
 
 
 async def _member_league_ids() -> list[str]:

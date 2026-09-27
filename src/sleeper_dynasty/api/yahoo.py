@@ -144,12 +144,12 @@ _SCORING = {
     57: ("fum_rec_td",),
     58: ("pass_int_td",),
     70: ("yds_allow_negative",),
-    71: ("yds_allow_0_99",),
+    71: ("yds_allow_0_100",),
     72: ("yds_allow_100_199",),
     73: ("yds_allow_200_299",),
-    74: ("yds_allow_300_399",),
-    75: ("yds_allow_400_499",),
-    76: ("yds_allow_500p",),
+    74: ("yds_allow_300_349", "yds_allow_350_399"),
+    75: ("yds_allow_400_449", "yds_allow_450_499"),
+    76: ("yds_allow_500_549", "yds_allow_550p"),
     82: ("def_2pt",),
 }
 _POSITIONS = {
@@ -159,6 +159,19 @@ _POSITIONS = {
     "Q/W/R/T": "SUPER_FLEX",
     "IR+": "IR",
 }
+
+
+def normalize_yardage_stats(players):
+    """Yahoo separates negative yards from 0–99; derive exact weekly flags."""
+    result = {}
+    for pid, raw in players.items():
+        stats = dict(raw)
+        if stats.get("yds_allow") is not None:
+            yards = float(stats["yds_allow"])
+            stats["yds_allow_negative"] = int(yards < 0)
+            stats["yds_allow_0_100"] = int(0 <= yards < 100)
+        result[pid] = stats
+    return result
 
 
 def scoring_settings(settings: dict) -> dict[str, float]:
@@ -211,6 +224,7 @@ class YahooAdapter:
         self._limit = asyncio.Semaphore(2)
         self._id_lock = asyncio.Lock()
         self._season_owner_fallback = False
+        self._postseason_cache = {}
 
     @property
     def warnings(self):
@@ -323,6 +337,10 @@ class YahooAdapter:
                 "Yahoo league metadata is incomplete; retry the import."
             )
         settings = merge_fragments(meta.get("settings"))
+        if _truth(settings.get("has_multiweek_championship")):
+            raise YahooDataError(
+                "Yahoo multi-week championships are not supported yet; no grades were generated."
+            )
         if settings.get("scoring_type", meta.get("scoring_type")) not in (
             "head",
             "headone",
@@ -394,6 +412,10 @@ class YahooAdapter:
 
     def _roster_players(self, team):
         roster = child(team, "roster")
+        if roster is None or child(roster, "players") is None:
+            raise YahooDataError(
+                "Yahoo omitted a team roster resource; retry the import."
+            )
         return [
             merge_fragments(p["player"]) for p in collection(child(roster, "players"))
         ]
@@ -540,24 +562,94 @@ class YahooAdapter:
         return rows
 
     async def get_phase_map(self, league):
+        return (await self._postseason(league))[0]
+
+    async def get_postseason_results(self, league):
+        return (await self._postseason(league))[1]
+
+    async def _postseason(self, league):
+        if league.league_id in self._postseason_cache:
+            return self._postseason_cache[league.league_id]
         await self.get_league(league.league_id)
         meta = self._metadata[league.league_id]
         last = int(meta.get("end_week") or 18)
         if league.status != "complete":
             last = min(last, int(meta.get("current_week") or 1) - 1)
-        result = {}
-        if not league.playoff_week_start:
-            return result
+        phases, results = {}, {}
+        if not league.playoff_week_start or last < league.playoff_week_start:
+            return phases, results
+        eliminated = set()
         for week in range(league.playoff_week_start, last + 1):
             for matchup in await self._scoreboard(league.league_id, week):
-                if not _truth(matchup.get("is_playoffs")):
+                if (
+                    not _truth(matchup.get("is_playoffs"))
+                    or matchup.get("status") != "postevent"
+                ):
                     continue
                 phase = "toilet" if _truth(matchup.get("is_consolation")) else "playoff"
+                participants = []
                 for team in collection(child(matchup, "teams")):
-                    result[
-                        (week, roster_id_for(merge_fragments(team["team"])["team_key"]))
-                    ] = phase
-        return result
+                    rid = roster_id_for(merge_fragments(team["team"])["team_key"])
+                    participants.append(rid)
+                    record = results.setdefault(
+                        rid,
+                        {
+                            "champion": False,
+                            "runner_up": False,
+                            "made_playoffs": False,
+                            "made_toilet": False,
+                            "rounds_won": 0,
+                            "playoff_place": None,
+                            "toilet_place": None,
+                        },
+                    )
+                    record["made_playoffs" if phase == "playoff" else "made_toilet"] = (
+                        True
+                    )
+                # Yahoo also marks third/fifth-place games as playoffs. A team
+                # that already lost cannot produce title-path points or wins.
+                if any(r in eliminated for r in participants):
+                    continue
+                if len(participants) != 2 or not matchup.get("winner_team_key"):
+                    raise YahooDataError(
+                        "Yahoo playoff result is incomplete; retry before grading."
+                    )
+                winner = roster_id_for(matchup["winner_team_key"])
+                if winner not in participants:
+                    raise YahooDataError("Yahoo playoff winner is not a participant.")
+                for rid in participants:
+                    phases[(week, rid)] = phase
+                    if rid != winner:
+                        eliminated.add(rid)
+                if phase == "playoff":
+                    results[winner]["rounds_won"] += 1
+        if league.status == "complete" and results:
+            payload = await self._get(f"/league/{league.league_id}/standings")
+            node = merge_fragments(unwrap(payload, "fantasy_content", "league"))
+            ranks = {}
+            for item in collection(child(child(node, "standings"), "teams")):
+                team = merge_fragments(item["team"])
+                rank = merge_fragments(team.get("team_standings")).get("rank")
+                if rank is not None:
+                    ranks[roster_id_for(team["team_key"])] = int(rank)
+            if set(results) - ranks.keys():
+                raise YahooDataError(
+                    "Yahoo omitted final playoff standings; retry before grading."
+                )
+            consolation = sorted(
+                (r for r in results if results[r]["made_toilet"]), key=ranks.get
+            )
+            for rid, record in results.items():
+                if record["made_playoffs"]:
+                    record.update(
+                        champion=ranks[rid] == 1,
+                        runner_up=ranks[rid] == 2,
+                        playoff_place=ranks[rid],
+                    )
+                else:
+                    record["toilet_place"] = consolation.index(rid) + 1
+        self._postseason_cache[league.league_id] = (phases, results)
+        return phases, results
 
     async def _transaction_week(self, league_id, timestamp):
         game = league_id.split(".l.")[0]
@@ -581,7 +673,7 @@ class YahooAdapter:
             tx = merge_fragments(item["transaction"])
             if tx.get("status") != "successful":
                 continue
-            adds, drops, missing = {}, {}, False
+            adds, drops, missing, waiver = {}, {}, False, False
             for item in collection(child(tx, "players")):
                 player = merge_fragments(item["player"])
                 pid = self._player_id(player)
@@ -600,6 +692,7 @@ class YahooAdapter:
                         drops[pid] = roster_id_for(src)
                     if dest:
                         adds[pid] = roster_id_for(dest)
+                        waiver = waiver or movement.get("source_type") == "waivers"
             if missing and tx.get("type") == "trade":
                 log.warning("Yahoo trade excluded because a player could not be mapped")
                 continue
@@ -609,7 +702,13 @@ class YahooAdapter:
             out.append(
                 {
                     "transaction_id": tx["transaction_key"],
-                    "type": tx["type"],
+                    "type": (
+                        "trade"
+                        if tx["type"] == "trade"
+                        else ("waiver" if waiver else "free_agent")
+                        if adds
+                        else "drop"
+                    ),
                     "status": "complete",
                     "adds": adds,
                     "drops": drops,
@@ -720,7 +819,7 @@ class YahooAdapter:
         return await self._sleeper().get_players()
 
     async def get_stats(self, season, week):
-        return await self._sleeper().get_stats(season, week)
+        return normalize_yardage_stats(await self._sleeper().get_stats(season, week))
 
     async def get_projections(self, season):
         return await self._sleeper().get_projections(season)

@@ -141,7 +141,9 @@ async def _league_matchup_bundle(client, lg, league_cache) -> dict:
     sealed = league_cache is not None and getattr(lg, "status", None) == "complete"
     if sealed:
         cached = league_cache.read_matchup_bundle(lg.league_id)
-        if cached is not None and "winners_bracket" in cached:
+        if (cached is not None and "winners_bracket" in cached
+                and (not hasattr(client, 'get_postseason_results')
+                     or 'postseason_results' in cached)):
             return cached
 
     rosters = await client.get_rosters(lg.league_id)
@@ -182,6 +184,9 @@ async def _league_matchup_bundle(client, lg, league_cache) -> dict:
         "playoff_round_type": getattr(lg, "playoff_round_type", 0),
         "num_playoff_teams": getattr(lg, "num_playoff_teams", 0),
     }
+    if hasattr(client, 'get_postseason_results'):
+        bundle['postseason_results'] = {str(rid): record for rid, record in
+                                       (await client.get_postseason_results(lg)).items()}
     if sealed:
         if not winners and not losers and not phases:
             log.warning(
@@ -313,6 +318,7 @@ async def pull_supporting_data(
     winners_bracket_by_league: dict[str, list] = {}
     losers_bracket_by_league: dict[str, list] = {}
     num_playoff_teams_by_league: dict[str, int] = {}
+    postseason_results_by_league = {}
     owners: dict[str, dict[str, Any]] = {}
 
     for lg in chain:
@@ -326,6 +332,9 @@ async def pull_supporting_data(
         winners_bracket_by_league[lg.league_id] = b.get("winners_bracket") or []
         losers_bracket_by_league[lg.league_id] = b.get("losers_bracket") or []
         num_playoff_teams_by_league[lg.league_id] = b.get("num_playoff_teams", 0)
+        if 'postseason_results' in b:
+            postseason_results_by_league[lg.league_id] = {
+                int(rid): record for rid, record in b['postseason_results'].items()}
         for uid, ident in b["owners"].items():
             owners.setdefault(uid, ident)
         matchups.update(b["matchups"])
@@ -404,6 +413,7 @@ async def pull_supporting_data(
         "winners_bracket_by_league": winners_bracket_by_league,
         "losers_bracket_by_league": losers_bracket_by_league,
         "num_playoff_teams_by_league": num_playoff_teams_by_league,
+        "postseason_results_by_league": postseason_results_by_league,
         "player_ages": player_ages,
         "nfl_points": nfl_points,
         "owners": owners,

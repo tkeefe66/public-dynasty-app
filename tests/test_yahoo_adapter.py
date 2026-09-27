@@ -421,3 +421,130 @@ async def test_captured_trade_preserves_both_sides_and_excludes_partial_trade():
         assert await a.get_trade_transactions(prior) == []
     finally:
         await a.close()
+
+
+@pytest.mark.asyncio
+async def test_completed_playoffs_credit_title_and_exclude_placement_games():
+    # Regression: phase flags alone counted third-place games as title games
+    # and left championship/round-win records empty in the rating consumer.
+    prior = "461.l.100000002"
+    a = Replay(
+        {
+            f"/league/{prior}/settings": fixture("prior_settings"),
+            f"/league/{prior}/standings": fixture("prior_standings"),
+            f"/league/{prior}/scoreboard;week=16": fixture("prior_scoreboard_wk16"),
+            f"/league/{prior}/scoreboard;week=17": fixture("prior_scoreboard_wk17"),
+        }
+    )
+    try:
+        league, _ = await a.get_league(prior)
+        phases = await a.get_phase_map(league)
+        assert (17, 7) not in phases  # Lost semifinal; this is third place.
+        assert (17, 4) not in phases  # Consolation placement game.
+        assert phases[(17, 3)] == "playoff"
+        records = await a.get_postseason_results(league)
+        assert records[3]["champion"] and records[3]["rounds_won"] == 2
+        assert records[2]["runner_up"] and records[2]["rounds_won"] == 1
+        assert records[7]["made_playoffs"] and records[7]["rounds_won"] == 0
+        assert records[7]["playoff_place"] == 3
+        assert records[9]["made_toilet"] and records[9]["toilet_place"] == 1
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
+async def test_combined_add_drops_reach_engine_drop_index():
+    from sleeper_dynasty.engine.trade_history import build_drop_index
+
+    a = Replay()
+    try:
+        drops = await a.get_drop_transactions(LK)
+        assert len(drops) == 40
+        owners = {i: f"owner{i}" for i in range(1, 11)}
+        expected = {
+            (owners[rid], pid) for tx in drops for pid, rid in tx["drops"].items()
+        }
+        assert set(build_drop_index(drops, owners)) == expected
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
+async def test_missing_weekly_roster_resource_is_not_an_empty_lineup():
+    raw = fixture("roster_points_wk1")
+    raw["fantasy_content"]["league"][1]["teams"]["0"]["team"][1].pop("roster")
+    a = Replay({f"/league/{LK}/teams/roster;week=1/players": raw})
+    try:
+        with pytest.raises(YahooDataError, match="roster"):
+            await a.get_raw_matchups(LK, 1)
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
+async def test_yahoo_defense_yardage_scores_through_canonical_stats():
+    from sleeper_dynasty.engine.nfl_actuals import score_week
+
+    a = Replay()
+    try:
+        league, _ = await a.get_league(LK)
+        actual = score_week(
+            {"A": {"yds_allow_450_499": 1}, "B": {"yds_allow_550p": 1}},
+            league.scoring_settings,
+        )
+        assert actual == {"A": -1.0, "B": -3.0}
+    finally:
+        await a.close()
+
+
+def test_negative_and_low_yardage_boundaries_do_not_overlap():
+    from sleeper_dynasty.api.yahoo import normalize_yardage_stats
+
+    for yards in (-1, 0, 99, 100):
+        stats = normalize_yardage_stats(
+            {"D": {"yds_allow": yards, "yds_allow_0_100": 1}}
+        )["D"]
+        assert stats["yds_allow_negative"] == int(yards < 0)
+        assert stats["yds_allow_0_100"] == int(0 <= yards < 100)
+
+
+@pytest.mark.asyncio
+async def test_weekly_stats_apply_yahoo_boundary_normalization():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from sleeper_dynasty.engine.nfl_actuals import score_week
+
+    a = YahooAdapter("synthetic", id_map={})
+    a._sleeper_client = SimpleNamespace(
+        get_stats=AsyncMock(
+            return_value={
+                "negative": {"yds_allow": -1, "yds_allow_0_100": 1},
+                "boundary": {"yds_allow": 100, "yds_allow_0_100": 1},
+            }
+        ),
+        close=AsyncMock(),
+    )
+    try:
+        points = score_week(
+            await a.get_stats(2025, 1), {"yds_allow_negative": 8, "yds_allow_0_100": 4}
+        )
+        assert points == {"negative": 8, "boundary": 0}
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
+async def test_multiweek_championship_is_explicitly_unsupported():
+    # The single-elimination result walker must not count two legs as two wins.
+    raw = fixture("league_settings")
+    meta = merge_fragments(raw["fantasy_content"]["league"])
+    settings = merge_fragments(meta["settings"])
+    settings["has_multiweek_championship"] = 1
+    meta["settings"] = settings
+    a = Replay({f"/league/{LK}/settings": {"fantasy_content": {"league": [meta]}}})
+    try:
+        with pytest.raises(YahooDataError, match="multi-week"):
+            await a.get_league(LK)
+    finally:
+        await a.close()

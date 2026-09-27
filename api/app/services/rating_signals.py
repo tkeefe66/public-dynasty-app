@@ -72,6 +72,18 @@ def compute_rating_signals(
             wb_by_league.get(lg) or [], r2u)
         losers_place_by_season[int(season)] = bracket_placements(
             lb_by_league.get(lg) or [], r2u)
+        # Providers without native brackets supply the same observed outcomes
+        # directly. This keeps records and rating signals on one source.
+        normalized = (supporting.get('postseason_results_by_league') or {}).get(lg)
+        if normalized is not None:
+            records = {r2u[int(rid)]: row for rid, row in normalized.items() if int(rid) in r2u}
+            brackets_by_season[int(season)] = records
+            winners_place_by_season[int(season)] = {
+                uid: {'place': row.get('playoff_place')} for uid, row in records.items()
+                if row.get('made_playoffs')}
+            losers_place_by_season[int(season)] = {
+                uid: {'place': row.get('toilet_place')} for uid, row in records.items()
+                if row.get('made_toilet')}
         npt_by_season[int(season)] = int(npt_by_league.get(lg, 0))
 
     osig = outcome_signals(

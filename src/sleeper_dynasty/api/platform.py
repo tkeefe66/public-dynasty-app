@@ -59,6 +59,18 @@ def platform_for_league_id(league_id: str) -> str:
 
 
 @runtime_checkable
+class PostseasonResultsProvider(Protocol):
+    """Optional normalized outcomes when a provider has no native brackets."""
+
+    async def get_postseason_results(self, league) -> dict[int, dict]:
+        """Roster ID -> champion, runner_up, rounds_won, made_playoffs,
+        made_toilet, playoff_place and toilet_place. Final places are None
+        until complete; placement games never count as title-path wins.
+        """
+        ...
+
+
+@runtime_checkable
 class LeaguePlatform(Protocol):
     """Every read the grader performs. See the module docstring."""
 

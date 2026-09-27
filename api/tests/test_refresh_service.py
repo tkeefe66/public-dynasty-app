@@ -75,6 +75,18 @@ def test_scheduler_does_not_send_yahoo_league_to_public_sleeper_client(tmp_path,
     refresh.assert_not_awaited()
 
 
+def test_scheduler_cleanup_failure_does_not_block_next_league(tmp_path):
+    # Regression: exceptions in finally escaped the per-league failure boundary.
+    (tmp_path/'chain_111.json').write_text('{}')
+    (tmp_path/'chain_222.json').write_text('{}')
+    calls=[]
+    class Client:
+        async def close(self):raise RuntimeError('cleanup failed')
+    async def refresh(client,lid,**kwargs):calls.append(lid)
+    asyncio.run(refresh_all_known(tmp_path,_refresh_league=refresh,_client_factory=Client))
+    assert calls==['111','222']
+
+
 def test_refresh_collects_news_even_when_llm_budget_exhausted(tmp_path, monkeypatch):
     # Mutation: put news collection inside the budget-gated recap writer path.
     from datetime import datetime, timezone
