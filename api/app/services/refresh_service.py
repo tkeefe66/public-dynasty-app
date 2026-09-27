@@ -16,7 +16,7 @@ from app.services.chain_cache import ChainCache, ChainCacheEntry
 from app.services.franchise_redesign import model_for
 from app.services.grader import GraderService
 from app.services.leaderboard import all_time_ratings, compute_season_ratings
-from app.services.platform_client import client_for_league
+from app.services.platform_client import connected_client
 from app.services.rating_snapshot_store import RatingSnapshotStore
 
 log = logging.getLogger(__name__)
@@ -150,9 +150,7 @@ async def _refresh_ids(ids, cache_dir, refresh_fn, client_factory):
     for lid in ids:
         client = None
         try:
-            # No process-wide Yahoo developer-token fallback: scheduled
-            # access must come from the account connection added by OAuth.
-            client = client_factory() if client_factory else client_for_league(lid)
+            client = client_factory() if client_factory else await connected_client(lid)
             await refresh_fn(client, lid, cache_dir=cache_dir, force=False)
             log.info("auto-refresh: refreshed league %s", lid)
         except Exception:

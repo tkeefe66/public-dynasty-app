@@ -68,12 +68,41 @@ and credentials are excluded from version control.
 
 ## Production status
 
-This is the ingestion portion of the saved Yahoo plan. The hosted application's
-Yahoo connection flow is still separate work: account-scoped OAuth callbacks,
-encrypted refresh-token storage, league discovery, reconnect handling, and
-scheduled token refresh. Manual and scheduled refresh refuse a Yahoo league
-without caller-scoped credentials; a server-wide developer token cannot authorize
-another user's request. No production deployment is part of this local validation.
+The application now implements account-scoped Yahoo connection, encrypted
+refresh-token storage, league discovery and Add/Open actions on Add a league.
+Google remains the app login; Yahoo is linked to that signed-in account. Manual
+and scheduled refresh resolve credentials from verified league members. A
+server-wide developer token cannot authorize another user's request.
+
+Before deploying, configure Railway **API** with `TRADE_GRADER_YAHOO_CLIENT_ID`,
+`TRADE_GRADER_YAHOO_REDIRECT_URI` (the exact registered HTTPS Web callback at
+`/api/auth/callback/yahoo`), and `TRADE_GRADER_YAHOO_TOKEN_KEY` (URL-safe base64 of
+32 cryptographically random bytes). Public Clients need no secret; confidential
+registrations may also set `TRADE_GRADER_YAHOO_CLIENT_SECRET`. **Web** requires
+its existing `AUTH_URL` or `CANONICAL_HOST` to define the trusted redirect origin.
+No Yahoo credentials are placed in `NEXT_PUBLIC_*` variables.
+
+Migration `0008_yahoo_connections` adds separate connection, pending OAuth state,
+and verified league-grant tables. Existing user/membership records are preserved.
+Ciphertext envelopes carry their AAD version and are bound to account and purpose.
+Keep the encryption key separately from database backups; replacing it requires
+reconnecting all Yahoo accounts. Backup/restore includes these tables.
+
+OAuth uses single-use 10-minute state, a browser-bound HttpOnly cookie, and S256
+PKCE. Token rotations are persisted before subsequent API work; PostgreSQL user
+row locks serialize refresh and disconnect across replicas. Private league access
+is revalidated at least every five minutes; revoked or removed membership fails
+closed. Yahoo private pages are not exposed through anonymous social cards or the
+Sleeper admin/allowlist bridge. Explicit recap sharing remains a member action.
+
+Reconnect clears verified grants, then discovery revalidates access under the new
+connection. Disconnect removes stored credentials and grants while retaining saved
+league memberships and analysis. It stops future access through that connection;
+an already-running import may finish. Reconnect from Add a league to open retained
+leagues again. For Yahoo-side permission removal use Yahoo's connected-app controls.
+
+Local browser verification uses synthetic account/league data. A live hosted OAuth
+and import check is still required after the paired API/Web release.
 
 Provider references: [Yahoo sign-in and PKCE](https://developer.yahoo.com/sign-in-with-yahoo/)
 and [Yahoo Fantasy Sports API](https://sports.yahoo.com/developer/docs/).

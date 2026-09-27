@@ -249,6 +249,23 @@ export function sleeperLeagues(
   );
 }
 
+export interface YahooStatus {
+  configured: boolean;
+  status: "connected" | "disconnected" | "reconnect" | "unavailable";
+}
+
+export function yahooStatus(): Promise<YahooStatus> {
+  return jsonFetch(`${BASE}/me/yahoo/status`);
+}
+
+export function yahooLeagues(): Promise<SleeperLeague[]> {
+  return jsonFetch(`${BASE}/me/yahoo/leagues`);
+}
+
+export function disconnectYahoo(): Promise<{ status: string }> {
+  return jsonFetch(`${BASE}/me/yahoo/connection`, { method: "DELETE" });
+}
+
 /** Import a league for the current user (idempotent, cap-enforced). */
 export function addLeague(
   leagueId: string,

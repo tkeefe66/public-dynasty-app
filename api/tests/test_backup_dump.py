@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import Boolean, Date, DateTime, Integer, String, select
 
 from app.db.base import Base
-from app.db.models import AppSetting, LeagueMembership, PageEvent, SideBet, User
+from app.db.models import AppSetting, LeagueMembership, PageEvent, SideBet, User, YahooConnection, YahooLeagueGrant, YahooOAuthState
 from app.services.backup_service import (
     SUPPORTED_COLUMN_TYPES,
     dump_database,
@@ -45,7 +45,12 @@ def _seed():
         created_at=datetime(2025, 9, 1, 9, 0, tzinfo=timezone.utc),
         updated_at=datetime(2026, 1, 5, 9, 0, tzinfo=timezone.utc),
     )
-    return [u, m, s, e, b]
+    # Mutation caught by full row comparison: backup omits encrypted Yahoo
+    # authorization or changes its envelope/generation during restore.
+    yc = YahooConnection(user_id="u-1", generation="example-generation", sealed_tokens="v1.synthetic-ciphertext", expires_at=1800000000, status="connected")
+    ys = YahooOAuthState(user_id="u-1", state_hash="a" * 64, sealed_verifier="v1.synthetic-verifier", expires_at=1800000300, consumed=False)
+    yg = YahooLeagueGrant(user_id="u-1", league_id="999.l.123", generation="example-generation", expires_at=1800000000)
+    return [u, m, s, e, b, yc, ys, yg]
 
 
 async def _rows(maker, table):
@@ -69,6 +74,7 @@ async def test_dump_then_load_round_trips_every_table(maker, tmp_path):
     assert counts == {
         "users": 1, "league_memberships": 1, "app_settings": 1,
         "page_events": 1, "side_bets": 1,
+        "yahoo_connections": 1, "yahoo_oauth_states": 1, "yahoo_league_grants": 1,
     }
 
     # A fresh, migrated-but-empty target.

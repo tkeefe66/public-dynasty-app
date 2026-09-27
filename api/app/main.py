@@ -27,6 +27,7 @@ def create_app() -> FastAPI:
     # auto-instruments FastAPI/Starlette, so unhandled errors are captured.
     if settings.sentry_dsn:
         import sentry_sdk
+        from app.services.oauth_telemetry import before_send
 
         sentry_sdk.init(
             dsn=settings.sentry_dsn,
@@ -36,6 +37,7 @@ def create_app() -> FastAPI:
             # frame happened to hold — Settings objects, credentials, tokens.
             # A routine R2 outage must not become a secret disclosure.
             include_local_variables=False,
+            before_send=before_send,
         )
 
     @asynccontextmanager
@@ -117,6 +119,8 @@ def create_app() -> FastAPI:
     # Onboarding: user-scoped (self-guards via get_current_user), not league-gated.
     from app.routes import me
     app.include_router(me.router)
+    from app.routes import yahoo
+    app.include_router(yahoo.router)
     # Telemetry: user-scoped pageview capture, not league-gated.
     from app.routes import events as events_route
     app.include_router(events_route.router)

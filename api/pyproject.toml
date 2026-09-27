@@ -23,6 +23,7 @@ dependencies = [
     "asyncpg>=0.29",
     "aiosqlite>=0.20",
     "pyjwt>=2.9",
+    "cryptography==48.0.0",
     "slowapi>=0.1.9",
     "sentry-sdk[fastapi]>=2.0",
     # S3-compatible client for the Cloudflare R2 backup target (app/services/r2.py).

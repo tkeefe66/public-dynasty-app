@@ -95,6 +95,33 @@ class AppSetting(Base):
     )
 
 
+class YahooConnection(Base):
+    __tablename__ = "yahoo_connections"
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    generation: Mapped[str] = mapped_column(String(36))
+    sealed_tokens: Mapped[str] = mapped_column(String)
+    expires_at: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="connected")
+
+
+class YahooOAuthState(Base):
+    __tablename__ = "yahoo_oauth_states"
+    # One pending flow per user; starting again invalidates older tabs.
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    state_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    sealed_verifier: Mapped[str] = mapped_column(String)
+    expires_at: Mapped[int] = mapped_column(Integer)
+    consumed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class YahooLeagueGrant(Base):
+    __tablename__ = "yahoo_league_grants"
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    league_id: Mapped[str] = mapped_column(String, primary_key=True)
+    generation: Mapped[str] = mapped_column(String(36))
+    expires_at: Mapped[int] = mapped_column(Integer, default=lambda: int(_now().timestamp()) + 300)
+
+
 class PageEvent(Base):
     """One pageview (route change) by an authenticated user. First-party product
     telemetry: who's active, which sections/leagues get used. `route` is the

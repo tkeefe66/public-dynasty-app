@@ -21,6 +21,13 @@ def test_me_requires_auth():
     assert c.get("/api/me/leagues").status_code == 401
 
 
+def test_yahoo_cannot_be_added_through_generic_membership_without_connection(client):
+    # Mutation: generic membership endpoint trusts a Yahoo key/client-supplied name.
+    result = client.post("/api/me/leagues", json={"league_id": "999.l.123", "name": "Private"})
+    assert result.status_code in (409, 503)
+    assert client.get("/api/me/leagues").json() == []
+
+
 class _FakeSleeper:
     async def get_user_id(self, username):
         return "sleeper-123"

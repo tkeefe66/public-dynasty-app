@@ -4,14 +4,17 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
+from app.auth.deps import require_league_member
 from app.config import get_settings
+from app.db.session import get_db
 from app.deps import get_cache_dir
 from app.ratelimit import limiter
-from app.services.platform_client import YahooCredentialsMissing, client_for_league
+from app.services.platform_client import YahooCredentialsMissing, connected_client
 from app.services.refresh_service import refresh_league
 
 log = logging.getLogger(__name__)
@@ -25,10 +28,13 @@ def _cache_dir() -> Path:
 @router.get("/api/league/{league_id}/refresh")
 @limiter.limit(get_settings().rate_limit_discovery)
 async def refresh(
-    request: Request, league_id: str, force: bool = Query(False)
+    request: Request, league_id: str,
+    user: Annotated[object, Depends(require_league_member)],
+    db: Annotated[object, Depends(get_db)],
+    force: bool = Query(False),
 ) -> EventSourceResponse:
     try:
-        client = client_for_league(league_id)
+        client = await connected_client(league_id, db=db, user_id=user.id)
     except YahooCredentialsMissing as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:

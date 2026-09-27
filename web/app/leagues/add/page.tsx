@@ -10,6 +10,7 @@ import { StateMessage } from "@/components/furniture/StateMessage";
 import { Panel } from "@/components/furniture/Panel";
 import { Row } from "@/components/furniture/Row";
 import { Name } from "@/components/furniture/Name";
+import { YahooLeaguePicker } from "@/components/YahooLeaguePicker";
 import { addLeague, getMe, sleeperLeagues, type SleeperLeague } from "@/lib/api";
 
 /**
@@ -22,6 +23,19 @@ import { addLeague, getMe, sleeperLeagues, type SleeperLeague } from "@/lib/api"
 export default function AddLeaguePage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
+  const [provider, setProvider] = useState<"sleeper" | "yahoo">("sleeper");
+  const [yahooNotice, setYahooNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("provider") === "yahoo") setProvider("yahoo");
+    const result = params.get("yahoo");
+    if (result === "connected") setYahooNotice("Yahoo connected. Choose a league below.");
+    else if (result === "cancelled") setYahooNotice("Yahoo connection was cancelled. You can try again when ready.");
+    else if (result) setYahooNotice("Yahoo could not be connected. Sign in and try Connect Yahoo again.");
+    // Callback status is display-only; never retain OAuth parameters here.
+    if (result) window.history.replaceState(null, "", "/leagues/add?provider=yahoo");
+  }, []);
 
   // Prefill from the linked Sleeper account, if any.
   useEffect(() => {
@@ -77,8 +91,24 @@ export default function AddLeaguePage() {
         </Link>
         <h1 className="mt-3 font-display text-lead font-extrabold tracking-[-0.03em]">Add a league</h1>
         <p className="mt-2 max-w-[52ch] text-prose leading-relaxed text-body">
-          Enter your Sleeper username to find your leagues.
+          Choose where you play to find and add your leagues.
         </p>
+
+        <div className="mt-6 flex gap-6 border-b border-rule" role="group" aria-label="Fantasy platform">
+          {(["sleeper", "yahoo"] as const).map((value) => (
+            <button key={value} type="button" aria-pressed={provider === value} onClick={() => setProvider(value)} className={`border-b-2 px-1 pb-3 font-mono text-label uppercase tracking-[0.1em] ${provider === value ? "border-ink text-ink" : "border-transparent text-dim hover:text-ink"}`}>
+              {value === "sleeper" ? "Sleeper" : "Yahoo"}
+            </button>
+          ))}
+        </div>
+
+        {provider === "yahoo" ? (
+          <>
+            {yahooNotice && <p role="status" className="mt-6 text-body">{yahooNotice}</p>}
+            <YahooLeaguePicker />
+          </>
+        ) : (
+          <>
 
         <form onSubmit={search} className="mt-6 flex items-end gap-3">
           <label className="flex-1">
@@ -168,6 +198,8 @@ export default function AddLeaguePage() {
               ))}
             </Panel>
           </div>
+        )}
+          </>
         )}
       </section>
     </Shell>

@@ -106,4 +106,5 @@ async def test_dumped_postgres_object_is_readable_gzip_jsonl(
     )
     assert set(manifest["tables"]) == {
         "users", "league_memberships", "app_settings", "page_events", "side_bets",
+        "yahoo_connections", "yahoo_oauth_states", "yahoo_league_grants",
     }

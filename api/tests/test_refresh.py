@@ -69,10 +69,18 @@ def test_refresh_passes_force_to_grader(client, tmp_path):
     assert captured["cache_dir"] is not None
 
 
-def test_yahoo_refresh_without_connection_fails_before_sse(client,monkeypatch):
+def test_yahoo_refresh_without_connection_fails_before_sse(client,monkeypatch,maker,app):
     # Mutation: constructing the client inside the stream sends HTTP 200 and
     # cannot return the connection-required response the UI needs.
     monkeypatch.setenv('YAHOO_DEV_ACCESS_TOKEN','must-not-authorize-other-users')
+    from app.db.session import get_db
+    async def isolated_db():
+        async with maker() as db:
+            from app.db.models import User
+            db.add(User(id="test-user", google_sub="g1", email="test@example.test"))
+            await db.commit()
+            yield db
+    app.dependency_overrides[get_db] = isolated_db
     response=client.get('/api/league/470.l.100000001/refresh')
     assert response.status_code==409
     assert 'connection' in response.json()['detail'].lower()

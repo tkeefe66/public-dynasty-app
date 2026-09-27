@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # Shared HS256 secret. The frontend (NextAuth) mints a backend-facing token
     # signed with this; FastAPI verifies it. Must match the web AUTH_BACKEND_SECRET.
     auth_backend_secret: str = ""
+    # Yahoo is an account-linked data source; these never enter client bundles.
+    yahoo_client_id: str = ""
+    yahoo_client_secret: str = ""  # optional; approved Public Clients use PKCE
+    yahoo_redirect_uri: str = ""
+    yahoo_token_key: str = ""  # URL-safe base64, exactly 32 random bytes
     # Comma-separated emails that get is_admin=True on upsert. Stored as a raw
     # string (a list[str] field would make pydantic-settings JSON-parse the env
     # value); use the ``admin_email_list`` property to read it parsed.

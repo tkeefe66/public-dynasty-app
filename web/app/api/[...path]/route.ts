@@ -1,4 +1,5 @@
 import { getBackendToken } from "@/lib/auth-server";
+import { sameOrigin } from "@/lib/yahoo-oauth";
 
 // Node runtime so we can stream a long-lived upstream body (the SSE refresh
 // endpoint holds one connection open for the whole refresh, then flushes).
@@ -14,6 +15,19 @@ const STRIP_RESPONSE_HEADERS = new Set([
 ]);
 
 async function proxy(req: Request, path: string[]): Promise<Response> {
+  // Next decodes route parameters once; fetch normalizes dot segments again.
+  // Reject encoded/separator segments before constructing the upstream URL.
+  if (path.some((part) => part === "." || part === ".." || !/^[A-Za-z0-9_.:@-]+$/.test(part))) {
+    return new Response("Invalid API path", { status: 400 });
+  }
+  const route = path.join("/");
+  // Only the dedicated browser-bound OAuth handlers may call these endpoints.
+  if (route === "me/yahoo/start" || route === "me/yahoo/complete") {
+    return new Response("Not found", { status: 404 });
+  }
+  if (route.startsWith("me/yahoo/") && !["GET", "HEAD"].includes(req.method) && !sameOrigin(req)) {
+    return new Response("Invalid request origin", { status: 403 });
+  }
   const token = await getBackendToken();
   if (!token) {
     return new Response(JSON.stringify({ detail: "unauthorized" }), {
@@ -54,6 +68,7 @@ async function proxy(req: Request, path: string[]): Promise<Response> {
       respHeaders.set(key, value);
     }
   });
+  if (route.startsWith("me/yahoo/")) respHeaders.set("cache-control", "no-store");
   if ((upstream.headers.get("content-type") || "").includes("text/event-stream")) {
     respHeaders.set("cache-control", "no-cache, no-transform");
     respHeaders.set("x-accel-buffering", "no");

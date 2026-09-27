@@ -174,6 +174,16 @@ async def require_league_member(
     # accepted exposure). Checked first and before any DB touch so no user row
     # and no engagement metric is ever written for card traffic.
     claims = _decode(request)
+    if ".l." in league_id:
+        # Yahoo is private account data. Neither anonymous cards nor the
+        # public Sleeper bridge/admin shortcut confer provider authorization.
+        from app.services.yahoo_connection import YahooConnectionService
+
+        user = await get_current_user(request, db)
+        if not await memberships.is_member(db, user.id, league_id):
+            raise HTTPException(403, "not a member of this league")
+        await YahooConnectionService(db).ensure_grant(user.id, league_id)
+        return user
     if _is_og_card_read(request, claims):
         # Rate-limit key. Card traffic has no user id, so without this it would
         # key by the web proxy's IP and share a budget with every other request.

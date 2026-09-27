@@ -179,7 +179,7 @@ async def my_leagues(
         name = name or m.league_name
         # Backfill the name for older memberships (added before we stored it)
         # that are still cold — one best-effort Sleeper lookup, then persisted.
-        if not name:
+        if not name and ".l." not in m.league_id:
             try:
                 client = SleeperClient()
                 try:
@@ -240,7 +240,9 @@ async def sleeper_leagues(
 
 
 @router.post("/api/me/leagues", response_model=MyLeague, status_code=201)
+@limiter.limit(get_settings().rate_limit_discovery)
 async def add_league(
+    request: Request,
     body: AddLeagueReq,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -262,6 +264,11 @@ async def add_league(
     # Capture the league name now so the UI shows it immediately (before the
     # analysis cache warms). Prefer the client-supplied name; else fetch it.
     league_name = body.name
+    is_yahoo = ".l." in body.league_id
+    if is_yahoo:
+        from app.services.yahoo_discovery import verify_league
+        verified = await verify_league(db, user.id, body.league_id)
+        league_name = verified["name"]
     if not league_name:
         try:
             client = SleeperClient()
@@ -282,7 +289,7 @@ async def add_league(
     )
     # Roster auto-match ("this is you"): if the user linked Sleeper and we don't
     # already know their roster, find the roster they own in this league.
-    if m.sleeper_roster_id is None and user.sleeper_user_id:
+    if not is_yahoo and m.sleeper_roster_id is None and user.sleeper_user_id:
         try:
             client = SleeperClient()
             try:

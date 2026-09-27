@@ -19,3 +19,9 @@ in batches of 25, captured as `player_points_wk1_batch*.json`.
 `test_yahoo_adapter.py` verifies that starter totals from those separate stat
 responses match all ten scoreboard totals. No tokens or original captures belong
 in this directory.
+
+## Account discovery
+
+`discovery.json` preserves a captured user → numeric games → numeric leagues
+envelope. It contains only discovery fields; all league keys and names are
+synthetic, and account GUIDs and URLs were removed.

@@ -32,6 +32,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [yahooReconnect, setYahooReconnect] = useState(false);
   const [events, setEvents] = useState<
     { stage: string; message?: string; done?: number; total?: number }[]
   >([]);
@@ -40,13 +41,18 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
 
   const loadOrRefresh = useCallback(async () => {
     setError(null);
+    setYahooReconnect(false);
     setLoading(true);
     try {
       const d = await dashboard(leagueId, { year: initialYear, lens: initialLens });
       setData(d);
       setLoading(false);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
+      if (leagueId.includes(".l.") && err instanceof ApiError && [403, 409].includes(err.status) && /yahoo|not a member/i.test(err.message)) {
+        setLoading(false);
+        setYahooReconnect(true);
+        setError(err.message);
+      } else if (err instanceof ApiError && err.status === 409) {
         // Cold cache: kick off the SSE refresh that builds + grades the chain.
         setLoading(false);
         setRefreshing(true);
@@ -100,6 +106,12 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
 
   // Error with nothing to show: full error state with retry.
   if (error && !data) {
+    if (yahooReconnect) return (
+      <section className="mt-8">
+        <p role="alert" className="text-body">{error}</p>
+        <Button as="link" href="/leagues/add?provider=yahoo" className="mt-5 px-4 py-2">Connect Yahoo</Button>
+      </section>
+    );
     return <ErrorState message={error} onRetry={loadOrRefresh} />;
   }
 
