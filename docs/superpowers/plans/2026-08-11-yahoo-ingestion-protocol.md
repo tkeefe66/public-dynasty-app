@@ -8,6 +8,22 @@
 
 **Tech Stack:** Python 3.11 / httpx / dataclasses / pytest. No frontend work in this plan.
 
+## Resume status (2026-09-27)
+
+Yahoo approved Fantasy Sports Read for the existing app. Its registered client
+type is **Public Client**, so use PKCE with S256 and omit the client secret.
+`scripts/yahoo_dev_token.py` now supports that flow, validates OAuth state, and
+saves only the short-lived access token to an owner-only temporary file.
+`scripts/record_yahoo_fixtures.py` reads `YAHOO_DEV_TOKEN_FILE` and captures raw
+league data outside the repository; anonymize copies before committing fixtures.
+
+The authorization request reaches Yahoo's Fantasy Sports Read consent screen.
+Account consent and the first successful Fantasy API read are still pending.
+Resume Task 5's real fixture capture after consent, then Tasks 6–9. Production
+OAuth, encrypted refresh-token storage, and the Yahoo connection UI remain the
+separate auth phase described below. The historical blocker section records the
+August behavior and is not the current app-approval status.
+
 ## Scope
 
 **In:** the ingestion protocol, the Sleeper refactor, the Yahoo read adapter, Yahoo→Sleeper player id mapping, and an end-to-end read of a real Yahoo league using a hand-supplied developer access token.

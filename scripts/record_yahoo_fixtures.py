@@ -7,15 +7,16 @@ nesting varies by resource — any guess would be confidently wrong.
 Usage:
 
     set -a; source api/.env; set +a          # or export the two below
-    export YAHOO_DEV_ACCESS_TOKEN=...        # scripts/yahoo_dev_token.py
-    export YAHOO_DEV_LEAGUE_KEY=461.l.123456
+    export YAHOO_DEV_TOKEN_FILE=/path/printed/by/yahoo_dev_token.py
+    export YAHOO_DEV_LEAGUE_KEY=your-league-key
     python3 scripts/record_yahoo_fixtures.py
 
-Writes tests/fixtures/yahoo/<name>.json. Run once; commit the results.
+Writes to a private temporary directory outside the repo. Optionally set
+YAHOO_FIXTURE_DIR to another directory outside the repo.
 
 Privacy: these payloads contain your league-mates' team names, manager
-nicknames, and Yahoo GUIDs. This repo is private, so that is acceptable — but
-do not copy fixtures into a public issue, gist, or bug report.
+nicknames, and Yahoo GUIDs. Do not commit raw captures. Anonymize a separate
+copy before turning it into a checked-in fixture.
 """
 
 from __future__ import annotations
@@ -23,12 +24,51 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.request
 
 BASE = "https://fantasysports.yahooapis.com/fantasy/v2"
-OUT = pathlib.Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "yahoo"
+REPO = pathlib.Path(__file__).resolve().parents[1]
+
+
+def load_access_token() -> str:
+    token_file = (os.environ.get("YAHOO_DEV_TOKEN_FILE") or "").strip()
+    if token_file:
+        try:
+            payload = json.loads(pathlib.Path(token_file).read_text())
+            if float(payload["expires_at"]) <= time.time():
+                sys.exit(
+                    "Yahoo access token expired; re-run scripts/yahoo_dev_token.py."
+                )
+            token = payload["access_token"]
+            if not isinstance(token, str) or not token.strip():
+                raise ValueError("missing token")
+            return token
+        except (OSError, ValueError, TypeError, KeyError):
+            sys.exit(
+                "Cannot read a valid Yahoo token file; re-run scripts/yahoo_dev_token.py."
+            )
+    return (os.environ.get("YAHOO_DEV_ACCESS_TOKEN") or "").strip()
+
+
+def output_directory() -> pathlib.Path:
+    configured = (os.environ.get("YAHOO_FIXTURE_DIR") or "").strip()
+    out = (
+        pathlib.Path(configured).expanduser().resolve()
+        if configured
+        else pathlib.Path(tempfile.mkdtemp(prefix="yahoo-fixtures-"))
+    )
+    if out == REPO or REPO in out.parents:
+        sys.exit(
+            "Raw Yahoo fixtures must stay outside the repository; anonymize copies before committing."
+        )
+    out.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return out
+
 
 # One per seam the adapter has to normalize, plus the two the league half needs.
 RESOURCES = {
@@ -49,44 +89,60 @@ RESOURCES = {
 
 
 def main() -> None:
-    token = (os.environ.get("YAHOO_DEV_ACCESS_TOKEN") or "").strip()
+    token = load_access_token()
     league_key = (os.environ.get("YAHOO_DEV_LEAGUE_KEY") or "").strip()
     if not token or not league_key:
         sys.exit(
-            "Set YAHOO_DEV_ACCESS_TOKEN and YAHOO_DEV_LEAGUE_KEY first.\n"
+            "Set YAHOO_DEV_TOKEN_FILE and YAHOO_DEV_LEAGUE_KEY first.\n"
             "Get both from: python3 scripts/yahoo_dev_token.py\n"
             "The access token lasts one hour — re-mint if this 401s."
         )
 
-    OUT.mkdir(parents=True, exist_ok=True)
+    if not re.fullmatch(r"(?:\d+|nfl)\.l\.\d+", league_key):
+        sys.exit(
+            "Invalid Yahoo league key; use the exact key from scripts/yahoo_dev_token.py."
+        )
+    out = output_directory()
     ok = failed = 0
     for name, path in RESOURCES.items():
         url = f"{BASE}{path.format(lk=league_key)}?format=json"
-        req = urllib.request.Request(
-            url, headers={"Authorization": f"Bearer {token}"})
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 payload = json.loads(resp.read().decode())
         except urllib.error.HTTPError as exc:
-            body = exc.read().decode()[:200].replace("\n", " ")
-            print(f"  {exc.code}  {name:22} {body}")
-            if exc.code == 401:
+            print(f"  {exc.code}  {name:22}")
+            if exc.code in (401, 403):
                 sys.exit(
-                    "\n401 — the access token expired (they last one hour). "
-                    "Re-run scripts/yahoo_dev_token.py and try again."
+                    "\nYahoo refused access; check app approval and league access, "
+                    "then re-run scripts/yahoo_dev_token.py."
+                )
+            if exc.code == 429:
+                sys.exit(
+                    "Yahoo rate limit reached; wait before retrying fixture capture."
                 )
             failed += 1
             continue
-        except Exception as exc:  # noqa: BLE001 - dev script
-            print(f"  ERR  {name:22} {exc}")
+        except (urllib.error.URLError, TimeoutError, ValueError):
+            print(f"  ERR  {name:22} Network failure or invalid response; retry later.")
             failed += 1
             continue
 
-        (OUT / f"{name}.json").write_text(json.dumps(payload, indent=2))
-        print(f"  200  {name:22} -> tests/fixtures/yahoo/{name}.json")
+        # Refuse overwrite/symlink targets and create private files even when
+        # the caller selected a directory with broader permissions.
+        path = out / f"{name}.json"
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            sys.exit(
+                "Fixture output already exists; select a fresh directory and retry."
+            )
+        with os.fdopen(fd, "w") as handle:
+            json.dump(payload, handle, indent=2)
+        print(f"  200  {name:22} -> {path.name}")
         ok += 1
 
-    print(f"\n{ok} recorded, {failed} failed, into {OUT}")
+    print(f"\n{ok} recorded, {failed} failed, into {out}")
     if failed:
         print(
             "A failed resource is not necessarily a problem — a league with no\n"

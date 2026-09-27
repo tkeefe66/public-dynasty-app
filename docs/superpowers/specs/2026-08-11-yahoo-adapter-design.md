@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-11
 **Status:** superseded in part. Ingestion Tasks 1–5 built and merged 2026-08-11
-(`767196b`); Tasks 6–9 blocked on Yahoo Fantasy API access. The implementation
+(`767196b`); Yahoo approved API access on 2026-09-27. Tasks 6–9 still await
+authorized real-league fixtures. The implementation
 plan is `docs/superpowers/plans/2026-08-11-yahoo-ingestion-protocol.md`.
 **Supersedes:** the MFL adapter sketched in the redraft spec's appendix.
 
