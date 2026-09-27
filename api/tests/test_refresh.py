@@ -2,7 +2,6 @@ import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from app.services.chain_cache import ChainCacheEntry
 
 
@@ -26,7 +25,7 @@ def test_refresh_streams_events(client, tmp_path):
 
     with patch("app.routes.refresh._cache_dir", return_value=tmp_path), \
          patch("app.services.refresh_service.GraderService.run", new=fake_run):
-        with client.stream("GET", "/api/league/L_new/refresh") as resp:
+        with client.stream("GET", "/api/league/100000001/refresh") as resp:
             assert resp.status_code == 200
             chunks = []
             for line in resp.iter_lines():
@@ -45,9 +44,9 @@ def test_refresh_writes_cache_on_completion(client, tmp_path):
 
     with patch("app.routes.refresh._cache_dir", return_value=tmp_path), \
          patch("app.services.refresh_service.GraderService.run", new=fake_run):
-        with client.stream("GET", "/api/league/L_new/refresh") as resp:
+        with client.stream("GET", "/api/league/100000001/refresh") as resp:
             list(resp.iter_lines())
-    cache_file = tmp_path / "chain_L_new.json"
+    cache_file = tmp_path / "chain_100000001.json"
     assert cache_file.exists()
 
 
@@ -63,8 +62,17 @@ def test_refresh_passes_force_to_grader(client, tmp_path):
 
     with patch("app.routes.refresh._cache_dir", return_value=tmp_path), \
          patch("app.services.refresh_service.GraderService.run", new=fake_run):
-        with client.stream("GET", "/api/league/L1/refresh?force=1") as r:
+        with client.stream("GET", "/api/league/100000001/refresh?force=1") as r:
             for _ in r.iter_lines():
                 pass
     assert captured["force"] is True
     assert captured["cache_dir"] is not None
+
+
+def test_yahoo_refresh_without_connection_fails_before_sse(client,monkeypatch):
+    # Mutation: constructing the client inside the stream sends HTTP 200 and
+    # cannot return the connection-required response the UI needs.
+    monkeypatch.setenv('YAHOO_DEV_ACCESS_TOKEN','must-not-authorize-other-users')
+    response=client.get('/api/league/470.l.100000001/refresh')
+    assert response.status_code==409
+    assert 'connection' in response.json()['detail'].lower()

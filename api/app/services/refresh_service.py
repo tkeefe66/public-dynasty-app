@@ -13,11 +13,11 @@ from pathlib import Path
 
 from app.config import get_settings
 from app.services.chain_cache import ChainCache, ChainCacheEntry
-from app.services.grader import GraderService
 from app.services.franchise_redesign import model_for
+from app.services.grader import GraderService
 from app.services.leaderboard import all_time_ratings, compute_season_ratings
+from app.services.platform_client import client_for_league
 from app.services.rating_snapshot_store import RatingSnapshotStore
-from sleeper_dynasty.api.sleeper import SleeperClient
 
 log = logging.getLogger(__name__)
 
@@ -139,22 +139,27 @@ async def refresh_all_known(
     cache_dir: Path,
     *,
     _refresh_league=refresh_league,
-    _client_factory=SleeperClient,
+    _client_factory=None,
 ) -> None:
     """Refresh every known league, isolating per-league failures."""
     ids = known_league_ids(cache_dir)
-    if not ids:
-        return
-    client = _client_factory()
-    try:
-        for lid in ids:
-            try:
-                await _refresh_league(client, lid, cache_dir=cache_dir, force=False)
-                log.info("auto-refresh: refreshed league %s", lid)
-            except Exception:
-                log.exception("auto-refresh: league %s failed", lid)
-    finally:
-        await client.close()
+    await _refresh_ids(ids, cache_dir, _refresh_league, _client_factory)
+
+
+async def _refresh_ids(ids, cache_dir, refresh_fn, client_factory):
+    for lid in ids:
+        client = None
+        try:
+            # No process-wide Yahoo developer-token fallback: scheduled
+            # access must come from the account connection added by OAuth.
+            client = client_factory() if client_factory else client_for_league(lid)
+            await refresh_fn(client, lid, cache_dir=cache_dir, force=False)
+            log.info("auto-refresh: refreshed league %s", lid)
+        except Exception:
+            log.exception("auto-refresh: league %s failed", lid)
+        finally:
+            if client is not None:
+                await client.close()
 
 
 async def _member_league_ids() -> list[str]:
@@ -170,7 +175,7 @@ async def refresh_all_members(
     cache_dir: Path,
     *,
     _refresh_league=refresh_league,
-    _client_factory=SleeperClient,
+    _client_factory=None,
     _ids_provider=_member_league_ids,
 ) -> None:
     """Refresh every league that has ≥1 member, isolating per-league failures.
@@ -179,18 +184,7 @@ async def refresh_all_members(
     imported (not every file ever cached). ``refresh_all_known`` (glob) remains
     for tooling/tests."""
     ids = await _ids_provider()
-    if not ids:
-        return
-    client = _client_factory()
-    try:
-        for lid in ids:
-            try:
-                await _refresh_league(client, lid, cache_dir=cache_dir, force=False)
-                log.info("auto-refresh: refreshed league %s", lid)
-            except Exception:
-                log.exception("auto-refresh: league %s failed", lid)
-    finally:
-        await client.close()
+    await _refresh_ids(ids, cache_dir, _refresh_league, _client_factory)
 
 
 async def auto_refresh_loop(

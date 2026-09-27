@@ -128,6 +128,22 @@ class LeaguePlatform(Protocol):
         ``roster_id``, ``player_id`` (Sleeper id), ``season``."""
         ...
 
+    async def get_drafts(self, league_id: str) -> list[dict]:
+        """Draft metadata: draft_id, league_id, season, status and settings.
+
+        Required by trade resolution and draft-class grading, which need the
+        draft boundary in addition to the flattened results above.
+        """
+        ...
+
+    async def get_draft_picks(self, draft_id: str) -> list[dict]:
+        """Canonical player-ID pick rows for one draft."""
+        ...
+
+    async def get_projections(self, season: int) -> dict:
+        """NFL projections keyed by canonical player ID."""
+        ...
+
     async def get_traded_picks(self, league_id: str) -> list:
         """``DraftPick`` records for picks that changed hands. Platforms
         without future-pick trading return []."""

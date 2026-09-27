@@ -65,14 +65,26 @@ def test_refresh_all_known_noop_when_no_leagues(tmp_path: Path):
     assert created == []  # no client created when there's nothing to refresh
 
 
+def test_scheduler_does_not_send_yahoo_league_to_public_sleeper_client(tmp_path, monkeypatch):
+    # Mutation: one shared Sleeper client bypasses platform routing for Yahoo.
+    from unittest.mock import AsyncMock
+    (tmp_path/'chain_470.l.100000001.json').write_text('{}')
+    refresh=AsyncMock()
+    monkeypatch.setenv('YAHOO_DEV_ACCESS_TOKEN','not-an-account-connection')
+    asyncio.run(refresh_all_known(tmp_path,_refresh_league=refresh))
+    refresh.assert_not_awaited()
+
+
 def test_refresh_collects_news_even_when_llm_budget_exhausted(tmp_path, monkeypatch):
     # Mutation: put news collection inside the budget-gated recap writer path.
+    from datetime import datetime, timezone
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from app.services.refresh_service import refresh_league
+
     from app.services.player_context_store import PlayerContextStore
+    from app.services.refresh_service import refresh_league
+
     from sleeper_dynasty.api.player_context import PlayerContextClient
-    from datetime import datetime, timezone
     entry = _entry()
     monkeypatch.setattr("app.services.refresh_service.GraderService.run", AsyncMock(return_value=entry))
     monkeypatch.setattr("app.services.refresh_service._llm_over_budget", AsyncMock(return_value=True))

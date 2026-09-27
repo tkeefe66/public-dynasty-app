@@ -5,14 +5,14 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
 from app.config import get_settings
 from app.deps import get_cache_dir
 from app.ratelimit import limiter
+from app.services.platform_client import YahooCredentialsMissing, client_for_league
 from app.services.refresh_service import refresh_league
-from sleeper_dynasty.api.sleeper import SleeperClient
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -27,8 +27,14 @@ def _cache_dir() -> Path:
 async def refresh(
     request: Request, league_id: str, force: bool = Query(False)
 ) -> EventSourceResponse:
+    try:
+        client = client_for_league(league_id)
+    except YahooCredentialsMissing as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     async def event_stream():
-        client = SleeperClient()
         # Live progress: the grader pushes events onto the queue as they happen
         # and this generator forwards them immediately (no buffering), so the
         # client's progress modal ticks through stages in real time.

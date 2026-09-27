@@ -17,12 +17,25 @@ saves only the short-lived access token to an owner-only temporary file.
 `scripts/record_yahoo_fixtures.py` reads `YAHOO_DEV_TOKEN_FILE` and captures raw
 league data outside the repository; anonymize copies before committing fixtures.
 
-The authorization request reaches Yahoo's Fantasy Sports Read consent screen.
-Account consent and the first successful Fantasy API read are still pending.
-Resume Task 5's real fixture capture after consent, then Tasks 6–9. Production
-OAuth, encrypted refresh-token storage, and the Yahoo connection UI remain the
-separate auth phase described below. The historical blocker section records the
-August behavior and is not the current app-approval status.
+Account consent and Fantasy API reads succeeded. Tasks 5–9 are implemented;
+the local no-AI grader imported a ten-team keeper league for 2025 and 2026:
+360 draft picks, one historical trade, no unmapped players, and ten completed-season
+`v2_keeper` ratings. Both completed current-season weeks match Yahoo's scoreboard.
+See [current setup and coverage](../../yahoo-local-setup.md).
+
+Implementation rulings supersede the sketches below: league metadata holds
+`renew`; numeric wrappers require traversal; all-team rosters can be fetched in
+one collection, but actual player points require separate league-player batches;
+new player IDs need conservative name/position matching; manager GUID placeholders
+must never merge teams; and the current grader still needs draft metadata/pick
+methods as well as flattened results. Those reads are now part of the protocol.
+The factory requires explicit credentials and never consumes a server-wide dev
+token. Current-season-only imports honestly remain unrated without a completed
+season; historical owner continuity is not guessed.
+
+Production OAuth, encrypted refresh-token storage, league discovery, and the Yahoo
+connection UI remain the separate auth phase described below. The historical
+blocker section records August behavior, not current app approval.
 
 ## Scope
 

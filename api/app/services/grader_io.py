@@ -11,9 +11,11 @@ from typing import Any
 
 from sleeper_dynasty.api.fantasycalc import fetch_fantasycalc_values
 from sleeper_dynasty.api.ktc import (
-    build_pick_value_table, build_pick_value_table_tiered, fetch_ktc_values,
+    build_pick_value_table,
+    build_pick_value_table_tiered,
+    fetch_ktc_values,
 )
-from sleeper_dynasty.cache import FileCache, ONE_DAY
+from sleeper_dynasty.cache import ONE_DAY, FileCache
 from sleeper_dynasty.engine.nfl_actuals import score_week
 from sleeper_dynasty.engine.playoff_phase import classify_playoff_phases
 from sleeper_dynasty.models.player import KTCValue
@@ -158,8 +160,13 @@ async def _league_matchup_bundle(client, lg, league_cache) -> dict:
         raw_per_week[week] = await client.get_raw_matchups(lg.league_id, week)
     matchups = _assemble_played_matchups(raw_per_week, lg.league_id)
 
-    winners = await client.get_winners_bracket(lg.league_id)
-    losers = await client.get_losers_bracket(lg.league_id)
+    winners = (await client.get_winners_bracket(lg.league_id)
+               if hasattr(client, "get_winners_bracket") else [])
+    losers = (await client.get_losers_bracket(lg.league_id)
+              if hasattr(client, "get_losers_bracket") else [])
+    phases = (await client.get_phase_map(lg) if hasattr(client, "get_phase_map")
+              else classify_playoff_phases(winners, losers, lg.playoff_week_start,
+                                           getattr(lg, "playoff_round_type", 0)))
 
     bundle = {
         "matchups": matchups,
@@ -169,13 +176,14 @@ async def _league_matchup_bundle(client, lg, league_cache) -> dict:
         "league_name": lg.name,
         "season": lg.season,
         "owners": owners,
+        "phase_map": {f"{week}:{roster}": phase for (week, roster), phase in phases.items()},
         "winners_bracket": winners,
         "losers_bracket": losers,
         "playoff_round_type": getattr(lg, "playoff_round_type", 0),
         "num_playoff_teams": getattr(lg, "num_playoff_teams", 0),
     }
     if sealed:
-        if not winners and not losers:
+        if not winners and not losers and not phases:
             log.warning(
                 "sealed league %s (season %s) has empty winners+losers brackets",
                 lg.league_id, getattr(lg, "season", "?"),
@@ -321,12 +329,15 @@ async def pull_supporting_data(
         for uid, ident in b["owners"].items():
             owners.setdefault(uid, ident)
         matchups.update(b["matchups"])
-        for (wk, rid), ph in classify_playoff_phases(
-            b.get("winners_bracket") or [],
-            b.get("losers_bracket") or [],
-            b["playoff_week_start"],
-            b.get("playoff_round_type", 0),
-        ).items():
+        if "phase_map" in b:
+            phases = {tuple(map(int, key.split(":"))): phase
+                      for key, phase in b["phase_map"].items()}
+        else:
+            # Old sealed Sleeper bundles predate the protocol phase map.
+            phases = classify_playoff_phases(
+                b.get("winners_bracket") or [], b.get("losers_bracket") or [],
+                b["playoff_week_start"], b.get("playoff_round_type", 0))
+        for (wk, rid), ph in phases.items():
             phase_by_lwr[(lg.league_id, wk, rid)] = ph
 
     # NFL-wide weekly actuals, scored to THIS league, for drop regret.
@@ -377,6 +388,7 @@ async def pull_supporting_data(
         except (ValueError, TypeError):
             continue
 
+    warnings.extend(getattr(client, "warnings", []))
     return {
         "matchups": matchups,
         "ktc_by_player_id": ktc_by_player_id,
