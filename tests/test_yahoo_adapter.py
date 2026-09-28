@@ -194,6 +194,38 @@ async def test_draft_slot_does_not_shift_after_unmapped_player():
 
 
 @pytest.mark.asyncio
+async def test_captured_historical_draft_missing_players_preserves_known_selections():
+    # Mutation: treating every draft slot as an identified player crashes the import.
+    raw = fixture("draftresults_missing_player")
+    rows = raw["fantasy_content"]["league"][1]["draft_results"]
+    mapping = {
+        row["draft_result"]["player_key"].split(".p.")[1]: f"mapped-{i}"
+        for i, row in rows.items()
+        if i != "count" and row["draft_result"].get("player_key")
+    }
+    key = "399.l.100000003"
+    a = Replay({f"/league/{key}/draftresults": raw}, id_map=mapping)
+    try:
+        picks = await a.get_draft_results(key)
+        assert len(picks) == 158
+        assert {p["pick_no"] for p in picks} == set(range(1, 161)) - {153, 154}
+        assert picks[-1] == {
+            "round": 16,
+            "pick_no": 160,
+            "draft_slot": 1,
+            "roster_id": 7,
+            "player_id": "mapped-159",
+            "season": 2020,
+        }
+        assert not a.unmapped_players  # An absent ID is not an unmapped player.
+        assert any("2 Yahoo draft selections" in w for w in a.warnings)
+        await a.get_draft_results(key)
+        assert any("2 Yahoo draft selections" in w for w in a.warnings)
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
 async def test_draft_mapping_does_not_depend_on_rosters_being_fetched_first():
     # Mutation: drafts contain only Yahoo keys, so new players disappear when
     # no earlier roster read happened to populate the mapping.

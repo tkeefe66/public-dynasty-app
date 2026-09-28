@@ -20,6 +20,12 @@ in batches of 25, captured as `player_points_wk1_batch*.json`.
 responses match all ten scoreboard totals. No tokens or original captures belong
 in this directory.
 
+`draftresults_missing_player.json` was captured on 2026-09-28 from a completed
+2020 draft. Two selections (153 and 154) have round, pick, and team information
+but no player key. The full 160-selection collection is retained, with its
+league key replaced by synthetic `399.l.100000003`. Missing player information
+must not prevent the other 158 selections or the league history from importing.
+
 ## Account discovery
 
 `discovery.json` preserves a captured user → numeric games → numeric leagues

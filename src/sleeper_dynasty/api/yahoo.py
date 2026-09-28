@@ -221,6 +221,7 @@ class YahooAdapter:
         self._metadata = {}
         self._sleeper_client = None
         self.unmapped_players: set[str] = set()
+        self._draft_selections_without_players: set[tuple[str, int]] = set()
         self._limit = asyncio.Semaphore(2)
         self._id_lock = asyncio.Lock()
         self._season_owner_fallback = False
@@ -236,6 +237,11 @@ class YahooAdapter:
         if self.unmapped_players:
             result.append(
                 f"{len(self.unmapped_players)} Yahoo player IDs could not be mapped; affected records are excluded."
+            )
+        if self._draft_selections_without_players:
+            result.append(
+                f"{len(self._draft_selections_without_players)} Yahoo draft selections have no player information; "
+                "those selections are excluded from draft analysis."
             )
         return result
 
@@ -750,7 +756,8 @@ class YahooAdapter:
             dict.fromkeys(
                 p["player_key"]
                 for p in picks
-                if not self.to_sleeper_id(p["player_key"].rsplit(".p.", 1)[-1])
+                if p.get("player_key")
+                and not self.to_sleeper_id(p["player_key"].rsplit(".p.", 1)[-1])
             )
         )
         for start in range(0, len(missing), 25):
@@ -768,10 +775,23 @@ class YahooAdapter:
         }
         result = []
         for pick in picks:
+            number = int(pick["pick"])
+            # Some completed historical drafts retain a selection's position
+            # and team but omit its player. Keep those slots above, without
+            # inventing a player or aborting the rest of the league history.
+            if not pick.get("player_key"):
+                selection = (league_id, number)
+                if selection not in self._draft_selections_without_players:
+                    log.warning(
+                        "Yahoo draft %s pick %s has no player information",
+                        league_id,
+                        number,
+                    )
+                    self._draft_selections_without_players.add(selection)
+                continue
             pid = self._player_id(pick)
             if not pid:
                 continue
-            number = int(pick["pick"])
             result.append(
                 {
                     "round": int(pick["round"]),
