@@ -729,6 +729,25 @@ def build_dashboard(
     """Produce a DashboardResp from a cached chain entry + query params."""
     trades = _filter_trades_by_year(entry, year)
     rows = _aggregate_owner_rows(entry, trades)
+    if year != "all":
+        season_leagues = [
+            lid for lid, season in entry.league_season_by_id.items() if season == year
+        ]
+        # Filter membership, not ratings. Yahoo's private manager identities can
+        # leave one distinct team per season; old teams must not fill every year.
+        # Keep trade participants who departed before the final roster snapshot,
+        # and preserve older caches when season membership is unavailable.
+        if season_leagues and all(
+            lid in entry.roster_to_user_by_league for lid in season_leagues
+        ):
+            members = {
+                uid for lid in season_leagues
+                for uid in entry.roster_to_user_by_league[lid].values()
+            }
+            rows = {
+                uid: row for uid, row in rows.items()
+                if uid in members or row["trades"] > 0
+            }
 
     # All-time GM ratings (independent of year filter)
     ratings = _all_time_ratings(entry)  # {uid: int}

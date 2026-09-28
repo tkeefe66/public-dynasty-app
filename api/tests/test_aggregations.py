@@ -165,6 +165,53 @@ def test_build_dashboard_year_filter_only_counts_that_year():
     assert alice.net_ktc == 1450
 
 
+@pytest.mark.parametrize(
+    ("year", "expected"),
+    [
+        (2024, {"u_alice", "u_bob", "yahoo_previous_team"}),
+        (2026, {"u_alice", "u_bob", "yahoo_current_team"}),
+        ("all", {"u_alice", "u_bob", "yahoo_previous_team", "yahoo_current_team"}),
+    ],
+)
+def test_dashboard_season_excludes_teams_from_other_seasons(year, expected):
+    e = _sample_entry()
+    # Yahoo can expose only season-specific team identities. The current team
+    # has no trades or completed record yet, but still belongs in its season.
+    e.owners.update({
+        "yahoo_previous_team": {"owner_name": "Previous team"},
+        "yahoo_current_team": {"owner_name": "Current team"},
+    })
+    e.roster_to_user_by_league["L_prev"][3] = "yahoo_previous_team"
+    e.roster_to_user_by_league["L_current"][3] = "yahoo_current_team"
+    all_rows = {r.user_id: r for r in build_dashboard(e, year="all", lens="ktc").standings}
+
+    response = build_dashboard(e, year=year, lens="ktc")
+
+    assert {row.user_id for row in response.standings} == expected
+    # Filtering membership must not turn career ratings into season ratings.
+    for row in response.standings:
+        assert row.gm_rating == all_rows[row.user_id].gm_rating
+
+
+def test_dashboard_season_retains_trade_participant_without_end_of_season_roster():
+    e = _sample_entry()
+    del e.roster_to_user_by_league["L_prev"][2]
+
+    response = build_dashboard(e, year=2024, lens="ktc")
+
+    bob = next(row for row in response.standings if row.user_id == "u_bob")
+    assert bob.trades == 1
+
+
+def test_dashboard_season_keeps_owners_when_roster_membership_is_unavailable():
+    e = _sample_entry()
+    e.roster_to_user_by_league = {}
+
+    response = build_dashboard(e, year=2026, lens="ktc")
+
+    assert {row.user_id for row in response.standings} == {"u_alice", "u_bob"}
+
+
 def test_build_dashboard_no_trades_for_year_yields_zero_standings():
     e = _sample_entry()
     resp = build_dashboard(e, year=2025, lens="ktc")
