@@ -29,6 +29,10 @@ class YahooAuthenticationError(RuntimeError):
     """The account needs to reconnect, or lacks permission to this resource."""
 
 
+class YahooRateLimitError(YahooDataError):
+    """Yahoo is refusing requests; do not immediately retry the import."""
+
+
 def roster_id_for(team_key) -> int:
     match = re.fullmatch(r"\d+\.l\.\d+\.t\.(\d+)", str(team_key or ""))
     if not match or int(match[1]) < 1:
@@ -269,7 +273,12 @@ class YahooAdapter:
                     raise YahooAuthenticationError(
                         "Yahoo refused access; reconnect and check league permissions."
                     )
-                if response.status_code == 429 or response.status_code >= 500:
+                if response.status_code in (429, 999):
+                    raise YahooRateLimitError(
+                        "Yahoo is limiting API access right now. Wait before retrying; "
+                        "your Yahoo connection is still saved."
+                    )
+                if response.status_code >= 500:
                     if attempt < 2:
                         await asyncio.sleep(2**attempt)
                         continue

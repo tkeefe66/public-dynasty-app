@@ -61,7 +61,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
           setEvents((cur) => [...cur, ev]);
           if (ev.stage === "error") {
             setRefreshing(false);
-            setError("The refresh stopped before it finished. Try again.");
+            setError(ev.message || "The refresh stopped before it finished. Try again.");
             return;
           }
           if (ev.stage === "done") {

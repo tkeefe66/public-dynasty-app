@@ -50,6 +50,21 @@ def test_refresh_writes_cache_on_completion(client, tmp_path):
     assert cache_file.exists()
 
 
+def test_refresh_reports_provider_limit_without_exposing_exception(client, tmp_path):
+    # Mutation: dropping the typed error code leaves the user with a generic failure.
+    from sleeper_dynasty.api.yahoo import YahooRateLimitError
+
+    with patch("app.routes.refresh._cache_dir", return_value=tmp_path), \
+         patch("app.routes.refresh.refresh_league", new=AsyncMock(
+             side_effect=YahooRateLimitError("private upstream details")
+         )):
+        response = client.get("/api/league/100000001/refresh")
+    errors = [json.loads(line[5:]) for line in response.text.splitlines()
+              if line.startswith("data:")]
+    assert errors == [{"stage": "error", "error_code": "yahoo_rate_limited"}]
+    assert "private upstream details" not in response.text
+
+
 def test_refresh_passes_force_to_grader(client, tmp_path):
     captured = {}
 

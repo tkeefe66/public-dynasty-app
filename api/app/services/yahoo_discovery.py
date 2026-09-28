@@ -11,6 +11,7 @@ from sleeper_dynasty.api.yahoo import (
     YahooAdapter,
     YahooAuthenticationError,
     YahooDataError,
+    YahooRateLimitError,
     child,
 )
 from sleeper_dynasty.api.yahoo_json import collection, merge_fragments
@@ -71,6 +72,12 @@ async def discover(db, user_id) -> list[dict]:
         await db.commit()
         raise HTTPException(
             409, "Yahoo refused access. Reconnect Yahoo and approve read access."
+        ) from None
+    except YahooRateLimitError:
+        raise HTTPException(
+            503,
+            "Yahoo is limiting API access right now. Wait before retrying; "
+            "your Yahoo connection is still saved.",
         ) from None
     except (YahooDataError, KeyError, TypeError, ValueError):
         raise HTTPException(

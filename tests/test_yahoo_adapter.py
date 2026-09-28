@@ -384,6 +384,31 @@ async def test_unmapped_starter_blocks_grading_instead_of_inventing_lineup_skill
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status", [429, 999])
+async def test_provider_limits_stop_without_immediate_retries(monkeypatch, status):
+    # Mutation: treating Yahoo's access limit as a server error sends rapid retries.
+    from unittest.mock import AsyncMock
+
+    import httpx
+
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(status, text="private-token upstream details")
+
+    monkeypatch.setattr("sleeper_dynasty.api.yahoo.asyncio.sleep", AsyncMock())
+    a = YahooAdapter("private-token", id_map={}, transport=httpx.MockTransport(respond))
+    try:
+        with pytest.raises(YahooDataError) as exc:
+            await a.get_league(LK)
+        assert len(calls) == 1
+        assert "private-token" not in str(exc.value)
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status", [401, 403, 429, 500])
 async def test_provider_errors_are_bounded_and_do_not_echo_tokens(monkeypatch, status):
     from unittest.mock import AsyncMock
@@ -405,7 +430,7 @@ async def test_provider_errors_are_bounded_and_do_not_echo_tokens(monkeypatch, s
         with pytest.raises(error) as exc:
             await a.get_league(LK)
         assert "private-token" not in str(exc.value)
-        assert len(calls) == (1 if status in (401, 403) else 3)
+        assert len(calls) == (1 if status in (401, 403, 429) else 3)
     finally:
         await a.close()
 

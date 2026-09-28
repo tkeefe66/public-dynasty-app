@@ -397,6 +397,52 @@ def test_discovery_uses_real_envelope_and_verified_grants(
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("status", [429, 999])
+def test_discovery_provider_limit_preserves_connection(
+    maker, configured, monkeypatch, status
+):
+    # Mutation: flattening provider limits to generic errors hides the retry action.
+    from app.db.models import YahooConnection
+    from app.services import yahoo_discovery as yd
+    from app.services.yahoo_connection import seal
+
+    from sleeper_dynasty.api.yahoo import YahooAdapter
+
+    monkeypatch.setattr(
+        yd,
+        "YahooAdapter",
+        lambda token: YahooAdapter(
+            token, transport=httpx.MockTransport(lambda req: httpx.Response(status))
+        ),
+    )
+
+    async def run():
+        async with maker() as db:
+            db.add(User(id="u1", google_sub="g1", email="a@test"))
+            await db.flush()
+            db.add(
+                YahooConnection(
+                    user_id="u1",
+                    generation="gen1",
+                    status="connected",
+                    expires_at=time.time() + 3600,
+                    sealed_tokens=seal(
+                        "u1",
+                        "tokens",
+                        {"access_token": "secret", "refresh_token": "refresh"},
+                    ),
+                )
+            )
+            await db.commit()
+            with pytest.raises(HTTPException) as error:
+                await yd.discover(db, "u1")
+            assert error.value.status_code == 503
+            assert "wait" in error.value.detail.lower()
+            assert (await db.get(YahooConnection, "u1")).status == "connected"
+
+    asyncio.run(run())
+
+
 def test_http_connect_discover_add_read_disconnect_cycle(
     maker, configured, monkeypatch
 ):

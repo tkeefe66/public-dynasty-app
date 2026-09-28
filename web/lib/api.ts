@@ -421,8 +421,16 @@ export function refreshStream(
     onEvent(JSON.parse((ev as MessageEvent).data));
     es.close();
   });
-  es.addEventListener("error", () => {
-    onEvent({ stage: "error", message: "stream error" });
+  es.addEventListener("error", (ev) => {
+    let message = "The refresh stopped before it finished. Try again.";
+    try {
+      // Only known error codes become user-facing copy; never echo exceptions.
+      const payload = JSON.parse((ev as MessageEvent).data);
+      if (payload?.error_code === "yahoo_rate_limited") {
+        message = "Yahoo is limiting API access right now. Please wait before retrying. Your league is saved, and completed seasons will be reused.";
+      }
+    } catch { /* Network failures have no JSON payload. */ }
+    onEvent({ stage: "error", message });
     es.close();
   });
   return es;

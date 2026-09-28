@@ -16,6 +16,7 @@ from app.deps import get_cache_dir
 from app.ratelimit import limiter
 from app.services.platform_client import YahooCredentialsMissing, connected_client
 from app.services.refresh_service import refresh_league
+from sleeper_dynasty.api.yahoo import YahooRateLimitError
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -61,6 +62,13 @@ async def refresh(
                 )
                 await queue.put(
                     {"event": "done", "data": json.dumps({"stage": "done"})}
+                )
+            except YahooRateLimitError:
+                log.warning("refresh paused by Yahoo request limit for %s", league_id)
+                await queue.put(
+                    {"event": "error", "data": json.dumps(
+                        {"stage": "error", "error_code": "yahoo_rate_limited"}
+                    )}
                 )
             except Exception as e:  # noqa: BLE001 — surfaced to the client
                 log.exception("refresh failed")
