@@ -5,6 +5,7 @@ export interface OwnerRef {
   user_id: string;
   owner_name: string;
   team_name?: string;
+  franchise_name?: string;
   avatar_url?: string;
 }
 

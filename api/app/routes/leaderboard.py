@@ -50,6 +50,7 @@ def leaderboard(
         except ValueError:
             raise HTTPException(status_code=400, detail="invalid year")
     prev_ratings = load_prev_ratings(
-        cache_dir, league_id, model=model_for(entry)
+        cache_dir, league_id, model=model_for(entry),
+        owner_identity_version=entry.owner_identity_version,
     )
     return build_leaderboard(entry, year=year_val, prev_ratings=prev_ratings)

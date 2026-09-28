@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyStandingsState } from "../lib/standings-filter";
+import { applyStandingsState, franchiseSortKey } from "../lib/standings-filter";
 import { StandingRow } from "../lib/types";
 
 const ROWS: StandingRow[] = [
@@ -10,6 +10,12 @@ const ROWS: StandingRow[] = [
 ];
 
 describe("applyStandingsState", () => {
+  it("labels confirmed careers with the owner name while keeping team labels for unlinked leagues", () => {
+    const linked = { ...ROWS[0], owner: { ...ROWS[0].owner, franchise_name: "Alex", team_name: "Zebras" } };
+    expect(franchiseSortKey(linked)).toBe("Alex");
+    expect(franchiseSortKey({ ...ROWS[1], owner: { ...ROWS[1].owner, team_name: "Bears" } })).toBe("Bears");
+    expect(applyStandingsState([linked], { sort: { column: "owner_name", direction: "asc" }, filters: { owner_name: ["alex"] } })).toHaveLength(1);
+  });
   it("sort by production_total asc", () => {
     const out = applyStandingsState(ROWS, {
       sort: { column: "production_total", direction: "asc" }, filters: {},

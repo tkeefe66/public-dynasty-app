@@ -10,4 +10,5 @@ class OwnerRef(BaseModel):
     user_id: str
     owner_name: str
     team_name: str | None = None
+    franchise_name: str | None = None
     avatar_url: str | None = None

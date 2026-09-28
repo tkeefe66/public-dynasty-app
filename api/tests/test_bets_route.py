@@ -68,6 +68,7 @@ def test_create_and_list(client, db_maker):
         "user_id": "u_tom",
         "owner_name": "u_tom",
         "team_name": None,
+        "franchise_name": None,
         "avatar_url": None,
     }
 

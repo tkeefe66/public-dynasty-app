@@ -19,12 +19,13 @@ function gradeBucket(grade: string): "A" | "B" | "C" | "D" {
 }
 
 // The Franchise column sorts/filters on the label the dashboard ledgers
-// actually render — the Sleeper team name, falling back to the owner name —
+// actually render: a confirmed owner's career name, otherwise the team name,
+// falling back to the owner name,
 // so an A→Z sort matches what the reader sees. Other columns read directly
 // off the row. (Kept under the `owner_name` key: that's the column id in the
 // URL state, and changing it would break saved links.)
 export function franchiseSortKey(r: StandingRow): string {
-  return r.owner.team_name?.trim() || r.owner.owner_name;
+  return r.owner.franchise_name?.trim() || r.owner.team_name?.trim() || r.owner.owner_name;
 }
 
 function cellValue(r: StandingRow, col: string): any {

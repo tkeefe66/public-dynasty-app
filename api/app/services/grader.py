@@ -449,6 +449,19 @@ class GraderService:
             from app.services.grader_io import pull_supporting_data
             _pull_supporting_data = pull_supporting_data
 
+        from app.services.chain_cache import ChainCache
+        from sleeper_dynasty.api.owner_identity import (
+            OwnerIdentity,
+            OwnerIdentityClient,
+        )
+        identity = client.identity if isinstance(client, OwnerIdentityClient) else OwnerIdentity()
+
+        def read_prior():
+            return (ChainCache(cache_dir=cache_dir).read(
+                current_league_id, max_age_seconds=10 ** 9,
+                owner_identity_version=identity.version,
+            ) if cache_dir is not None else None)
+
         league_cache = (
             LeagueRawCache(cache_dir=cache_dir, force=force)
             if cache_dir is not None else None
@@ -570,9 +583,7 @@ class GraderService:
 
         _reuse_prior = None
         if cache_dir is not None and not force:
-            from app.services.chain_cache import ChainCache as _CC
-            _candidate = _CC(cache_dir=cache_dir).read(
-                current_league_id, max_age_seconds=10 ** 9)
+            _candidate = read_prior()
             if _candidate is not None:
                 _resolved_dicts_for_delta = [
                     {"trade": {"transaction_id": rt.trade.transaction_id}}
@@ -697,9 +708,7 @@ class GraderService:
         _prev_llm_at = None
         _prev_entry = None
         if cache_dir is not None:
-            from app.services.chain_cache import ChainCache
-            _prev_entry = ChainCache(cache_dir=cache_dir).read(
-                current_league_id, max_age_seconds=10 ** 9)
+            _prev_entry = read_prior()
             _prev_llm_at = (getattr(_prev_entry, "llm_generated_at", None)
                             if _prev_entry else None)
         _throttled = llm_pass_throttled(
@@ -724,11 +733,7 @@ class GraderService:
         if skip_llm or _no_key_stories:
             # Budget guard or no API key configured: generate no new prose;
             # reuse whatever was last cached.
-            _prev_s = (
-                ChainCache(cache_dir=cache_dir).read(
-                    current_league_id, max_age_seconds=10 ** 9)
-                if cache_dir else None
-            )
+            _prev_s = read_prior()
             trade_stories = (getattr(_prev_s, "trade_stories", None) or {}) if _prev_s else {}
             owner_dossiers = (getattr(_prev_s, "owner_dossiers", None) or {}) if _prev_s else {}
             if skip_llm:
@@ -747,9 +752,7 @@ class GraderService:
                     writer = TradeStoryWriter(model=_llm_model_override) if _llm_model_override else TradeStoryWriter()  # reads ANTHROPIC_API_KEY
                 prior = {}
                 if cache_dir is not None:
-                    from app.services.chain_cache import ChainCache
-                    prev = ChainCache(cache_dir=cache_dir).read(
-                        current_league_id, max_age_seconds=10 ** 9)
+                    prev = read_prior()
                     prior = prev.trade_stories if prev else {}
                 _name_overrides = (
                     NameOverrideStore(cache_dir=cache_dir).read(current_league_id)
@@ -1832,6 +1835,8 @@ class GraderService:
             league_season_by_id=supporting["league_season_by_id"],
             cached_at=datetime.now(tz=timezone.utc).isoformat(),
             warnings=supporting.get("warnings", []),
+            owner_identity_version=identity.version,
+            owner_aliases=dict(identity.aliases),
             trade_stories=trade_stories,
             owner_dossiers=owner_dossiers,
             current_holders=current_holders,
@@ -1865,11 +1870,7 @@ class GraderService:
 
         _no_key_blurbs = _llm_key_missing and _blurb_writer is None
         if skip_llm or _no_key_blurbs:
-            _prev_b = (
-                ChainCache(cache_dir=cache_dir).read(
-                    current_league_id, max_age_seconds=10 ** 9)
-                if cache_dir else None
-            )
+            _prev_b = read_prior()
             entry.owner_rating_blurbs = (
                 (getattr(_prev_b, "owner_rating_blurbs", None) or {}) if _prev_b else {}
             )
@@ -1888,9 +1889,7 @@ class GraderService:
                     blurb_writer = GmRatingBlurbWriter(model=_llm_model_override) if _llm_model_override else GmRatingBlurbWriter()  # reads ANTHROPIC_API_KEY
                 prior_blurbs: dict = {}
                 if cache_dir is not None:
-                    from app.services.chain_cache import ChainCache
-                    prev_b = ChainCache(cache_dir=cache_dir).read(
-                        current_league_id, max_age_seconds=10 ** 9)
+                    prev_b = read_prior()
                     prior_blurbs = prev_b.owner_rating_blurbs if prev_b else {}
                 facts_by_scope = owner_rating_facts_by_scope(entry)
                 entry.owner_rating_blurbs = await generate_owner_rating_blurbs(
@@ -1974,9 +1973,7 @@ class GraderService:
 
             prior_fr: dict = {}
             if cache_dir is not None:
-                from app.services.chain_cache import ChainCache
-                prev_fr = ChainCache(cache_dir=cache_dir).read(
-                    current_league_id, max_age_seconds=10 ** 9)
+                prev_fr = read_prior()
                 prior_fr = prev_fr.franchise_blurbs if prev_fr else {}
 
             if skip_llm or _no_key_franchise:

@@ -47,7 +47,8 @@ async def _snapshot_ratings(
         if not ratings:
             return
         RatingSnapshotStore(cache_dir=cache_dir).write(
-            league_id, week_key, ratings, model=model_for(entry)
+            league_id, week_key, ratings, model=model_for(entry),
+            owner_identity_version=entry.owner_identity_version,
         )
         log.info("snapshotted GM ratings for league %s @ %s", league_id, week_key)
     except Exception:
@@ -115,6 +116,11 @@ async def refresh_league(
         skip_llm=await _llm_over_budget(cache_dir),
     )
     entry.season_ratings = compute_season_ratings(entry)
+
+    if ".l." in league_id:
+        from app.services.owner_identity_store import OwnerIdentityStore
+        if OwnerIdentityStore(cache_dir).read(league_id).version != entry.owner_identity_version:
+            raise ValueError("Owner links changed during refresh. Retry to rebuild with the current links.")
 
     ChainCache(cache_dir=cache_dir).write(league_id, entry)
     log.info("refresh complete for %s (%d trades)",

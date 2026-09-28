@@ -53,7 +53,10 @@ def league(
             year_val = int(year)
         except ValueError:
             raise HTTPException(status_code=400, detail="invalid year")
-    prev_ratings = load_prev_ratings(cache_dir, league_id, model=model_for(entry))
+    prev_ratings = load_prev_ratings(
+        cache_dir, league_id, model=model_for(entry),
+        owner_identity_version=entry.owner_identity_version,
+    )
     is_in_season = datetime.now().month in {9, 10, 11, 12, 1}
     return build_dashboard(
         entry, year=year_val, lens=lens,

@@ -24,9 +24,14 @@ def client_for_league(league_id: str, *, access_token: str | None = None):
         raise YahooCredentialsMissing(
             "Yahoo account connection is required before this league can refresh."
         )
+    from app.config import get_settings
+    from app.services.owner_identity_store import OwnerIdentityStore
+    from sleeper_dynasty.api.owner_identity import OwnerIdentityClient
     from sleeper_dynasty.api.yahoo import YahooAdapter
 
-    return YahooAdapter(access_token)
+    identity = OwnerIdentityStore(get_settings().cache_dir).read(league_id)
+    source = YahooAdapter(access_token)
+    return OwnerIdentityClient(source, identity) if identity.aliases else source
 
 
 async def connected_client(league_id: str, *, db=None, user_id=None):

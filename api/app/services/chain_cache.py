@@ -32,6 +32,10 @@ class ChainCacheEntry:
     league_season_by_id: dict[str, int]
     cached_at: str
     warnings: list[str] = field(default_factory=list)
+    # Mapping metadata, empty for existing/unlinked leagues. Grader reads require
+    # an exact version, invalidating only changed owner links, not every league.
+    owner_identity_version: str = ""
+    owner_aliases: dict[str, str] = field(default_factory=dict)
     trade_stories: dict[str, dict[str, Any]] = field(default_factory=dict)
     owner_dossiers: dict[str, dict[str, Any]] = field(default_factory=dict)
     current_holders: dict[str, str] = field(default_factory=dict)
@@ -191,7 +195,8 @@ class ChainCache:
         return self.cache_dir / f"chain_{league_id}.json"
 
     def read(
-        self, league_id: str, max_age_seconds: int = DEFAULT_TTL
+        self, league_id: str, max_age_seconds: int = DEFAULT_TTL,
+        *, owner_identity_version: str | None = None,
     ) -> ChainCacheEntry | None:
         path = self._path(league_id)
         if not path.exists():
@@ -202,6 +207,9 @@ class ChainCache:
             raw = json.load(f)
         # Stale schema (e.g. pre-bracket grades) -> re-grade.
         if raw.get("schema_version") != SCHEMA_VERSION:
+            return None
+        if (owner_identity_version is not None
+                and raw.get("owner_identity_version", "") != owner_identity_version):
             return None
         # Pre-migration entries lack `owners`; treat as a miss so the
         # cold-start flow re-pulls and re-grades them.

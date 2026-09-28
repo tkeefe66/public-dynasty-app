@@ -32,6 +32,7 @@ def owner(request: Request, league_id: str, user_id: str) -> OwnerDetailResp:
     entry = cache.read(league_id)
     if entry is None:
         raise HTTPException(status_code=409, detail="cache cold")
+    user_id = entry.owner_aliases.get(user_id, user_id)
     overrides = NameOverrideStore(cache_dir=_cache_dir()).read(league_id)
     if overrides:
         apply_name_overrides(entry, overrides)
@@ -45,7 +46,8 @@ def owner(request: Request, league_id: str, user_id: str) -> OwnerDetailResp:
         board = build_leaderboard(
             entry, year="all",
             prev_ratings=load_prev_ratings(
-                _cache_dir(), league_id, model=model_for(entry)
+                _cache_dir(), league_id, model=model_for(entry),
+                owner_identity_version=entry.owner_identity_version,
             ),
         )
         total_owners = len(board.rows)

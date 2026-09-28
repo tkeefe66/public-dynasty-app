@@ -138,13 +138,17 @@ async def _league_matchup_bundle(client, lg, league_cache) -> dict:
     Sealed leagues (status == "complete") are loaded from / stored in
     ``league_cache``; the current season is always fetched and never cached.
     """
+    from sleeper_dynasty.api.owner_identity import resolve_owner_bundle, source_client
+
+    identity_client = client
+    client = source_client(client)
     sealed = league_cache is not None and getattr(lg, "status", None) == "complete"
     if sealed:
         cached = league_cache.read_matchup_bundle(lg.league_id)
         if (cached is not None and "winners_bracket" in cached
                 and (not hasattr(client, 'get_postseason_results')
                      or 'postseason_results' in cached)):
-            return cached
+            return resolve_owner_bundle(identity_client, cached)
 
     rosters = await client.get_rosters(lg.league_id)
     roster_to_user = {r.roster_id: r.owner_id for r in rosters}
@@ -194,7 +198,7 @@ async def _league_matchup_bundle(client, lg, league_cache) -> dict:
                 lg.league_id, getattr(lg, "season", "?"),
             )
         league_cache.write_matchup_bundle(lg.league_id, bundle)
-    return bundle
+    return resolve_owner_bundle(identity_client, bundle)
 
 
 def resolve_ktc_to_player_id(

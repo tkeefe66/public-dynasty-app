@@ -25,7 +25,7 @@ from app.services.chain_cache import ChainCacheEntry
 from app.services.franchise_redesign import live_ratings
 from app.services.identity import owner_ref
 from sleeper_dynasty.engine.capabilities import capabilities_from_dict
-from app.services.rating_snapshot_store import RatingSnapshotStore
+from app.services.rating_snapshot_store import RatingSnapshotStore, snapshot_model
 from sleeper_dynasty.engine.gm_rating import rating_to_letter
 
 
@@ -133,7 +133,7 @@ def build_leaderboard(
 
 
 def load_prev_ratings(
-    cache_dir: Path, league_id: str, *, model: str
+    cache_dir: Path, league_id: str, *, model: str, owner_identity_version: str = ""
 ) -> dict[str, int]:
     """The snapshot from the most recent NFL week *before* the latest one on
     file *for this rating model*. The refresh path writes the current week's
@@ -143,6 +143,7 @@ def load_prev_ratings(
     different model (e.g. right after a rating redesign ships): that
     degrades to "no trend" rather than diffing against a number the new
     model can't compare itself to."""
+    model = snapshot_model(model, owner_identity_version)
     store = RatingSnapshotStore(cache_dir=cache_dir)
     prefix = f"{model}:"
     same_model_weeks = [

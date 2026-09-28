@@ -373,11 +373,15 @@ async def _fetch_league_season_data(
     from / stored in the cache, avoiding all network fetches for that season.
     The current/incomplete season is always fetched and never cached.
     """
+    from sleeper_dynasty.api.owner_identity import resolve_owner_bundle, source_client
+
+    identity_client = client
+    client = source_client(client)
     sealed = league_cache is not None and getattr(league, "status", None) == "complete"
     if sealed:
         cached = league_cache.read_trade_bundle(league.league_id)
         if cached is not None:
-            return {"league": league, **cached}
+            return {"league": league, **resolve_owner_bundle(identity_client, cached)}
 
     users = await client.get_users(league.league_id)
     rosters = await client.get_rosters(league.league_id)
@@ -411,7 +415,7 @@ async def _fetch_league_season_data(
     }
     if sealed:
         league_cache.write_trade_bundle(league.league_id, bundle)
-    return {"league": league, **bundle}
+    return {"league": league, **resolve_owner_bundle(identity_client, bundle)}
 
 
 async def build_trade_history(

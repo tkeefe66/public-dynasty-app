@@ -51,6 +51,7 @@ def build_owner_detail(
     entry: ChainCacheEntry, user_id: str,
     *, gm_row: GMRow | None = None, total_owners: int | None = None,
 ) -> OwnerDetailResp | None:
+    user_id = entry.owner_aliases.get(user_id, user_id)
     if user_id not in entry.owners:
         # No owner with that id ever appeared.
         return None

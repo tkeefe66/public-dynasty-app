@@ -37,6 +37,11 @@ log = logging.getLogger(__name__)
 _MAX_WEEKS = 20
 
 
+def snapshot_model(model: str, owner_identity_version: str = "") -> str:
+    """A new owner population needs a new comparable rating baseline."""
+    return f"{model}@{owner_identity_version}" if owner_identity_version else model
+
+
 class RatingSnapshotStore:
     def __init__(self, cache_dir: Path):
         self.dir = Path(cache_dir)
@@ -61,12 +66,14 @@ class RatingSnapshotStore:
             return {}
 
     def write(
-        self, league_id: str, week_key: str, ratings: dict[str, int], *, model: str
+        self, league_id: str, week_key: str, ratings: dict[str, int], *, model: str,
+        owner_identity_version: str = "",
     ) -> None:
         """Set (overwrite) the snapshot for ``week_key`` under ``model``,
         trimming to the last ``_MAX_WEEKS`` keys (lexicographic on the stored
         ``model:YYYY-WW`` key -- see module docstring for why the model is
         part of the key rather than the week alone)."""
+        model = snapshot_model(model, owner_identity_version)
         data = self.read(league_id)
         data[f"{model}:{week_key}"] = dict(ratings)
         if len(data) > _MAX_WEEKS:
