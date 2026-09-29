@@ -101,6 +101,33 @@ class AnalystStore:
         path = self.edition_path(league_id, data["season"], data["week"])
         self._write_once(path, data)
 
+    def start_attempt(self, league_id: str, season: int, week: int, now: float) -> bool:
+        """Persist backoff under the generation claim, shared by every trigger.
+
+        A crash or deploy also retains the cooldown. Attempts are per edition,
+        never a reason to delay a new week's first attempt or replace a saved one.
+        """
+        edition = self.edition_path(league_id, season, week)
+        path = edition.parent / "attempts" / edition.name
+        prior = json.loads(path.read_text()) if path.exists() else {}
+        if now < prior.get("retry_at", 0):
+            return False
+        count = int(prior.get("count", 0)) + 1
+        delay = (1800, 3600, 10800, 21600)[min(count - 1, 3)]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {"count": count, "started_at": now, "retry_at": now + delay}
+        fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".attempt-")
+        temp = Path(temporary)
+        try:
+            with os.fdopen(fd, "w") as handle:
+                json.dump(data, handle)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp, path)
+        finally:
+            temp.unlink(missing_ok=True)
+        return True
+
     def save_correction(self, league_id: str, edition: dict, reason: str, *, claimed: bool = False) -> None:
         """Explicit operator correction; never called by automatic generation."""
         if not reason.strip():

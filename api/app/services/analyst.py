@@ -58,13 +58,17 @@ def advance_standings(rosters, results):
 
 
 async def generate_analyst(client, entry, cache_dir: Path, *, skip_llm=False, writer=None,
-                           correction_week: int | None = None, correction_reason: str | None = None):
+                           correction_week: int | None = None, correction_reason: str | None = None,
+                           now: datetime | None = None):
     """Catch up missing regular-season editions in order; retry on next refresh.
 
 No historic-season bulk generation. The first current-season refresh catches up
 completed weeks. Budget checks run per edition; page reads never invoke an LLM.
 """
     league_id = entry.league_id
+    # Analyst archives currently support Sleeper leagues only.
+    if ".l." in league_id:
+        return
     if skip_llm or (writer is None and not os.environ.get("ANTHROPIC_API_KEY")):
         log.warning("Analyst deferred for %s: LLM budget reached or API key absent; retry on refresh", league_id)
         return
@@ -111,6 +115,13 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                     from app.services.refresh_service import _llm_over_budget
                     if await _llm_over_budget(cache_dir):
                         return
+                if correction_week is None and not store.start_attempt(
+                    league_id, league.season, week,
+                    (now or datetime.now(timezone.utc)).timestamp(),
+                ):
+                    log.info("Analyst retry cooling down league=%s season=%s week=%s",
+                             league_id, league.season, week)
+                    continue
                 projections = {}
                 try:
                     raw = await client.get_projections(league.season, week)

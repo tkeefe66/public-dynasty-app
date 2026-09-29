@@ -158,14 +158,16 @@ async def test_failed_generation_retries_and_budget_skip_does_not_write(tmp_path
     # Mutation: mark a failed or budget-skipped edition as successfully saved.
     from app.services.analyst import generate_analyst
     from app.services.analyst_store import AnalystStore
+    from datetime import datetime, timedelta, timezone
+    now = datetime(2026, 9, 15, 8, tzinfo=timezone.utc)
     client, entry, writer = setup_league()
     await generate_analyst(client, entry, tmp_path, writer=writer, skip_llm=True)
     writer.write.assert_not_called()
     writer.write.side_effect = RuntimeError("provider unavailable")
-    await generate_analyst(client, entry, tmp_path, writer=writer)
+    await generate_analyst(client, entry, tmp_path, writer=writer, now=now)
     assert AnalystStore(tmp_path).editions("123") == []
     writer.write.side_effect = None
-    await generate_analyst(client, entry, tmp_path, writer=writer)
+    await generate_analyst(client, entry, tmp_path, writer=writer, now=now + timedelta(minutes=30))
     assert len(AnalystStore(tmp_path).editions("123")) == 1
 
 
@@ -307,7 +309,7 @@ async def test_real_writer_publishes_only_an_approved_correction(tmp_path, appro
                     "name": "submit_recap_review",
                     "input": {
                         "approved": ok,
-                        "violations": [] if ok else ["Wrong score"],
+                        "violations": [] if ok else [{"quote": "Alice scored", "evidence": "Wrong score"}],
                     },
                 }
             ],
@@ -322,7 +324,8 @@ async def test_real_writer_publishes_only_an_approved_correction(tmp_path, appro
                 [{"type": "text", "text": "Alice scored 250 points."}], "end_turn"
             ),
             verdict(False),
-            response([{"type": "text", "text": "Alice scored 25 points."}], "end_turn"),
+            response([{"type": "tool_use", "id": "toolu_edit", "name": "submit_recap_edits",
+                       "input": {"edits": [{"before": "250 points", "after": "25 points"}]}}], "tool_use"),
             verdict(approved),
         ]
     )

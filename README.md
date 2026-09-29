@@ -176,12 +176,23 @@ Each league has an Analyst page at `/league/<id>/analyst`, linked from the
 homepage's weekly recap card. Editions have stable links using
 `?edition=<season>-<week>` and remain readable after the season ends.
 
-The existing automatic/manual league refresh generates missing completed
-regular-season editions for the current NFL season. Sleeper must have advanced
+An independent Analyst scheduler checks member Sleeper leagues every 15 minutes,
+including overnight Monday/Tuesday, without waiting for a full trade/league
+refresh. Automatic/manual league refresh also checks for missing editions.
+Both paths generate completed regular-season editions for the current NFL season. Sleeper must have advanced
 to the next week, and every matchup must have scores and starter data. Existing
 editions are never regenerated, including on a forced refresh. Missed weeks are
 filled oldest first. An unavailable model, missing API key, exhausted monthly
 LLM budget, or incomplete results leaves the edition unsaved for a later retry.
+Paid generation attempts share a persistent per-edition cooldown: 30 minutes,
+then one hour, three hours, and at most once every six hours after repeated
+failures. Restarts and manual refreshes cannot bypass that cooldown; a new
+week starts immediately when complete results are available. The monthly LLM
+budget still applies, and `TRADE_GRADER_AUTO_REFRESH=false` disables both loops.
+Factual review requests concise, quoted errors; corrections use the stronger
+review model to make exact text edits rather than rewrite the whole article,
+and must pass a fresh review before publication. Truncated or
+invalid reviews never publish a draft.
 
 The writer uses matchup results, reconstructed standings through that week,
 bench decisions, player performances, and saved owner profiles. The newest

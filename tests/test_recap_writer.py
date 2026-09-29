@@ -68,6 +68,48 @@ def _verdict(value=None, *, name="submit_recap_review"):
     }
 
 
+def _edits(before, after):
+    return {"type": "tool_use", "id": "toolu_edit", "name": "submit_recap_edits",
+            "input": {"edits": [{"before": before, "after": after}]}}
+
+
+def test_corrections_patch_only_the_quoted_error(writer_factory):
+    # Mutation: ask for another full draft and lose already-correct prose during correction.
+    writer, requests = writer_factory([
+        _message([_text("# Week 9\n\nTeam A scored 185 points.\n\nAn excellent closing joke.")]),
+        _message([_verdict({"approved": False, "violations": [
+            {"quote": "185 points", "evidence": "high_scorer.points is 158"}
+        ]})], stop_reason="tool_use"),
+        _message([_edits("185 points", "158 points")], stop_reason="tool_use"),
+        _message([_verdict()], stop_reason="tool_use"),
+    ])
+    assert writer.write(_facts()) == "# Week 9\n\nTeam A scored 158 points.\n\nAn excellent closing joke."
+    assert requests[2]["tool_choice"]["name"] == "submit_recap_edits"
+
+
+@pytest.mark.parametrize("edits", [
+    [{"before": "Absent claim", "after": "Correction"}],
+    [{"before": "points", "after": "scores"}],
+    [{"before": "11", "after": "12"}],
+    [{"before": "185 points", "after": "158 points"}, {"before": "185", "after": "158"}],
+    [{"before": "185 points", "after": 158}],
+])
+def test_ambiguous_or_overlapping_edits_never_publish(writer_factory, edits):
+    # Mutation: replace all matches, silently ignore missing edits, or corrupt overlapping passages.
+    tool = _edits("", "")
+    tool["input"]["edits"] = edits
+    writer, requests = writer_factory([
+        _message([_text("185 points, not 158 points. Opponent: 111.")]),
+        _message([_verdict({"approved": False, "violations": [
+            {"quote": "185 points", "evidence": "high_scorer.points is 158"}
+        ]})], stop_reason="tool_use"),
+        _message([tool], stop_reason="tool_use"),
+    ])
+    with pytest.raises(ValueError, match="Analyst repair"):
+        writer.write(_facts())
+    assert len(requests) == 3
+
+
 @pytest.fixture
 def writer_factory(monkeypatch):
     # Anthropic 1.x uses httpx2; older supported SDKs use httpx. Build the
@@ -219,7 +261,56 @@ def test_full_length_recap_finishes_without_a_paid_retry(writer_factory):
     )
     assert writer.write(_facts()) == "Complete recap with sign-off."
     assert len(requests) == 2
-    assert requests[1]["max_tokens"] <= 4096
+    assert requests[1]["max_tokens"] >= 8192
+
+
+def test_review_contract_bounds_findings_and_requires_actual_quotes(writer_factory):
+    # Mutation: let free-form essays or invented draft claims reach the repair model.
+    writer, requests = writer_factory([
+        _message([_text("Team A scored 158 points.")]),
+        _message([_verdict({"approved": False, "violations": [
+            {"quote": "Team B scored 900 points", "evidence": "Not in the facts"}
+        ]})], stop_reason="tool_use"),
+    ])
+    with pytest.raises(ValueError, match="review.*not approve"):
+        writer.write(_facts())
+    schema = requests[1]["tools"][0]["input_schema"]["properties"]["violations"]
+    assert schema["maxItems"] == 12
+    assert schema["items"]["properties"]["quote"]["maxLength"] == 240
+    assert schema["items"]["properties"]["evidence"]["maxLength"] == 400
+    assert len(requests) == 2
+
+
+def test_long_review_finishes_and_correction_uses_stronger_model(writer_factory):
+    # Mutation: keep the 4096 review ceiling or send repair back to the failing draft model.
+    def review(request):
+        if request["max_tokens"] < 5000:
+            return _message([_verdict()], stop_reason="max_tokens", output_tokens=4096)
+        return _message([_verdict({"approved": False, "violations": [
+            {"quote": "185 points", "evidence": "high_scorer.points is 158"}
+        ]})], stop_reason="tool_use", output_tokens=5000)
+    writer, requests = writer_factory([
+        _message([_text("Team A scored 185 points.")]), review,
+        _message([_edits("185 points", "158 points")], stop_reason="tool_use"),
+        _message([_verdict()], stop_reason="tool_use"),
+    ])
+    assert writer.write(_facts()) == "Team A scored 158 points."
+    assert requests[2]["model"] == "claude-sonnet-4-6"
+
+
+def test_verbose_but_actionable_review_can_be_repaired(writer_factory):
+    # Mutation: treat requested brevity as an accuracy gate and discard real errors.
+    # Captured production shape: a 254-char exact quote and an 860-char explanation.
+    quote = "Team A scored 185 points. " * 11
+    finding = {"quote": quote.strip(), "evidence": "high_scorer.points is 158. " * 35}
+    writer, requests = writer_factory([
+        _message([_text(quote)]),
+        _message([_verdict({"approved": False, "violations": [finding]})], stop_reason="tool_use"),
+        _message([_edits(quote, "Team A scored 158 points.")], stop_reason="tool_use"),
+        _message([_verdict()], stop_reason="tool_use"),
+    ])
+    assert writer.write(_facts()) == "Team A scored 158 points."
+    assert len(requests) == 4
 
 
 @pytest.mark.parametrize(
@@ -340,7 +431,7 @@ def test_rejection_is_corrected_with_evidence_then_reviewed_again(
     writer_factory, tmp_path
 ):
     # Mutation: return the rejected draft, omit its feedback, or skip the corrected review.
-    violations = ["The packet says 158 points; the draft says 185."]
+    violations = [{"quote": "185 points", "evidence": "high_scorer.points is 158, not 185."}]
     store = LlmCostStore(tmp_path)
     writer, requests = writer_factory(
         [
@@ -349,7 +440,7 @@ def test_rejection_is_corrected_with_evidence_then_reviewed_again(
                 [_verdict({"approved": False, "violations": violations})],
                 stop_reason="tool_use",
             ),
-            _message([_text("Team A scored 158 points.")]),
+            _message([_edits("185 points", "158 points")], stop_reason="tool_use"),
             _message([_verdict()], stop_reason="tool_use"),
         ],
         cost_store=store,
@@ -359,7 +450,7 @@ def test_rejection_is_corrected_with_evidence_then_reviewed_again(
     assert result == "Team A scored 158 points."
     assert len(requests) == 4
     repair = json.dumps(requests[2]["messages"])
-    assert "185 points" in repair and violations[0] in repair
+    assert "185 points" in repair and violations[0]["evidence"] in repair
     assert "158.0" in repair and "my brother" in repair and "OUTLOOK" in repair
     review = json.loads(requests[3]["messages"][0]["content"])
     assert review["draft"] == result
@@ -374,7 +465,7 @@ def test_rejection_is_corrected_with_evidence_then_reviewed_again(
     assert [r["model"] for r in store.read_all()] == [
         "claude-haiku-4-5-20251001",
         "claude-sonnet-4-6",
-        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-6",
         "claude-sonnet-4-6",
     ]
 
@@ -382,14 +473,14 @@ def test_rejection_is_corrected_with_evidence_then_reviewed_again(
 def test_second_rejection_stops_after_one_correction(writer_factory):
     # Mutation: keep spending on revisions, or publish despite the second rejection.
     rejection = _message(
-        [_verdict({"approved": False, "violations": ["Wrong score"]})],
+        [_verdict({"approved": False, "violations": [{"quote": "bad", "evidence": "Wrong score"}]})],
         stop_reason="tool_use",
     )
     writer, requests = writer_factory(
         [
-            _message([_text("Bad draft")]),
+            _message([_text("A bad draft")]),
             rejection,
-            _message([_text("Still bad")]),
+            _message([_edits("A bad draft", "Still bad")], stop_reason="tool_use"),
             rejection,
         ]
     )
@@ -414,12 +505,12 @@ def test_failed_correction_never_returns_the_first_draft(writer_factory, stage):
     responses = [
         _message([_text("Wrong score")]),
         _message(
-            [_verdict({"approved": False, "violations": ["Wrong score"]})],
+            [_verdict({"approved": False, "violations": [{"quote": "Wrong score", "evidence": "Wrong score"}]})],
             stop_reason="tool_use",
         ),
     ]
     if stage == "second_review":
-        responses.append(_message([_text("Corrected score")]))
+        responses.append(_message([_edits("Wrong score", "Corrected score")], stop_reason="tool_use"))
     responses.append("timeout")
     writer, requests = writer_factory(responses)
     with pytest.raises(anthropic.APITimeoutError):

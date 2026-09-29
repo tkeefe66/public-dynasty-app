@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.db.engine import dispose_engine, init_engine
 from app.ratelimit import limiter
 from app.services.backup_service import backup_loop
+from app.services.analyst_scheduler import analyst_loop
 from app.services.refresh_service import auto_refresh_loop
 
 log = logging.getLogger(__name__)
@@ -51,6 +52,8 @@ def create_app() -> FastAPI:
                 settings.cache_dir, settings.refresh_interval_seconds)))
             log.info("auto-refresh scheduler started (every %ss)",
                      settings.refresh_interval_seconds)
+            tasks.append(asyncio.create_task(analyst_loop(settings.cache_dir)))
+            log.info("Analyst scheduler started (checks every 15 minutes; persistent retry backoff)")
         # Durability: daily backup of Postgres + the cache volume to R2.
         if settings.backup_configured:
             tasks.append(asyncio.create_task(backup_loop(settings.cache_dir)))

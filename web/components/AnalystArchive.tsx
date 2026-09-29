@@ -83,8 +83,8 @@ export function AnalystArchive({ leagueId, editions, selected }: {
             </details>}
           </> : <>
             <h2 className="font-display text-title font-bold">{selected ? "That edition is not available yet." : "The first edition is on its way."}</h2>
-            <p className="mt-4 text-prose leading-relaxed text-body">The Analyst writes after Sleeper marks the week complete and league results refresh. Each published edition stays here for the season and beyond.</p>
-            <p className="mt-3 text-sm text-dim">If an edition is delayed, generation will retry on a later league refresh.</p>
+            <p className="mt-4 text-prose leading-relaxed text-body">The Analyst checks for completed weeks every 15 minutes, including overnight after Monday games. Each published edition stays here for the season and beyond.</p>
+            <p className="mt-3 text-sm text-dim">Publication waits for complete Sleeper results and factual review. Delayed editions retry automatically; no manual league refresh is needed.</p>
           </>}
         </article>
       </Panel>
