@@ -48,30 +48,32 @@ def _ordinal(n: int) -> str:
 def _finish_label(rec: dict) -> str:
     """Per-season Finish string.
 
-    Playoff (winners-bracket) teams show their championship place — ``1st 🏆``,
-    ``2nd``, ``3rd`` … Toilet-bowl (losers-bracket) teams show the draft pick the
-    bracket earned them — ``1.01 🚽`` (toilet champion) through ``1.06`` — since
-    that bracket sets draft order. Falls back to coarse flags for older cached
-    records that predate the placement fields, and ``—`` when neither applies.
+    Name the bracket result explicitly. A Toilet Bowl finish does not establish
+    draft order or pick ownership. Participation alone is not a final result.
     """
     pp = rec.get("playoff_place")
     if pp:
-        return "1st 🏆" if pp == 1 else _ordinal(pp)
+        return "Champion 🏆" if pp == 1 else _ordinal(pp)
     tp = rec.get("toilet_place")
     if tp:
-        pick = f"1.{tp:02d}"
-        return f"{pick} 🚽" if tp == 1 else pick
+        return "Toilet Bowl winner 🚽" if tp == 1 else f"Toilet Bowl {_ordinal(tp)}"
     if rec.get("champion"):
-        return "1st 🏆"
+        return "Champion 🏆"
     if rec.get("runner_up"):
         return "2nd"
-    if rec.get("made_playoffs"):
-        return "Playoffs"
     return "—"
 
 
+def _championship_decided(records: dict) -> bool:
+    """Observed final result, including caches predating placement fields."""
+    return any(
+        rec.get("champion") or rec.get("runner_up") or rec.get("playoff_place") in (1, 2)
+        for rec in (records or {}).values()
+    )
+
+
 def _fmt_record(
-    uid: str, year: Year, season_records: dict
+    uid: str, year: Year, season_records: dict, *, unfinished_season: str | None = None,
 ) -> tuple[str | None, str | None, str | None]:
     """Return (season_record, best_finish, playoff_record) strings for one owner.
 
@@ -87,7 +89,7 @@ def _fmt_record(
             return None, None, None
         total_w = total_l = total_t = 0
         champs = toilet_titles = p_wins = p_losses = seasons = 0
-        for yr_data in sr.values():
+        for season, yr_data in sr.items():
             rec = (yr_data or {}).get(uid) or {}
             if not rec:
                 continue
@@ -95,11 +97,17 @@ def _fmt_record(
             total_l += rec.get("losses", 0)
             total_t += rec.get("ties", 0)
             seasons += 1
+            # Old caches can carry projected bracket participants. Include the
+            # live W-L record, but only completed seasons in career awards/W-L.
+            if str(season) == unfinished_season:
+                continue
             if rec.get("champion"):
                 champs += 1
             if rec.get("toilet_place") == 1:
                 toilet_titles += 1
-            if rec.get("made_playoffs"):
+            # A failed NFL-state read falls back to offseason. Completion must
+            # therefore come from results too, not only the calendar phase.
+            if rec.get("made_playoffs") and _championship_decided(yr_data):
                 p_wins += rec.get("rounds_won", 0)
                 p_losses += 0 if rec.get("champion") else 1
         if seasons == 0:
@@ -124,7 +132,8 @@ def _fmt_record(
         if w == 0 and l == 0 and t == 0:
             return "—", "—", None
         record_str = f"{w}-{l}" if t == 0 else f"{w}-{l}-{t}"
-        return record_str, _finish_label(rec), None
+        finish = "In progress" if str(year) == unfinished_season else _finish_label(rec)
+        return record_str, finish, None
 
 
 def _filter_trades_by_year(
@@ -799,6 +808,15 @@ def build_dashboard(
     _has_outlook = entry.dynasty_outlooks or {}
     outlook_signals = (entry.outlook_signals or {}) if _outlooks_apply else {}
     season_recs = entry.season_records or {}
+    phase = entry.league_phase or {}
+    phase_season = str(phase.get("season") or "")
+    # A fantasy final can finish before the NFL season does. A confirmed
+    # championship closes the season even while the phase still says "post".
+    final_decided = _championship_decided(season_recs.get(phase_season) or {})
+    unfinished_season = phase_season if (
+        phase.get("phase") == "regular"
+        or (phase.get("phase") == "post" and not final_decided)
+    ) else None
     # roster_ranks is already computed and persisted at refresh (never
     # recomputed here) - same redraft gate as the outlook columns above,
     # since a redraft league carries no roster to rank between seasons.
@@ -807,7 +825,8 @@ def build_dashboard(
     standings = []
     for i, r in enumerate(sorted_rows):
         uid = r["user_id"]
-        _record, _finish, _playoff = _fmt_record(uid, year, season_recs)
+        _record, _finish, _playoff = _fmt_record(
+            uid, year, season_recs, unfinished_season=unfinished_season)
         # Numeric sort helpers: wins (descending = more wins first) and rank (ascending = better)
         if year == "all":
             _wins: int | None = sum(

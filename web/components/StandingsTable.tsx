@@ -68,11 +68,11 @@ export const FRANCHISE_COLS: Col[] = [
   },
   {
     key: "best_finish", label: "Trophy",
-    tooltip: { title: "Trophy", body: "🏆 per championship, 🚽 per Toilet Bowl title (career), or this season's finish when a year is selected." },
+    tooltip: { title: "Trophy", body: "🏆 per championship and 🚽 per Toilet Bowl title from completed seasons." },
   },
   {
     key: "playoff_record", label: "Playoff",
-    tooltip: { title: "Playoff Record", body: "Career playoff W-L record. Blank for a single past season." },
+    tooltip: { title: "Playoff Record", body: "Career playoff W-L record from completed seasons. Shown in the All view." },
   },
   {
     key: "gm_rating", label: "Rating", sortable: true,
@@ -168,6 +168,13 @@ export const FRANCHISE_GRID = "grid-cols-[24px_1.15fr_0.5fr_0.55fr_0.5fr_0.75fr_
 const FRANCHISE_GRID_NO_ROSTER = "grid-cols-[24px_1.3fr_0.55fr_0.6fr_0.55fr_0.8fr_1.0fr_0.8fr]";
 const FRANCHISE_GRID_NO_OUTLOOK = "grid-cols-[24px_1.3fr_0.55fr_0.6fr_0.55fr_0.8fr_0.55fr]";
 const FRANCHISE_GRID_NO_OUTLOOK_NO_ROSTER = "grid-cols-[24px_1.6fr_0.6fr_0.65fr_0.6fr_0.85fr]";
+
+// A single season has no career playoff record. Give that empty track to the
+// explicit bracket labels so they remain readable at narrow desktop widths.
+const SEASON_GRID = "grid-cols-[24px_1.15fr_0.5fr_1.05fr_0.75fr_0.55fr_0.95fr_0.75fr]";
+const SEASON_GRID_NO_ROSTER = "grid-cols-[24px_1.3fr_0.55fr_1.15fr_0.8fr_1.0fr_0.8fr]";
+const SEASON_GRID_NO_OUTLOOK = "grid-cols-[24px_1.3fr_0.55fr_1.15fr_0.8fr_0.55fr]";
+const SEASON_GRID_NO_OUTLOOK_NO_ROSTER = "grid-cols-[24px_1.6fr_0.6fr_1.25fr_0.85fr]";
 
 /** Does any row carry an Outlook reading? One `null` owner (a franchise with
  *  no outlook computed yet) must not strip the columns for the whole league,
@@ -513,12 +520,26 @@ export function StandingsTable({ sections = "franchises", yearControl, leagueId,
   // field, independently — see hasRosterColumn's comment.
   const showOutlook = useMemo(() => hasOutlookColumns(rows), [rows]);
   const showRoster = useMemo(() => hasRosterColumn(rows), [rows]);
-  const franchiseCols = showOutlook
+  const baseFranchiseCols = showOutlook
     ? (showRoster ? FRANCHISE_COLS : FRANCHISE_COLS_NO_ROSTER)
     : (showRoster ? FRANCHISE_COLS_NO_OUTLOOK : FRANCHISE_COLS_NO_OUTLOOK_NO_ROSTER);
-  const franchiseGrid = showOutlook
+  const franchiseCols = baseFranchiseCols
+    .filter((col) => year === "all" || col.key !== "playoff_record")
+    .map((col) => (
+      col.key === "best_finish" && year !== "all"
+        ? { ...col, label: "Finish", tooltip: {
+          title: "Season finish",
+          body: "Confirmed playoff or Toilet Bowl finish. In progress until the season's championship is decided. Toilet Bowl positions are bracket finishes, not draft picks.",
+        } }
+        : col
+    ));
+  const careerGrid = showOutlook
     ? (showRoster ? FRANCHISE_GRID : FRANCHISE_GRID_NO_ROSTER)
     : (showRoster ? FRANCHISE_GRID_NO_OUTLOOK : FRANCHISE_GRID_NO_OUTLOOK_NO_ROSTER);
+  const seasonGrid = showOutlook
+    ? (showRoster ? SEASON_GRID : SEASON_GRID_NO_ROSTER)
+    : (showRoster ? SEASON_GRID_NO_OUTLOOK : SEASON_GRID_NO_OUTLOOK_NO_ROSTER);
+  const franchiseGrid = year === "all" ? careerGrid : seasonGrid;
 
   // "auto" is the sentinel for "no explicit choice yet" — default to Franchise
   // Rating desc, matching the gm_rank shown in the leftmost column.
@@ -599,8 +620,10 @@ export function StandingsTable({ sections = "franchises", yearControl, leagueId,
                       {isYou && <span className="font-mono text-label tracking-[0.11em] text-dim shrink-0">YOU</span>}
                     </div>
                     <div>{r.season_record ?? <span className="text-dim">—</span>}</div>
-                    <div>{r.best_finish ?? <span className="text-dim">—</span>}</div>
-                    <div>{r.playoff_record ?? <span className="text-dim">—</span>}</div>
+                    <div className="min-w-0 whitespace-normal break-words" title={r.best_finish ?? undefined}>
+                      {r.best_finish ?? <span className="text-dim">—</span>}
+                    </div>
+                    {year === "all" && <div>{r.playoff_record ?? <span className="text-dim">—</span>}</div>}
                     <div className="flex items-baseline gap-1.5">
                       {/* An unrated franchise (no completed season) is an em
                           dash in dim ink, not a letter. It used to tone the

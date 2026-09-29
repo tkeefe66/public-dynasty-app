@@ -59,6 +59,20 @@ beforeEach(() => {
 });
 
 describe("StandingsTable sections", () => {
+  it("names season results Finish and reserves Trophy for the career view", () => {
+    // Mutation: keeping the Trophy header for single-season finishes.
+    const { rerender } = render(
+      <StandingsTable leagueId="123" rows={ROWS} year={2025} currentSeason={2026} />);
+    expect(screen.getByRole("columnheader", { name: /^Finish/i })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /^Trophy/i })).toBeNull();
+    // Mutation: wasting the Finish column's space on an empty career record.
+    expect(screen.queryByRole("columnheader", { name: /^Playoff/i })).toBeNull();
+    rerender(<StandingsTable leagueId="123" rows={ROWS} year="all" currentSeason={2026} />);
+    expect(screen.getByRole("columnheader", { name: /^Trophy/i })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /^Playoff/i })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /^Finish/i })).toBeNull();
+  });
+
   /* ONE LEDGER PER INSTANCE. The two used to render together; they now live on
    * the tabs that own them, so each instance draws exactly one and the other
    * must be absent — a stray second ledger is the regression this pins. */
@@ -309,15 +323,18 @@ describe("StandingsTable Window column", () => {
         drop: 3,
       },
     ];
-    for (const c of cases) {
+    // Mutation: dropping a seasonal header but retaining its row/grid track.
+    for (const c of cases.flatMap((c) => ["all", 2025].map((year) => ({ ...c, year })))) {
       const { container, unmount } = render(
-        <StandingsTable leagueId="123" rows={c.rows} year="all" currentSeason={2026} />,
+        <StandingsTable leagueId="123" rows={c.rows} year={c.year as "all" | number} currentSeason={2026} />,
       );
       const head = within(container as HTMLElement).getByTestId("franchise-head");
       const grid = /grid-cols-\[[^\]]+\]/.exec(head.className)![0];
       const headers = within(head).getAllByRole("columnheader").length;
       expect(tracks(grid), `drop=${c.drop} grid ${grid}`).toBe(headers);
-      expect(headers, `drop=${c.drop}`).toBe(FRANCHISE_COLS.length - c.drop);
+      expect(headers, `drop=${c.drop}`).toBe(FRANCHISE_COLS.length - c.drop - (c.year === "all" ? 0 : 1));
+      const row = head.parentElement!.querySelector('a > div')!;
+      expect(row.children.length).toBe(headers);
       unmount();
     }
   });

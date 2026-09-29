@@ -86,8 +86,8 @@ def test_bracket_placements_full_finish_order():
     assert pl["D"]["place"] == 4
 
 
-def test_bracket_placements_losers_bracket_is_draft_order():
-    """Toilet bracket: place 1 = toilet champion = the 1.01 draft pick."""
+def test_bracket_placements_losers_bracket_finish():
+    """Toilet bracket: place 1 = toilet champion, independent of draft order."""
     from sleeper_dynasty.engine.gm_signals import bracket_placements
     lb = [
         {"r": 1, "m": 1, "t1": 7, "t2": 8, "w": 7, "l": 8},
@@ -96,7 +96,24 @@ def test_bracket_placements_losers_bracket_is_draft_order():
     ]
     r2u = {7: "G", 8: "H", 9: "I", 10: "J"}
     pl = bracket_placements(lb, r2u)
-    assert pl["I"]["place"] == 1   # toilet champ -> 1.01
+    assert pl["I"]["place"] == 1   # toilet champion
     assert pl["G"]["place"] == 2
     assert pl["H"]["place"] == 3
     assert pl["J"]["place"] == 4
+
+
+def test_bracket_placements_ignore_projected_teams_in_unplayed_games():
+    # Mutation: accepting t1/t2 from unplayed games as playoff participation.
+    from sleeper_dynasty.engine.gm_signals import bracket_placements
+    bracket = [
+        {"r": 1, "m": 1, "t1": 1, "t2": 2, "w": None, "l": None},
+        {"r": 1, "m": 2, "t1": 3, "t2": 4, "w": None, "l": None},
+        {"r": 2, "m": 3, "t1": {"w": 1}, "t2": {"w": 2}, "p": 1},
+    ]
+    r2u = {1: "A", 2: "B", 3: "C", 4: "D"}
+    assert bracket_placements(bracket, r2u) == {}
+    bracket[0].update(w=1, l=2)
+    placements = bracket_placements(bracket, r2u)
+    assert set(placements) == {"A", "B"}
+    assert placements["A"]["place"] is None
+    assert placements["B"]["rounds_won"] == 0

@@ -55,7 +55,7 @@ def compute_rating_signals(
     standings_by_season: dict[int, list] = {}
     brackets_by_season: dict[int, dict] = {}        # winners bracket_results (GM rating)
     winners_place_by_season: dict[int, dict] = {}   # full winners placements (Finish col)
-    losers_place_by_season: dict[int, dict] = {}    # toilet placements / draft order
+    losers_place_by_season: dict[int, dict] = {}    # finishes within the toilet bracket
     npt_by_season: dict[int, int] = {}
     all_play_by_season: dict[int, dict[str, float]] = {}
     for lg, season in season_by_league.items():
@@ -209,8 +209,8 @@ def compute_rating_signals(
                 continue  # keep first-seen entry for uid
             br = season_brackets.get(uid, {})
             rounds_won = int(br.get("rounds_won") or 0)
-            # Full bracket placements: participation is now keyed off appearing in
-            # the bracket at all (not rounds_won > 0), so first-round exits count.
+            # Completed bracket games establish participation (including first-
+            # round exits); projected seeds in unplayed games do not count.
             wp = winners_place.get(uid)
             lp = losers_place.get(uid)
             playoff_place = wp.get("place") if wp else None
@@ -227,7 +227,7 @@ def compute_rating_signals(
                 "rounds_won": rounds_won,               # playoff wins (title path)
                 "playoff_place": playoff_place,         # 1=champ … 6th (winners bracket)
                 "made_toilet": lp is not None,          # participated in losers bracket
-                "toilet_place": toilet_place,           # 1=toilet champ -> 1.01 pick
+                "toilet_place": toilet_place,           # 1=toilet champion, not a draft pick
             }
 
     # v2 Results. Merged into the same dict rather than replacing it: v1's keys

@@ -441,24 +441,62 @@ def test_standing_row_season_record_historical_year():
     bob = next(r for r in resp.standings if r.user_id == "u_bob")
     assert alice.season_record == "9-4"
     # alice was champion in 2024 → 1st place (with trophy), not reg-season rank
-    assert alice.best_finish == "1st 🏆"
+    assert alice.best_finish == "Champion 🏆"
     # bob was runner-up → 2nd place
     assert bob.best_finish == "2nd"
 
 
-def test_finish_label_place_for_playoffs_pick_for_toilet():
+def test_finish_label_names_bracket_results_without_inventing_draft_picks():
+    # Mutation: formatting toilet_place as a round.slot draft pick again.
     from app.services.aggregations import _finish_label
     # Winners bracket → championship place.
-    assert _finish_label({"playoff_place": 1}) == "1st 🏆"
+    assert _finish_label({"playoff_place": 1}) == "Champion 🏆"
     assert _finish_label({"playoff_place": 3}) == "3rd"
     assert _finish_label({"playoff_place": 6}) == "6th"
-    # Losers (toilet) bracket → draft pick; toilet champ = 1.01.
-    assert _finish_label({"toilet_place": 1}) == "1.01 🚽"
-    assert _finish_label({"toilet_place": 4}) == "1.04"
+    # Bracket position does not establish draft order or pick ownership.
+    assert _finish_label({"toilet_place": 1}) == "Toilet Bowl winner 🚽"
+    assert _finish_label({"toilet_place": 4}) == "Toilet Bowl 4th"
     # Older cached records without placement fields fall back to flags.
-    assert _finish_label({"champion": True}) == "1st 🏆"
-    assert _finish_label({"made_playoffs": True}) == "Playoffs"
+    assert _finish_label({"champion": True}) == "Champion 🏆"
+    assert _finish_label({"made_playoffs": True}) == "—"
     assert _finish_label({}) == "—"
+
+
+@pytest.mark.parametrize("phase", ["regular", "post"])
+def test_unfinished_season_has_no_awards_or_phantom_career_playoff_loss(phase):
+    # Mutation: trusting made_playoffs in an old cache without a final result.
+    e = _sample_entry()
+    e.league_phase = {"phase": phase, "season": 2026, "week": 3 if phase == "regular" else 15}
+    e.season_records["2026"]["u_alice"]["made_playoffs"] = True
+    current = build_dashboard(e, year=2026, lens="ktc")
+    assert {r.best_finish for r in current.standings} == {"In progress"}
+    alice = next(r for r in current.standings if r.user_id == "u_alice")
+    assert alice.season_record == "2-1"
+    career = build_dashboard(e, year="all", lens="ktc")
+    alice = next(r for r in career.standings if r.user_id == "u_alice")
+    assert alice.best_finish == "🏆"
+    assert alice.playoff_record == "2-0"
+
+
+def test_confirmed_final_displays_while_nfl_regular_season_is_still_running():
+    # Mutation: hiding the newest season unconditionally, even after its final.
+    e = _sample_entry()
+    e.league_phase = {"phase": "post", "season": 2026, "week": 18}
+    e.season_records["2026"]["u_alice"].update(champion=True, playoff_place=1)
+    current = build_dashboard(e, year=2026, lens="ktc")
+    alice = next(r for r in current.standings if r.user_id == "u_alice")
+    assert alice.best_finish == "Champion 🏆"
+
+
+@pytest.mark.parametrize("phase", [{}, {"phase": "offseason", "season": 2026}])
+def test_unknown_phase_does_not_turn_a_semifinal_win_into_a_playoff_loss(phase):
+    # Mutation: assuming every nonchampion participant has already lost.
+    e = _sample_entry()
+    e.league_phase = phase
+    e.season_records["2026"]["u_alice"].update(made_playoffs=True, rounds_won=1)
+    career = build_dashboard(e, year="all", lens="ktc")
+    alice = next(r for r in career.standings if r.user_id == "u_alice")
+    assert alice.playoff_record == "2-0"
 
 
 def test_standing_row_season_record_all_time():

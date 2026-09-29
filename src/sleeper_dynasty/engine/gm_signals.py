@@ -119,8 +119,7 @@ def bracket_placements(
     ``k`` and its loser to place ``k + 1`` (championship ``p == 1`` → 1st/2nd,
     ``p == 3`` → 3rd/4th, ...). Works identically for the winners bracket
     (place 1 = league champion) and the losers / toilet bracket (place 1 =
-    toilet champion, i.e. the 1.01 draft pick in leagues where the toilet
-    winner picks first).
+    toilet champion). Draft order is a separate league-specific rule.
 
     Unlike :func:`bracket_results`, this returns *every* roster that played a
     game — including first-round losers — so playoff participation is no longer
@@ -132,7 +131,9 @@ def bracket_placements(
     place_by_rid: dict[int, int] = {}
     rounds_won: dict[int, int] = {}
     for g in games:
-        for key in ("w", "l", "t1", "t2"):
+        # Sleeper can populate t1/t2 with projected seeds during the regular
+        # season. Only a recorded result proves that a team played this game.
+        for key in ("w", "l"):
             rid = g.get(key)
             if isinstance(rid, int):
                 participants.add(rid)
