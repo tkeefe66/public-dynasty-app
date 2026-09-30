@@ -64,7 +64,7 @@ def _verdict(value=None, *, name="submit_recap_review"):
         "type": "tool_use",
         "id": "toolu_test",
         "name": name,
-        "input": {"approved": True, "violations": []} if value is None else value,
+        "input": {"approved": True, "checks": []} if value is None else value,
     }
 
 
@@ -73,12 +73,52 @@ def _edits(before, after):
             "input": {"edits": [{"before": before, "after": after}]}}
 
 
+def test_explicit_approval_can_include_supported_audit_checks(writer_factory):
+    # Mutation: reject an approved audit merely because it documents supported claims.
+    writer, _ = writer_factory([
+        _message([_text("Team A scored 158 points.")]),
+        _message([_verdict({"approved": True, "checks": [
+            {"status": "supported", "quote": "158 points", "evidence": "high_scorer.points is 158"}
+        ]})], stop_reason="tool_use"),
+    ])
+    assert writer.write(_facts()) == "Team A scored 158 points."
+
+
+def test_only_explicit_errors_reach_repair_while_supported_checks_are_preserved(writer_factory):
+    # Mutation: treat all audit notes as errors or silently discard a needs_correction check.
+    writer, requests = writer_factory([
+        _message([_text("Team A scored 185 points. Team A leads.")]),
+        _message([_verdict({"approved": False, "checks": [
+            {"status": "supported", "quote": "Team A leads", "evidence": "high_scorer.owner is Team A"},
+            {"status": "needs_correction", "quote": "185 points", "evidence": "high_scorer.points is 158"}
+        ]})], stop_reason="tool_use"),
+        _message([_edits("185 points", "158 points")], stop_reason="tool_use"),
+        _message([_verdict()], stop_reason="tool_use"),
+    ])
+    assert writer.write(_facts()) == "Team A scored 158 points. Team A leads."
+    feedback = json.loads(requests[2]["messages"][-1]["content"].split("EDITOR FINDINGS:\n")[1])
+    assert feedback == [{"quote": "185 points", "evidence": "high_scorer.points is 158"}]
+
+
+@pytest.mark.parametrize("approved,status", [(True, "needs_correction"), (False, "supported"), (True, "unknown")])
+def test_approval_must_agree_with_explicit_claim_status(writer_factory, approved, status):
+    # Mutation: guess approval from evidence prose or ignore an unsupported claim's status.
+    writer, _ = writer_factory([
+        _message([_text("Team A scored 158 points.")]),
+        _message([_verdict({"approved": approved, "checks": [
+            {"status": status, "quote": "158 points", "evidence": "Supported; no error; removing this."}
+        ]})], stop_reason="tool_use"),
+    ])
+    with pytest.raises(ValueError, match="review.*not approve"):
+        writer.write(_facts())
+
+
 def test_corrections_patch_only_the_quoted_error(writer_factory):
     # Mutation: ask for another full draft and lose already-correct prose during correction.
     writer, requests = writer_factory([
         _message([_text("# Week 9\n\nTeam A scored 185 points.\n\nAn excellent closing joke.")]),
-        _message([_verdict({"approved": False, "violations": [
-            {"quote": "185 points", "evidence": "high_scorer.points is 158"}
+        _message([_verdict({"approved": False, "checks": [
+            {"status": "needs_correction", "quote": "185 points", "evidence": "high_scorer.points is 158"}
         ]})], stop_reason="tool_use"),
         _message([_edits("185 points", "158 points")], stop_reason="tool_use"),
         _message([_verdict()], stop_reason="tool_use"),
@@ -100,8 +140,8 @@ def test_ambiguous_or_overlapping_edits_never_publish(writer_factory, edits):
     tool["input"]["edits"] = edits
     writer, requests = writer_factory([
         _message([_text("185 points, not 158 points. Opponent: 111.")]),
-        _message([_verdict({"approved": False, "violations": [
-            {"quote": "185 points", "evidence": "high_scorer.points is 158"}
+        _message([_verdict({"approved": False, "checks": [
+            {"status": "needs_correction", "quote": "185 points", "evidence": "high_scorer.points is 158"}
         ]})], stop_reason="tool_use"),
         _message([tool], stop_reason="tool_use"),
     ])
@@ -291,7 +331,7 @@ def test_write_requires_structured_review_and_returns_sanitized_draft(writer_fac
         assert request["tool_choice"] == {"type": "tool", "name": "submit_recap_review"}
         tool = request["tools"][0]
         assert tool["name"] == "submit_recap_review"
-        assert set(tool["input_schema"]["required"]) == {"approved", "violations"}
+        assert set(tool["input_schema"]["required"]) == {"approved", "checks"}
         evidence = json.loads(request["messages"][0]["content"])
         assert evidence["facts"]["week"] == 9
         assert "KTC" not in evidence["draft"]
@@ -330,21 +370,61 @@ def test_full_length_recap_finishes_without_a_paid_retry(writer_factory):
     assert requests[1]["max_tokens"] >= 8192
 
 
-def test_review_contract_bounds_findings_and_requires_actual_quotes(writer_factory):
-    # Mutation: let free-form essays or invented draft claims reach the repair model.
+def test_review_contract_bounds_findings_without_treating_feedback_as_approval(writer_factory):
+    # Mutation: treat an ungrounded complaint as approval instead of requiring a fresh verdict.
     writer, requests = writer_factory([
         _message([_text("Team A scored 158 points.")]),
-        _message([_verdict({"approved": False, "violations": [
-            {"quote": "Team B scored 900 points", "evidence": "Not in the facts"}
+        _message([_verdict({"approved": False, "checks": [
+            {"status": "needs_correction", "quote": "Team B scored 900 points", "evidence": "Not in the facts"}
         ]})], stop_reason="tool_use"),
+        _message([{"type": "tool_use", "id": "toolu_edit", "name": "submit_recap_edits",
+                   "input": {"edits": []}}], stop_reason="tool_use"),
+        _message([_verdict({"approved": False, "checks": []})], stop_reason="tool_use"),
     ])
     with pytest.raises(ValueError, match="review.*not approve"):
         writer.write(_facts())
-    schema = requests[1]["tools"][0]["input_schema"]["properties"]["violations"]
+    schema = requests[1]["tools"][0]["input_schema"]["properties"]["checks"]
     assert schema["maxItems"] == 12
     assert schema["items"]["properties"]["quote"]["maxLength"] == 240
     assert schema["items"]["properties"]["evidence"]["maxLength"] == 400
-    assert len(requests) == 2
+    assert len(requests) == 4
+
+
+def test_paraphrased_review_feedback_reaches_repair_but_exact_edits_and_approval_are_required(writer_factory):
+    # Mutation: fail before repair because the reviewer drops Markdown or paraphrases a claim.
+    # Production capture: a full review mixed withdrawn findings and a paraphrased
+    # standings error; rejecting the whole list prevented correcting the real error.
+    writer, requests = writer_factory([
+        _message([_text("Team A scored **185 points**. The closing joke survives.")]),
+        _message([_verdict({"approved": False, "checks": [
+            {"status": "needs_correction", "quote": "Team A scored 185 points", "evidence": "high_scorer.points is 158"},
+            {"status": "needs_correction", "quote": "Closing joke", "evidence": "Figurative; supported; withdrawing this finding."},
+        ]})], stop_reason="tool_use"),
+        _message([_edits("**185 points**", "**158 points**")], stop_reason="tool_use"),
+        _message([_verdict()], stop_reason="tool_use"),
+    ])
+    assert writer.write(_facts()) == "Team A scored **158 points**. The closing joke survives."
+    assert len(requests) == 4
+
+
+def test_second_repair_handles_an_error_first_identified_in_followup_review(writer_factory):
+    # Mutation: abandon a repairable draft when the next full review finds a different error.
+    writer, requests = writer_factory([
+        _message([_text("Team A scored 185 points. Team B won.")]),
+        _message([_verdict({"approved": False, "checks": [
+            {"status": "needs_correction", "quote": "185 points", "evidence": "high_scorer.points is 158"}
+        ]})], stop_reason="tool_use"),
+        _message([_edits("185 points", "158 points")], stop_reason="tool_use"),
+        _message([_verdict({"approved": False, "checks": [
+            {"status": "needs_correction", "quote": "Team B won", "evidence": "No Team B matchup is supplied"}
+        ]})], stop_reason="tool_use"),
+        _message([_edits(" Team B won.", "")], stop_reason="tool_use"),
+        _message([_verdict()], stop_reason="tool_use"),
+    ])
+    assert writer.write(_facts()) == "Team A scored 158 points."
+    assert len(requests) == 6
+    assert requests[4]["messages"][1]["content"] == "Team A scored 158 points. Team B won."
+    assert len(requests[4]["messages"]) == 3
 
 
 def test_long_review_finishes_and_correction_uses_stronger_model(writer_factory):
@@ -352,8 +432,8 @@ def test_long_review_finishes_and_correction_uses_stronger_model(writer_factory)
     def review(request):
         if request["max_tokens"] < 5000:
             return _message([_verdict()], stop_reason="max_tokens", output_tokens=4096)
-        return _message([_verdict({"approved": False, "violations": [
-            {"quote": "185 points", "evidence": "high_scorer.points is 158"}
+        return _message([_verdict({"approved": False, "checks": [
+            {"status": "needs_correction", "quote": "185 points", "evidence": "high_scorer.points is 158"}
         ]})], stop_reason="tool_use", output_tokens=5000)
     writer, requests = writer_factory([
         _message([_text("Team A scored 185 points.")]), review,
@@ -368,10 +448,10 @@ def test_verbose_but_actionable_review_can_be_repaired(writer_factory):
     # Mutation: treat requested brevity as an accuracy gate and discard real errors.
     # Captured production shape: a 254-char exact quote and an 860-char explanation.
     quote = "Team A scored 185 points. " * 11
-    finding = {"quote": quote.strip(), "evidence": "high_scorer.points is 158. " * 35}
+    finding = {"status": "needs_correction", "quote": quote.strip(), "evidence": "high_scorer.points is 158. " * 35}
     writer, requests = writer_factory([
         _message([_text(quote)]),
-        _message([_verdict({"approved": False, "violations": [finding]})], stop_reason="tool_use"),
+        _message([_verdict({"approved": False, "checks": [finding]})], stop_reason="tool_use"),
         _message([_edits(quote, "Team A scored 158 points.")], stop_reason="tool_use"),
         _message([_verdict()], stop_reason="tool_use"),
     ])
@@ -382,14 +462,14 @@ def test_verbose_but_actionable_review_can_be_repaired(writer_factory):
 @pytest.mark.parametrize(
     "verdict",
     [
-        {"approved": False, "violations": []},
-        {"approved": True, "violations": ["Illegal QB for TE swap"]},
-        {"approved": "true", "violations": []},
-        {"approved": 1, "violations": []},
+        {"approved": False, "checks": []},
+        {"approved": True, "checks": ["Illegal QB for TE swap"]},
+        {"approved": "true", "checks": []},
+        {"approved": 1, "checks": []},
         {"approved": True},
-        {"approved": False, "violations": [""]},
-        {"approved": False, "violations": "Wrong score"},
-        {"approved": False, "violations": [42]},
+        {"approved": False, "checks": [""]},
+        {"approved": False, "checks": "Wrong score"},
+        {"approved": False, "checks": [42]},
         {},
     ],
 )
@@ -409,11 +489,11 @@ def test_review_failure_blocks_draft(writer_factory, verdict):
 @pytest.mark.parametrize(
     "content,stop_reason",
     [
-        ([_text('{"approved": true, "violations": []}')], "end_turn"),
-        ([_text('```json\n{"approved": true, "violations": []}\n```')], "end_turn"),
+        ([_text('{"approved": true, "checks": []}')], "end_turn"),
+        ([_text('```json\n{"approved": true, "checks": []}\n```')], "end_turn"),
         ([_verdict(name="wrong_tool")], "tool_use"),
         (
-            [_verdict(), _verdict({"approved": False, "violations": ["Wrong score"]})],
+            [_verdict(), _verdict({"approved": False, "checks": ["Wrong score"]})],
             "tool_use",
         ),
         ([_verdict()], "end_turn"),
@@ -479,7 +559,7 @@ def test_write_records_both_stages_in_real_cost_ledger(writer_factory, tmp_path)
     assert [r["cost_usd"] for r in records] == [0.0069, 0.0069]
 
 
-def test_draft_and_independent_review_use_sonnet_with_longer_deadline(writer_factory):
+def test_draft_and_independent_review_have_longer_deadlines(writer_factory):
     # Mutation: use the less capable draft model again, or retain the 90-second timeout.
     writer, requests = writer_factory(
         [
@@ -497,13 +577,13 @@ def test_rejection_is_corrected_with_evidence_then_reviewed_again(
     writer_factory, tmp_path
 ):
     # Mutation: return the rejected draft, omit its feedback, or skip the corrected review.
-    violations = [{"quote": "185 points", "evidence": "high_scorer.points is 158, not 185."}]
+    violations = [{"status": "needs_correction", "quote": "185 points", "evidence": "high_scorer.points is 158, not 185."}]
     store = LlmCostStore(tmp_path)
     writer, requests = writer_factory(
         [
             _message([_text("Team A scored 185 points.")]),
             _message(
-                [_verdict({"approved": False, "violations": violations})],
+                [_verdict({"approved": False, "checks": violations})],
                 stop_reason="tool_use",
             ),
             _message([_edits("185 points", "158 points")], stop_reason="tool_use"),
@@ -536,10 +616,10 @@ def test_rejection_is_corrected_with_evidence_then_reviewed_again(
     ]
 
 
-def test_second_rejection_stops_after_one_correction(writer_factory):
-    # Mutation: keep spending on revisions, or publish despite the second rejection.
+def test_third_rejection_stops_after_two_corrections(writer_factory):
+    # Mutation: keep spending on revisions, or publish despite the final rejection.
     rejection = _message(
-        [_verdict({"approved": False, "violations": [{"quote": "bad", "evidence": "Wrong score"}]})],
+        [_verdict({"approved": False, "checks": [{"status": "needs_correction", "quote": "bad", "evidence": "Wrong score"}]})],
         stop_reason="tool_use",
     )
     writer, requests = writer_factory(
@@ -548,11 +628,13 @@ def test_second_rejection_stops_after_one_correction(writer_factory):
             rejection,
             _message([_edits("A bad draft", "Still bad")], stop_reason="tool_use"),
             rejection,
+            _message([_edits("Still bad", "Also bad")], stop_reason="tool_use"),
+            rejection,
         ]
     )
-    with pytest.raises(ValueError, match="after one correction"):
+    with pytest.raises(ValueError, match="after two corrections"):
         writer.write(_facts())
-    assert len(requests) == 4
+    assert len(requests) == 6
 
 
 @pytest.mark.parametrize("failure", ["timeout", 429, 500])
@@ -571,7 +653,7 @@ def test_failed_correction_never_returns_the_first_draft(writer_factory, stage):
     responses = [
         _message([_text("Wrong score")]),
         _message(
-            [_verdict({"approved": False, "violations": [{"quote": "Wrong score", "evidence": "Wrong score"}]})],
+            [_verdict({"approved": False, "checks": [{"status": "needs_correction", "quote": "Wrong score", "evidence": "Wrong score"}]})],
             stop_reason="tool_use",
         ),
     ]

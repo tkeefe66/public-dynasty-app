@@ -18,6 +18,8 @@ TONE:
 - Give each matchup its own comic angle. Vary the rhythm: a sharp setup, the
   telling stat, and a punchline. Avoid repeating scores in every sentence or
   stretching a routine result into filler. Short paragraphs keep the pace up.
+- Aim for 1,300–1,700 words for a six-game league with six previews. Select the
+  telling facts and strongest jokes; do not repeat a full statistical inventory.
 
 HARD RULES:
 - Use ONLY the facts in the provided JSON packet. Never invent scores, players,
@@ -88,6 +90,11 @@ HARD RULES:
   criticize the decision. kickoff_at may be unknown. Do not invent three snaps
   from an injury report, or an injury from three snaps. Do not invent source URLs
   or paste article text; sources are displayed separately below the recap.
+- Weekly usage fields come from nflverse / Pro Football Reference, not the news
+  publisher. Attribute article details only to that article. If a news article
+  and usage field disagree on a snap percentage, omit that percentage and use
+  the verified snap count or another uncontested fact. Heroes are the top
+  started fantasy performances, ordered by points; they exclude bench players.
 - No content targeting protected classes (race, religion, gender, etc.). The
   comedy is in their roster decisions, not bigotry.
 

@@ -1,7 +1,7 @@
 """RecapWriter: turn a facts packet into roast-comedy prose via Claude.
 
 The user turn carries league lore and verified facts. A separate reviewer can
-request one correction; only an independently approved draft can be published.
+request bounded corrections; only an independently approved draft can be published.
 """
 
 from __future__ import annotations
@@ -30,20 +30,21 @@ REQUEST_TIMEOUT_SECONDS = 300.0
 # Full matchup recaps plus standings, bets and outlook can exceed 4096 tokens.
 MAX_TOKENS = 8192
 REVIEW_MAX_TOKENS = 8192
+MAX_REPAIRS = 2
 REVIEW_TOOL: anthropic.types.ToolParam = {
     "name": "submit_recap_review",
     "description": (
         "Submit the factual audit of the complete recap against its evidence. "
         "Set approved to true only when every claim is supported. "
-        "List specific unsupported claims in violations; an approved draft has none."
+        "Document checked claims with supported or needs_correction status. "
+        "An approved draft has no checks that need correction."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
-            "approved": {"type": "boolean"},
-            "violations": {
+            "checks": {
                 "type": "array", "maxItems": 12,
-                "description": "Only confirmed errors. No supported, withdrawn, duplicate or speculative findings.",
+                "description": "Factual audit notes. Include every required correction (most consequential first) and optionally supported checks.",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -51,13 +52,16 @@ REVIEW_TOOL: anthropic.types.ToolParam = {
                                   "description": "Exact short substring from the draft, including its Markdown."},
                         "evidence": {"type": "string", "minLength": 1, "maxLength": 400,
                                      "description": "Conflicting packet field and correct value, or the missing evidence. One sentence."},
+                        "status": {"type": "string", "enum": ["supported", "needs_correction"],
+                                   "description": "Decide AFTER writing evidence. Evidence confirming the claim requires supported; only an actual unresolved error needs_correction."},
                     },
-                    "required": ["quote", "evidence"],
+                    "required": ["quote", "evidence", "status"],
                     "additionalProperties": False,
                 },
             },
+            "approved": {"type": "boolean", "description": "Final decision after auditing the WHOLE article: true only if every factual claim is supported and no check needs correction."},
         },
-        "required": ["approved", "violations"],
+        "required": ["checks", "approved"],
         "additionalProperties": False,
     },
 }
@@ -277,31 +281,31 @@ class RecapWriter:
             )
         verdict = verdicts[0].input
         if isinstance(verdict, dict):
-            violations = verdict.get("violations")
-            if verdict.get("approved") is True and violations == []:
-                return []
+            checks = verdict.get("checks")
             if (
-                verdict.get("approved") is False
-                and isinstance(violations, list)
-                and 1 <= len(violations) <= 12
+                isinstance(checks, list)
+                and len(checks) <= 12
                 and all(
-                    isinstance(v, dict) and set(v) == {"quote", "evidence"}
-                    # Brevity is requested in the tool schema, not an accuracy
-                    # gate. Providers can return longer valid findings; let the
-                    # repair use them, then require a fresh complete approval.
+                    isinstance(v, dict) and set(v) == {"status", "quote", "evidence"}
+                    and v["status"] in ("supported", "needs_correction")
+                    # Feedback identifies a claim; it is not an executable edit.
+                    # Reviewers can paraphrase or omit Markdown. The repair must
+                    # still supply exact unique replacements, and the resulting
+                    # full draft must receive a fresh explicit approval.
                     and isinstance(v["quote"], str)
-                    and v["quote"].strip() and v["quote"] in text
+                    and v["quote"].strip()
                     and isinstance(v["evidence"], str)
                     and v["evidence"].strip()
-                    for v in violations
+                    for v in checks
                 )
             ):
-                logger.warning(
-                    "Analyst factual review rejected week %s: %s",
-                    facts.week,
-                    violations,
-                )
-                return violations
+                violations = [{"quote": v["quote"], "evidence": v["evidence"]}
+                              for v in checks if v["status"] == "needs_correction"]
+                if verdict.get("approved") is True and not violations:
+                    return []
+                if verdict.get("approved") is False and violations:
+                    logger.warning("Analyst factual review rejected week %s: %s", facts.week, violations)
+                    return violations
         raise ValueError(
             "Analyst review did not approve or return actionable feedback; "
             "refusing publication"
@@ -313,14 +317,15 @@ class RecapWriter:
         lore: str | None = None,
         outlook: OutlookFacts | ArchivedPacket | None = None,
     ) -> str:
-        """Draft, review, and allow one evidence-based correction and fresh review.
+        """Draft, review, and allow two evidence-based corrections with fresh review.
 
-        At most four provider calls. Provider failures, malformed verdicts and a
-        second rejection stop the attempt without returning any rejected text.
+        At most six provider calls. Provider failures, malformed verdicts and a
+        third rejection stop the attempt without returning any rejected text.
         Model review is a safeguard, not proof of factual accuracy.
         """
         system, messages = self.build_request(facts, lore, outlook)
-        for attempt in range(2):
+        original_messages = messages
+        for attempt in range(MAX_REPAIRS + 1):
             stage = "recap" if attempt == 0 else "recap_repair"
             draft = self._request(system, messages, stage=stage)
             text = apply_recap_edits(text, draft) if attempt else sanitize_prose(
@@ -334,12 +339,12 @@ class RecapWriter:
             violations = self._review(text, facts, outlook, lore)
             if not violations:
                 return text
-            if attempt == 0:
+            if attempt < MAX_REPAIRS:
                 logger.info(
                     "Correcting Analyst week %s using factual feedback", facts.week
                 )
                 messages = [
-                    *messages,
+                    *original_messages,
                     {"role": "assistant", "content": text},
                     {
                         "role": "user",
@@ -350,13 +355,13 @@ class RecapWriter:
                             "or a new source of facts. Remove unsupported claims, fix "
                             "verified errors, and preserve supported content and tone. "
                             "Return minimal before/after replacements, never a full rewrite. "
-                            "Each before must match exactly one passage in the original draft. "
+                            "Each before must match exactly one passage in the current draft above. "
                             "Do not edit supported claims, even if a finding calls them errors.\n"
                             "EDITOR FINDINGS:\n" + json.dumps(violations)
                         ),
                     },
                 ]
         raise ValueError(
-            "Analyst factual review did not approve after one correction; "
+            "Analyst factual review did not approve after two corrections; "
             "refusing publication"
         )

@@ -371,7 +371,7 @@ async def test_real_writer_publishes_only_an_approved_correction(tmp_path, appro
                     "name": "submit_recap_review",
                     "input": {
                         "approved": ok,
-                        "violations": [] if ok else [{"quote": "Alice scored", "evidence": "Wrong score"}],
+                        "checks": [] if ok else [{"status": "needs_correction", "quote": "Alice scored", "evidence": "Wrong score"}],
                     },
                 }
             ],
@@ -389,6 +389,9 @@ async def test_real_writer_publishes_only_an_approved_correction(tmp_path, appro
             response([{"type": "tool_use", "id": "toolu_edit", "name": "submit_recap_edits",
                        "input": {"edits": [{"before": "250 points", "after": "25 points"}]}}], "tool_use"),
             verdict(approved),
+            response([{"type": "tool_use", "id": "toolu_edit2", "name": "submit_recap_edits",
+                       "input": {"edits": []}}], "tool_use"),
+            verdict(False),
         ]
     )
     try:
@@ -402,7 +405,7 @@ async def test_real_writer_publishes_only_an_approved_correction(tmp_path, appro
             assert saved[0]["edition_type"] == "results"
             assert "Alice 25.00, Bob 15.00" in saved[0]["markdown"]
             assert "250 points" not in saved[0]["markdown"]
-        assert writer._request.call_count == 4
+        assert writer._request.call_count == (4 if approved else 6)
     finally:
         writer._client.close()
 

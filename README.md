@@ -198,10 +198,16 @@ Incomplete results or archive errors leave the edition unsaved for a later
 check. Paid generation attempts retain a persistent cooldown (30 minutes,
 one hour, three hours, then six hours) if publication cannot finish. The monthly
 LLM budget still applies, and `TRADE_GRADER_AUTO_REFRESH=false` disables both loops.
-Factual review requests concise, quoted errors; corrections use the stronger
-review model to make exact text edits rather than rewrite the whole article,
+Factual review identifies claims that need correction; the correction stage
+makes exact text edits rather than rewriting the whole article,
 and must pass a fresh review before publication. Truncated or
 invalid reviews never publish a draft.
+The reviewer explicitly marks each audit check supported or needing correction.
+Publication requires overall approval and no checks needing correction; supported
+audit notes are not mistaken for errors. Review feedback may paraphrase a claim;
+it is treated as untrusted editorial input, not an executable edit. Only exact,
+unique replacements are applied,
+and a fresh review must explicitly approve the complete corrected article.
 
 The writer uses matchup results, reconstructed standings through that week,
 bench decisions, player performances, and saved owner profiles. The newest
@@ -214,11 +220,11 @@ receive the same focused brief: each team's leading starters and lowest scorer,
 awards, legal bench swaps and the dated context for those players. The archive
 retains the complete evidence. A structural check requires a separate heading
 for every completed matchup and available next-week preview. An
-actionable rejection gets one correction using the original facts and reviewer
-feedback, followed by a fresh review of the corrected draft. A second rejection,
+actionable rejection gets up to two corrections using the original facts and reviewer
+feedback, each followed by a fresh review of the complete corrected draft. A third rejection,
 malformed verdict, provider error, or truncation discards the roast and publishes
 the results edition instead. Failed explicit corrections preserve the prior text.
-Each attempt makes at most four generation calls with five-minute request
+Each attempt makes at most six generation calls with five-minute request
 timeouts and no automatic SDK retries. A timeout logs unknown provider usage;
 it is not treated as a free call. Usage is attributed to the actual model and
 stage (`recap`, `recap_repair`, `recap_review`).
