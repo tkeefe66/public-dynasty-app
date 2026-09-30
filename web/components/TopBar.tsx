@@ -7,7 +7,7 @@ import { Mark as Icon, MarkName as IconName } from "./furniture/Mark";
 import { WeekNote } from "./WeekNote";
 import { Wordmark } from "./furniture/Wordmark";
 
-type NavKey = "dashboard" | "trades" | "owners" | "gm" | "bets" | "draft" | "methodology" | "settings";
+type NavKey = "dashboard" | "trades" | "owners" | "gm" | "bets" | "draft" | "scoring" | "methodology" | "settings";
 
 interface Props {
   activeNav?: NavKey;
@@ -41,13 +41,13 @@ const NAV: {
   label: string;
   tab?: "trades" | "owners" | "gm" | "bets";
   icon?: IconName;
-  // A real route rather than a `?tab=` on the league root. Draft is the only
-  // entry that needs this — the minimum branch, not a reshape of the array.
+  // A real route rather than a `?tab=` on the league root.
   href?: (leagueId: string) => string;
 }[] = [
   { key: "dashboard", label: "Franchises", icon: "table" },
   { key: "trades", label: "Trades", tab: "trades", icon: "swap" },
   { key: "owners", label: "Owners", tab: "owners", icon: "season" },
+  { key: "scoring", label: "Scoring", href: (id) => `/league/${id}/scoring` },
   // No icon — nothing in the nineteen marks reads as "draft" or "bets", so
   // both stay unmarked.
   { key: "draft", label: "Draft", href: (id) => `/league/${id}/draft` },
@@ -233,7 +233,7 @@ export function TopBar({ activeNav, rightSlot, leagueId, year, lens }: Props) {
             agents each left it in place so as not to fight the other for this
             file; removing it is the join between their halves. */}
 
-        {/* FIVE items, one line, and NOT RENDERED AT ALL below 701px — the
+        {/* League sections, NOT RENDERED AT ALL below 701px — the
             phone gets a tab bar in the dashboard body instead, and two navs
             for the same destinations is one nav too many. `hidden` (not
             a wrap) is the point: this run does not exist on a phone, so it

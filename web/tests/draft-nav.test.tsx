@@ -26,12 +26,11 @@ describe("Draft in both navs", () => {
     expect(draft.getAttribute("href")).toBe("/league/L1/draft");
   });
 
-  it("DashboardTabs renders five cells, the fifth being Draft", () => {
+  it("DashboardTabs keeps Draft reachable alongside the other league sections", () => {
+    // Mutation: adding Scoring removes or changes the existing Draft destination.
     render(<DashboardTabs leagueId="L1" active="dashboard" />);
-    const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(5);
-    expect(links[4].textContent).toBe("Draft");
-    expect(links[4].getAttribute("href")).toBe("/league/L1/draft");
+    const draft = screen.getByRole("link", { name: "Draft" });
+    expect(draft.getAttribute("href")).toBe("/league/L1/draft");
   });
 
   it("renders the Draft nav item with no icon/mark, like Bets", () => {

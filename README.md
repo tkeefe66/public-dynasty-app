@@ -339,6 +339,30 @@ Owner names cross-link in from the Franchise Ratings rows and trade-detail pages
 
 Alongside the graded trades, owners can track their own side action: manually recorded **1-vs-1 money bets** between two owners (e.g. "Tom finishes the regular season above Mike, $20"). Each bet carries a description, an amount, and a season, and moves through an **open → settled/push/void** lifecycle — settling picks a winner, a push returns no winner, and a void cancels the bet without deleting its record (the ledger is a receipt, not a todo list). The dashboard's **Bets tab** (`/league/{id}?tab=bets`) shows a per-owner leaderboard (won/lost/net, biggest win, worst loss) above the full ledger, with a form to record new bets and inline actions to settle/reopen/void each one; a compact **side-bets card** on the owner franchise page surfaces that owner's record. Bets are DB-backed (Postgres `side_bets` table, migration `0007`) rather than part of the league chain cache, so they never 409 on a cold cache — owner names degrade gracefully to raw Sleeper user IDs if the chain hasn't been pulled yet. Endpoints live under `/api/league/{league_id}/bets` (see the API table below).
 
+### Scoring leaders
+
+The **Scoring** link in desktop and mobile league navigation opens
+`/league/{id}/scoring`. It ranks every player at the league's configured positions
+by cumulative points under that league's scoring settings, including production
+while benched or unrostered. The page shows positional rank, total points, games
+played, and points per game, with position filters and player search. Ties use
+competition ranks (1, 1, 3). Only Sleeper leagues are supported on this surface.
+
+`GET /api/league/{league_id}/scoring` is protected by the league membership guard.
+The cutoff is the week before Sleeper's current regular-season week; completed
+seasons include all NFL regular-season weeks. No current partial week is included.
+Games use the stats feed's `gp`, not `gms_active`, which also appears on inactive
+placeholder records. Incomplete weeks or player metadata and scores that cannot
+be reconciled with the league's matchup points produce an explicit unavailable
+state instead of partial rankings.
+
+The read-through cache lives in `TRADE_GRADER_CACHE_DIR/scoring/`, separate from
+the trade grader. Raw NFL stats are shared across leagues; calculated responses
+are league-specific. Responses and league settings refresh after five minutes,
+weekly stats/matchups after one hour, and the player catalog after one day (sooner
+if an unknown player appears). Finite TTLs pick up stat corrections on subsequent
+page loads. This page does not generate AI prose or change saved league data.
+
 ### Draft grading
 
 Every league's yearly draft is graded, in all three formats. Dynasty grades rookie classes; **redraft and keeper grade every season's full draft, including year one**. Selection reads Sleeper's `settings.player_type`, but only as one signal — it restricts the selectable *pool*, it does not name the kind of draft, so an open-pool draft outside the league's first season is a rookie draft, not a startup.

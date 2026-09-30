@@ -112,6 +112,8 @@ def create_app() -> FastAPI:
     app.include_router(profiles.router, dependencies=league_guard)
     from app.routes import leaderboard
     app.include_router(leaderboard.router, dependencies=league_guard)
+    from app.routes import scoring
+    app.include_router(scoring.router, dependencies=league_guard)
     from app.routes import bets
     app.include_router(bets.router, dependencies=league_guard)
     from app.routes import draft

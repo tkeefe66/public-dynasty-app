@@ -15,10 +15,11 @@ import { DashboardTabs } from "@/components/DashboardTabs";
  * Draft-specific assertions (fifth cell, no icon, real route) live in
  * `draft-nav.test.tsx`; this file keeps the pairing invariant current.
  */
-const TABS = ["Franchises", "Trades", "Owners", "Bets", "Draft"];
+const TABS = ["Franchises", "Trades", "Owners", "Scoring", "Bets", "Draft"];
 
 describe("DashboardTabs", () => {
-  it("renders exactly the five destinations, in order", () => {
+  it("renders the league destinations including Scoring, in order", () => {
+    // Mutation: drop or misplace Scoring when editing the league navigation.
     render(<DashboardTabs leagueId="L1" active="dashboard" />);
     const links = screen.getAllByRole("link");
     expect(links.map((l) => l.textContent)).toEqual(TABS);

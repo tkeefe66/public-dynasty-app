@@ -3,6 +3,7 @@ import {
   Lens, OwnerDetailResp, OwnerNameEntry, OwnerNamesResp, OwnerProfile, ProfilesMap,
   SideBetCreateBody, SideBetListResp, SideBetUpdateBody, SideBetView, TradeDetailResp, Year,
 } from "./types";
+import type { ScoringResp } from "./scoring";
 
 const BASE = typeof window === "undefined"
   ? `${process.env.API_URL || "http://localhost:8000"}/api`
@@ -82,6 +83,10 @@ export interface AnalystEdition {
 
 export function analystArchive(leagueId: string): Promise<{ editions: AnalystEdition[] }> {
   return jsonFetch(`${BASE}/league/${leagueId}/analyst`);
+}
+
+export function scoringLeaders(leagueId: string): Promise<ScoringResp> {
+  return jsonFetch(`${BASE}/league/${leagueId}/scoring`);
 }
 
 export function tradesList(

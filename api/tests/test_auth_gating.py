@@ -52,6 +52,15 @@ def test_analyst_share_management_rejects_nonmembers_and_og_tokens(client, db_ma
     assert client.post(path, headers=_auth(_og_token())).status_code == 401
 
 
+def test_scoring_leaders_are_private_to_league_members(client, db_maker):
+    # Mutation: register scoring outside league_guard or admit the OG principal.
+    path = "/api/league/123/scoring"
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers=_auth(_og_token())).status_code == 401
+    _seed_member(db_maker, google_sub="g-1", league_id="other")
+    assert client.get(path, headers=_auth(_token())).status_code == 403
+
+
 @pytest.fixture()
 def db_maker(tmp_path):
     """Per-test SQLite DB wired into the app via a get_db override."""

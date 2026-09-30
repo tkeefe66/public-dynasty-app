@@ -46,6 +46,9 @@ const SCOPED_DIRS: string[] = [
  * the moment it is converted; it is enforced exactly as a scoped directory is.
  */
 const SCOPED_FILES: string[] = [
+  "web/components/ScoringLeaders.tsx",
+  "web/app/league/[id]/scoring/page.tsx",
+  "web/app/league/[id]/scoring/loading.tsx",
   "web/components/AnalystSources.tsx",
   "web/components/RatingBars.tsx",
   "web/components/CareerArc.tsx",

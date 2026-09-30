@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { DashboardTab } from "./DashboardClient";
 
 /**
- * The phone's navigation: five tabs under the masthead, below 701px only.
+ * The phone's navigation: league sections under the masthead, below 701px only.
  *
  * WHY A TAB BAR AND NOT THE NAV. `TopBar`'s inline run is six-ish mono links
  * that wrapped onto two rows at 390px, and stacked with the wordmark, the
@@ -32,10 +32,11 @@ import type { DashboardTab } from "./DashboardClient";
 // still typed `DashboardTab` below (it never equals "draft" in practice, so
 // the cell simply never highlights), and the key type here is widened just
 // enough to admit it.
-const TABS: { key: DashboardTab | "draft"; label: string; href: (id: string) => string }[] = [
+const TABS: { key: DashboardTab | "draft" | "scoring"; label: string; href: (id: string) => string }[] = [
   { key: "dashboard", label: "Franchises", href: (id) => `/league/${id}` },
   { key: "trades", label: "Trades", href: (id) => `/league/${id}?tab=trades` },
   { key: "owners", label: "Owners", href: (id) => `/league/${id}?tab=owners` },
+  { key: "scoring", label: "Scoring", href: (id) => `/league/${id}/scoring` },
   { key: "bets", label: "Bets", href: (id) => `/league/${id}?tab=bets` },
   { key: "draft", label: "Draft", href: (id) => `/league/${id}/draft` },
 ];
@@ -45,7 +46,7 @@ export function DashboardTabs({
   active,
 }: {
   leagueId: string;
-  active: DashboardTab;
+  active: DashboardTab | "scoring";
 }) {
   return (
     <nav
