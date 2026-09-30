@@ -171,8 +171,8 @@ function weekRecapContent(data: DashboardResp, leagueId: string): LeadContent {
         {winner} beat {loser} by {recap.blowout.margin.toFixed(1)} — the week&rsquo;s
         widest margin.
         {traded
-          ? ` ${who(traded)} got ${traded.points.toFixed(1)} of it from players acquired in trades.`
-          : " Nobody started a trade-acquired player for points."}
+          ? ` ${who(traded)} led with ${traded.points.toFixed(1)} points from trade-acquired starters.`
+          : null}
       </>
     ),
     cells: [

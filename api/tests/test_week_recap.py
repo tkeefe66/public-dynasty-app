@@ -7,7 +7,10 @@ this feature can't ship with.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from datetime import datetime, timezone
+
+from app.services.grader import _to_dict
+from sleeper_dynasty.models.trade import PlayerAsset, ResolvedTrade, Trade, TradeSide
 
 from app.services.week_recap import (
     derive_week_recap,
@@ -107,41 +110,27 @@ def test_ignores_other_seasons_in_the_chain():
 # --------------------------------------------------------------------------
 
 
-@dataclass
-class _Asset:
-    player_id: str
-
-
-@dataclass
-class _Side:
-    received: list
-    given: list
-
-
-@dataclass
-class _Trade:
-    league_id: str
-    season: int
-    week: int
-
-
-@dataclass
-class _RT:
-    trade: _Trade
-    sides: dict
-
-
 def _resolved(week: int, *, uid="u_tom", pid="p1", season=2026) -> dict:
-    return {
-        "trade": {"transaction_id": f"tx{week}"},
-        "rt": _RT(
-            trade=_Trade(league_id="LG", season=season, week=week),
-            sides={uid: _Side(received=[_Asset(pid)], given=[])},
-        ),
-    }
+    # Use the same serialization as GraderService, after temporary rt is removed.
+    sides = {uid: TradeSide(user_id=uid, received=[PlayerAsset(pid, "Player One")], given=[])}
+    return _to_dict(ResolvedTrade(
+        trade=Trade(transaction_id=f"tx{week}", league_id="LG", season=season,
+                    week=week, traded_at=datetime(season, 9, 1, tzinfo=timezone.utc), sides=sides),
+        sides=sides,
+    ))
+
+
+def test_serialized_trade_is_counted_without_a_temporary_rt_object():
+    # Mutation: read row['rt'] instead of the serialized trade and resolved sides.
+    row = _resolved(2)
+    assert "rt" not in row
+    assert traded_pids_by_user(
+        [row], season=2026, week=4, league_season_by_id=_SEASONS,
+    ) == {"u_tom": {"p1"}}
 
 
 def test_trade_week_itself_is_excluded():
+    # Mutation: include a trade before its following-week effective boundary.
     # Sleeper trades take effect the following week (trade_grader._is_post_trade).
     same_week = traded_pids_by_user(
         [_resolved(4)], season=2026, week=4, league_season_by_id=_SEASONS,
@@ -154,6 +143,7 @@ def test_trade_week_itself_is_excluded():
 
 
 def test_a_later_week_in_the_same_season_is_excluded():
+    # Mutation: ignore the trade week when filtering future transactions.
     assert traded_pids_by_user(
         [_resolved(9)], season=2026, week=4, league_season_by_id=_SEASONS,
     ) == {}
@@ -165,9 +155,10 @@ def test_season_comes_from_the_chain_map_not_the_trade_record():
     in next season's league is excluded from this season's recap; an earlier
     season's is included."""
     next_season = _resolved(1, pid="p_next")
-    next_season["rt"].trade.league_id = "LG27"
+    # Mutation: use the recorded trade season instead of its chain season.
+    next_season["trade"]["league_id"] = "LG27"
     prior_season = _resolved(1, pid="p_prior")
-    prior_season["rt"].trade.league_id = "LG25"
+    prior_season["trade"]["league_id"] = "LG25"
     seasons = {"LG": 2026, "LG27": 2027, "LG25": 2025}
     got = traded_pids_by_user(
         [next_season, prior_season], season=2026, week=4, league_season_by_id=seasons,
@@ -175,11 +166,33 @@ def test_season_comes_from_the_chain_map_not_the_trade_record():
     assert got == {"u_tom": {"p_prior"}}
 
 
-def test_rows_without_a_resolved_trade_are_skipped():
+def test_rows_without_resolved_sides_are_skipped():
+    # Mutation: treat an incomplete trade-only row as a resolved acquisition.
     assert traded_pids_by_user(
         [{"trade": {"transaction_id": "tx"}}], season=2026, week=4,
         league_season_by_id=_SEASONS,
     ) == {}
+
+
+def test_uses_resolved_received_players_and_deduplicates_repeat_acquisitions():
+    # Mutation: read original unresolved sides, given assets, or count one player twice.
+    row = _resolved(1)
+    row["trade"]["sides"]["u_tom"]["received"] = [
+        {"season": 2026, "round": 1, "original_owner_user_id": "u_mike"},
+    ]
+    row["sides"]["u_tom"]["received"].extend([
+        {"season": 2027, "round": 2, "original_owner_user_id": "u_mike", "drafted_player_id": "future"},
+        {"amount": 10},
+    ])
+    row["sides"]["u_tom"]["given"] = [{"player_id": "given", "name": "Given Player"}]
+    # Prove the pick-derived player is counted on its own before adding a later
+    # direct acquisition that could otherwise conceal the unresolved-side bug.
+    assert traded_pids_by_user(
+        [row], season=2026, week=4, league_season_by_id=_SEASONS,
+    ) == {"u_tom": {"p1"}}
+    assert traded_pids_by_user(
+        [row, _resolved(2)], season=2026, week=4, league_season_by_id=_SEASONS,
+    ) == {"u_tom": {"p1"}}
 
 
 # --------------------------------------------------------------------------

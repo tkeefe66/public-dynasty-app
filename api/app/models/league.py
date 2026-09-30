@@ -218,7 +218,7 @@ class WeekRecap(BaseModel):
 
     Never an in-progress week: the recap week is strictly earlier than Sleeper's
     current week, so a partial Sunday score can't reach the lead. `traded_points`
-    is null when no owner started a trade-acquired player for points.
+    is null when no nonzero trade-acquired starter total is available.
     """
 
     season: str

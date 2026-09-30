@@ -82,31 +82,32 @@ def traded_pids_by_user(
     ``trade_grader._is_post_trade``), and pick-derived players count, because
     pick resolution has already rewritten them as players on the resolved side.
 
+    Reads the serialized ``trade`` and resolved ``sides`` that GraderService
+    persists. Its temporary ``rt`` object is removed before the recap stage
+    and is never attached on the incremental-reuse path.
+
     Roster membership is NOT checked here — the caller intersects this with the
     week's actual starters, which proves possession far more directly than a
     tenure walk can.
     """
     out: dict[str, set[str]] = {}
     for row in resolved:
-        rt = row.get("rt")
-        if rt is None:
-            continue
-        trade = getattr(rt, "trade", None)
-        sides = getattr(rt, "sides", None) or {}
-        if trade is None:
+        trade = row.get("trade") or {}
+        sides = row.get("sides") or {}
+        if not trade:
             continue
         trade_season = league_season_by_id.get(
-            getattr(trade, "league_id", ""), getattr(trade, "season", 0)
+            trade.get("league_id", ""), trade.get("season", 0)
         )
         try:
-            trade_week = int(getattr(trade, "week", 0) or 0)
+            trade_week = int(trade.get("week", 0) or 0)
         except (TypeError, ValueError):
             continue
         if (int(trade_season or 0), trade_week) >= (season, week):
             continue  # same week or later: not yet in effect for this week
         for uid, side in sides.items():
-            for asset in getattr(side, "received", None) or []:
-                pid = getattr(asset, "player_id", None)
+            for asset in side.get("received") or []:
+                pid = asset.get("player_id")
                 if pid:
                     out.setdefault(str(uid), set()).add(str(pid))
     return out
@@ -138,9 +139,9 @@ def derive_week_recap(
        blowout:{winner_user_id, loser_user_id, margin},
        traded_points:{user_id, points} | None}``
 
-    ``traded_points`` is ``None`` when no owner started a trade-acquired player
-    for points that week — an honest zero reads as "nothing to report", and the
-    frontend drops the line rather than printing 0.0.
+    ``traded_points`` is ``None`` when no nonzero trade-acquired starter total
+    is available. The frontend omits that claim rather than treating a missing
+    tally as proof that nobody started an acquired player.
     """
     rows = [
         (lg, rid, entry)

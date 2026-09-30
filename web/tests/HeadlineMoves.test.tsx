@@ -93,6 +93,7 @@ describe("HeadlineMoves — regular-season phase", () => {
   });
 
   it("prints the recap figures once the week is final", () => {
+    // Mutation: describe Bob's traded-player points as part of Alice's score/margin.
     render(
       <HeadlineMoves
         data={data({
@@ -117,7 +118,7 @@ describe("HeadlineMoves — regular-season phase", () => {
     expect(screen.getByText("Week 4 recap")).toBeInTheDocument();
     expect(screen.getByText("Alice put up 140.0.")).toBeInTheDocument();
     expect(screen.getByText(/Alice beat Bob by 50.0/)).toBeInTheDocument();
-    expect(screen.getByText(/Bob got 21.5 of it from players acquired in trades/))
+    expect(screen.getByText(/Bob led with 21.5 points from trade-acquired starters/))
       .toBeInTheDocument();
     // Figures reconcile with the body, and appear once in the strip. The
     // blowout cell signs its margin ("+50.0") since the strip is the only
@@ -127,7 +128,8 @@ describe("HeadlineMoves — regular-season phase", () => {
     expect(screen.getAllByText("21.5").length).toBeGreaterThan(0);
   });
 
-  it("says so plainly when no trade-acquired player scored", () => {
+  it("does not infer that nobody started a traded player from an absent tally", () => {
+    // Mutation: turn an absent tally into the categorical claim that nobody scored.
     render(
       <HeadlineMoves
         data={data({
@@ -148,8 +150,9 @@ describe("HeadlineMoves — regular-season phase", () => {
         leagueId="L1"
       />,
     );
-    expect(screen.getByText(/Nobody started a trade-acquired player for points/))
-      .toBeInTheDocument();
+    expect(screen.queryByText(/Nobody started a trade-acquired player for points/))
+      .not.toBeInTheDocument();
+    expect(screen.getByText(/Alice beat Bob by 3.5/)).toBeInTheDocument();
   });
 });
 

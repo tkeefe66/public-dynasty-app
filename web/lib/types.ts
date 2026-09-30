@@ -261,7 +261,7 @@ export interface WeekRecap {
     loser?: OwnerRef | null;
     margin: number;
   };
-  /** Null when nobody started a trade-acquired player for points that week. */
+  /** Null when no nonzero trade-acquired starter total is available. */
   traded_points?: WeekRecapFigure | null;
 }
 

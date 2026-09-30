@@ -409,10 +409,14 @@ async def test_grader_service_stamps_league_phase():
 
 
 @pytest.mark.asyncio
-async def test_grader_service_stamps_week_recap():
+@pytest.mark.parametrize("with_trade", [False, True])
+async def test_grader_service_stamps_week_recap(with_trade):
     """The recap is computed in the as-of-today value layer next to league_phase,
     straight from `matchups` — so the published figures reconcile with the
     standings built from the same entries."""
+    # Mutation: drop serialized trade acquisitions before computing the recap.
+    from sleeper_dynasty.models.trade import PlayerAsset, ResolvedTrade, Trade, TradeSide
+
     fake_chain = [
         MagicMock(league_id="L1", name="Bros", season=2026,
                   playoff_week_start=15, total_rosters=2),
@@ -420,16 +424,24 @@ async def test_grader_service_stamps_week_recap():
     fake_client = MagicMock()
     fake_client.walk_league_history = AsyncMock(return_value=fake_chain)
     fake_client.get_players = AsyncMock(return_value={})
+    fake_client.get_rosters = AsyncMock(return_value=[])
     fake_client.get_nfl_state = AsyncMock(return_value={
         "season_type": "regular", "season": "2026", "week": 5,
     })
 
     async def fake_build(client, current_league_id, player_names, **kwargs):
-        return [], {}
+        sides = {
+            "u_a": TradeSide("u_a", [PlayerAsset("p1", "Player One")], []),
+            "u_b": TradeSide("u_b", [], [PlayerAsset("p1", "Player One")]),
+        }
+        trade = Trade("tx1", "L1", 2026, 2, datetime(2026, 9, 15, tzinfo=timezone.utc), sides)
+        return ([ResolvedTrade(trade, sides)] if with_trade else []), {}
 
     def _mu(team, opp, opp_rid):
         return {
-            "starters": [], "players": [], "players_points": {},
+            "starters": ["p1"] if opp_rid == 2 else [],
+            "players": ["p1"] if opp_rid == 2 else [],
+            "players_points": {"p1": 22.5} if opp_rid == 2 else {},
             "team_points": team, "opponent_points": opp,
             "opponent_roster_id": opp_rid,
         }
@@ -443,6 +455,8 @@ async def test_grader_service_stamps_week_recap():
             },
             "ktc_by_player_id": {}, "pick_value_table": {},
             "playoff_weeks_by_league": {"L1": 15},
+            "playoff_week_start_by_league": {"L1": 15},
+            "phase_by_lwr": {},
             "roster_to_user_by_league": {"L1": {1: "u_a", 2: "u_b"}},
             "league_name_by_id": {"L1": "Bros"},
             "league_season_by_id": {"L1": 2026},
@@ -466,8 +480,9 @@ async def test_grader_service_stamps_week_recap():
     assert entry.week_recap["blowout"] == {
         "winner_user_id": "u_a", "loser_user_id": "u_b", "margin": 40.0,
     }
-    # No trades in this fixture, so nobody started a trade-acquired player.
-    assert entry.week_recap["traded_points"] is None
+    assert entry.week_recap["traded_points"] == (
+        {"user_id": "u_a", "points": 22.5} if with_trade else None
+    )
 
 
 # ---------------------------------------------------------------------------
