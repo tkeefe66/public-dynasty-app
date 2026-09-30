@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from importlib import resources
 
 import anthropic
 from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
 
 from sleeper_dynasty.llm._usage import usage_dict
+from sleeper_dynasty.llm.recap_packet import ArchivedPacket, editorial_facts
 from sleeper_dynasty.llm.trade_story_writer import sanitize_prose
 from sleeper_dynasty.llm.usage import report
 from sleeper_dynasty.models.recap import OutlookFacts, RecapFacts
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 _PROMPTS = "sleeper_dynasty.llm.prompts"
 
-DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 DEFAULT_REVIEW_MODEL = "claude-sonnet-4-6"
 REQUEST_TIMEOUT_SECONDS = 300.0
 # Full matchup recaps plus standings, bets and outlook can exceed 4096 tokens.
@@ -116,6 +118,24 @@ def load_lore_template() -> str:
     return resources.files(_PROMPTS).joinpath("league_lore_template.md").read_text()
 
 
+def require_matchup_coverage(text: str, facts, outlook) -> None:
+    """Every result and forecast needs its own matchup heading, as prompted."""
+    headings = [h.replace("**", "").casefold() for h in
+                re.findall(r"^#{2,4}\s+(.+)$", text, flags=re.MULTILINE)]
+    packets = [("recap", facts.to_dict(), "winner", "loser")]
+    if outlook is not None:
+        packets.append(("preview", outlook.to_dict(), "home", "away"))
+    for kind, packet, left, right in packets:
+        for matchup in packet["matchups"]:
+            names = [sanitize_prose(str(matchup[k])).replace("**", "").casefold() for k in (left, right)]
+            index = next((i for i, heading in enumerate(headings) if all(
+                re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", heading)
+                for name in names)), None)
+            if index is None:
+                raise ValueError(f"Analyst missing {kind} matchup: {matchup[left]} / {matchup[right]}; refusing publication")
+            headings.pop(index)
+
+
 class RecapWriter:
     """Generates recap prose from a facts packet using Claude."""
 
@@ -142,15 +162,13 @@ class RecapWriter:
 
     def build_request(
         self,
-        facts: RecapFacts,
+        facts: RecapFacts | ArchivedPacket,
         lore: str | None,
-        outlook: OutlookFacts | None = None,
+        outlook: OutlookFacts | ArchivedPacket | None = None,
     ) -> tuple[list[dict], list[dict]]:
         """Build the (system, messages) pair for the Messages API.
 
-        The user turn carries optional lore + the facts JSON. No cache_control:
-        the persona is under Haiku 4.5's 4096-token cache minimum, so a
-        breakpoint here never activates.
+        The user turn carries optional lore + the focused facts JSON.
         """
         system = [{"type": "text", "text": self.persona}]
 
@@ -159,14 +177,14 @@ class RecapWriter:
             user_parts.append("LEAGUE LORE (weave these in where relevant):\n\n" + lore)
         user_parts.append(
             "FACTS PACKET (use ONLY these facts):\n\n```json\n"
-            + json.dumps(facts.to_dict(), indent=2)
+            + json.dumps(editorial_facts(facts), separators=(",", ":"))
             + "\n```\n\nWrite this week's segment."
         )
         if outlook is not None:
             user_parts.append(
                 "OUTLOOK PACKET for the UPCOMING week (use ONLY these "
                 "facts):\n\n```json\n"
-                + json.dumps(outlook.to_dict(), indent=2)
+                + json.dumps(outlook.to_dict(), separators=(",", ":"))
                 + "\n```"
             )
         messages = [
@@ -228,15 +246,17 @@ class RecapWriter:
         return resp
 
     def _review(
-        self, text: str, facts: RecapFacts, outlook: OutlookFacts | None
+        self, text: str, facts: RecapFacts | ArchivedPacket,
+        outlook: OutlookFacts | ArchivedPacket | None, lore: str | None = None
     ) -> list[dict[str, str]]:
         """Return actionable feedback, or an empty list for explicit approval."""
         review_prompt = (
             resources.files(_PROMPTS).joinpath("analyst_review.md").read_text()
         )
         evidence = {
-            "facts": facts.to_dict(),
+            "facts": editorial_facts(facts),
             "outlook": outlook.to_dict() if outlook else None,
+            "lore": lore,
             "draft": text,
         }
         review = self._request(
@@ -289,9 +309,9 @@ class RecapWriter:
 
     def write(
         self,
-        facts: RecapFacts,
+        facts: RecapFacts | ArchivedPacket,
         lore: str | None = None,
-        outlook: OutlookFacts | None = None,
+        outlook: OutlookFacts | ArchivedPacket | None = None,
     ) -> str:
         """Draft, review, and allow one evidence-based correction and fresh review.
 
@@ -310,7 +330,8 @@ class RecapWriter:
                 raise ValueError(
                     f"Analyst {stage} returned no text; refusing publication"
                 )
-            violations = self._review(text, facts, outlook)
+            require_matchup_coverage(text, facts, outlook)
+            violations = self._review(text, facts, outlook, lore)
             if not violations:
                 return text
             if attempt == 0:

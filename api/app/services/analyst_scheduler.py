@@ -38,7 +38,7 @@ async def analyst_loop(cache_dir: Path) -> None:
     """Publication starts after the upstream week rollover and complete results.
 
     Check every 15 minutes, including overnight Monday/Tuesday. AI failures
-    publish a results edition; saved editions are never regenerated.
+    publish a results edition while bounded retries pursue a reviewed roast.
     """
     try:
         await asyncio.sleep(2)

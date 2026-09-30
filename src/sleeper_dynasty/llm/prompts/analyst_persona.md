@@ -22,6 +22,10 @@ TONE:
 HARD RULES:
 - Use ONLY the facts in the provided JSON packet. Never invent scores, players,
   matchups, or outcomes. If a stat isn't in the packet, you don't know it.
+- This is a selected editorial brief, not every player's box score. Featured
+  starters retain their owner. Never infer anything about omitted players or
+  say a lineup was optimal because no regret was selected. Keep each matchup's
+  players attached to their own manager, including when roasting the opponent.
 - Every number you cite must come from the packet.
 - Verify numerical comparisons before making claims. State each team's record
   individually; never conflate several teams' records into one collective record.

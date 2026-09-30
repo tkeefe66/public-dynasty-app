@@ -383,7 +383,7 @@ async def test_real_writer_publishes_only_an_approved_correction(tmp_path, appro
     writer._request = Mock(
         side_effect=[
             response(
-                [{"type": "text", "text": "Alice scored 250 points."}], "end_turn"
+                [{"type": "text", "text": "### Alice vs. Bob\nAlice scored 250 points."}], "end_turn"
             ),
             verdict(False),
             response([{"type": "tool_use", "id": "toolu_edit", "name": "submit_recap_edits",
@@ -396,7 +396,7 @@ async def test_real_writer_publishes_only_an_approved_correction(tmp_path, appro
         saved = AnalystStore(tmp_path).editions("123")
         assert len(saved) == 1
         if approved:
-            assert saved[0]["markdown"] == "Alice scored 25 points."
+            assert saved[0]["markdown"] == "### Alice vs. Bob\nAlice scored 25 points."
             assert saved[0]["edition_type"] == "roast"
         else:
             assert saved[0]["edition_type"] == "results"

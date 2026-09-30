@@ -181,7 +181,7 @@ including overnight Monday/Tuesday, without waiting for a full trade/league
 refresh. Automatic/manual league refresh also checks for missing editions.
 Both paths generate completed regular-season editions for the current NFL season. Sleeper must have advanced
 to the next week, and every matchup must have scores and starter data. Existing
-editions are never regenerated, including on a forced refresh. Missed weeks are
+roast editions are never regenerated, including on a forced refresh. Missed weeks are
 filled oldest first. If AI writing or review fails, a clearly labeled results
 edition is compiled directly from the computed facts and saved immediately.
 It covers every matchup, leading starters, legal bench scenarios, verified
@@ -189,8 +189,11 @@ standings, recorded bets, and the next-week preview when available. Missing
 optional context is labeled unavailable. It makes no news-based explanations
 or inferred bet settlements. Missing API credentials, exhausted monthly LLM
 budget, `skip_llm`, or an existing AI retry cooldown also use this zero-AI path.
-Saved results editions remain write-once; later refreshes do not replace them
-with a roast. Explicit corrections still require approved AI output.
+Saved results editions remain write-once. Later checks retry the full roast
+within the same budget and persistent cooldown. An approved roast becomes a
+reader-visible revision with the original results still available. Retries use
+the saved facts, dated context, profiles, bets and forecast; they never rebuild
+an old edition from current league data. Explicit corrections still require approved AI output.
 Incomplete results or archive errors leave the edition unsaved for a later
 check. Paid generation attempts retain a persistent cooldown (30 minutes,
 one hour, three hours, then six hours) if publication cannot finish. The monthly
@@ -206,7 +209,11 @@ edition can include an upcoming-week preview using that week's projections;
 missed-week recaps omit forecasts rather than treating today's forecast as
 historical knowledge. Forecast failures do not prevent saving the recap.
 
-Haiku drafts require a separate Sonnet factual review before publication. An
+Sonnet drafts require a separate Sonnet factual review before publication. Both
+receive the same focused brief: each team's leading starters and lowest scorer,
+awards, legal bench swaps and the dated context for those players. The archive
+retains the complete evidence. A structural check requires a separate heading
+for every completed matchup and available next-week preview. An
 actionable rejection gets one correction using the original facts and reviewer
 feedback, followed by a fresh review of the corrected draft. A second rejection,
 malformed verdict, provider error, or truncation discards the roast and publishes

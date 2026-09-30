@@ -200,12 +200,14 @@ def test_build_request_includes_outlook_when_present(writer_factory):
     outlook = OutlookFacts(week=10, matchups=[], byes=[], weather=[], playoff_stakes=[])
     _, messages = writer.build_request(_facts(), lore=None, outlook=outlook)
     assert "OUTLOOK" in str(messages)
-    assert '"week": 10' in str(messages)
+    outlook_json = messages[0]["content"][0]["text"].split("```json\n")[2].split("\n```")[0]
+    assert json.loads(outlook_json)["week"] == 10
 
 
 def test_player_context_is_identical_in_draft_and_review(writer_factory):
     # Mutation: leave news out of serialization or send it only to the writer.
     facts = _facts()
+    facts.lineups = [{"owner": "Team A", "starters": [{"player": "Test QB (QB, FA)", "points": 3}]}]
     facts.player_context = {"players": [{"player": "Test QB", "usage": {"offense_snaps": 3},
                                          "news": [{"text": "Left with knee injury"}]}]}
     writer, requests = writer_factory([
@@ -217,6 +219,70 @@ def test_player_context_is_identical_in_draft_and_review(writer_factory):
     draft = json.loads(draft_text.split("```json\n")[1].split("\n```")[0])
     review = json.loads(requests[1]["messages"][0]["content"])
     assert draft["player_context"] == facts.player_context == review["facts"]["player_context"]
+
+
+def test_editorial_packet_keeps_relevant_context_without_all_rostered_players(writer_factory):
+    # Mutation: send every rostered player's news, or discard context for a featured bench substitution.
+    from copy import deepcopy
+    from sleeper_dynasty.models.recap import BenchRegret, PlayerLine
+    facts = _facts()
+    facts.lineups = [{"owner": "Team A", "starters": [
+        {"player": f"Player {i} (RB, FA)", "owner": "Team A", "points": i} for i in range(10)
+    ]}]
+    facts.bench_regret = [BenchRegret("Team A", 10, PlayerLine("Bench", "Team A", 10),
+        PlayerLine("Player 4", "Team A", 4), [{"benched_player": {"player": "Bench (RB, FA)"},
+                                               "started_player": {"player": "Player 4 (RB, FA)"}}])]
+    facts.player_context = {"players": [
+        {"player": f"Player {i}", "usage": {"offense_snaps": i}, "news": []} for i in range(50)
+    ] + [{"player": "Bench", "news": [{"text": "Dated report", "published_at": "2026-09-28"}]}],
+        "sources": [{"title": "Separate archive footer"}], "note": "Missing usage is unknown"}
+    before = deepcopy(facts.to_dict())
+    writer, requests = writer_factory([
+        _message([_text("Team A got 9 points from Player 9.")]),
+        _message([_verdict()], stop_reason="tool_use"),
+    ])
+    writer.write(facts, lore="Team A is my brother.")
+    draft = json.loads(requests[0]["messages"][0]["content"][0]["text"].split("```json\n")[1].split("\n```")[0])
+    review = json.loads(requests[1]["messages"][0]["content"])
+    assert {p["player"] for p in draft["player_context"]["players"]} == {
+        "Player 0", "Player 7", "Player 8", "Player 9", "Player 4", "Bench"}
+    assert draft == review["facts"]
+    assert review["lore"] == "Team A is my brother."
+    assert "sources" not in draft["player_context"]
+    assert facts.to_dict() == before
+    assert requests[0]["model"] == "claude-sonnet-4-6"
+
+
+@pytest.mark.parametrize("missing", ["recap", "preview"])
+def test_approved_but_incomplete_article_is_not_a_full_roast(writer_factory, missing):
+    # Mutation: accept a factually approved article that leaves out an entire matchup.
+    from sleeper_dynasty.models.recap import MatchupRecap, MatchupPreview
+    facts = _facts()
+    facts.matchups = [MatchupRecap("Alice", "Bob", 25, 15, 10, False, False)]
+    outlook = OutlookFacts(10, [MatchupPreview("Cam", "Dee", 30, 20, "Cam", 10)], [], [], [])
+    text = "# Week 9\n\nClosing joke."
+    if missing != "recap":
+        text += "\n\n### Alice 25 — Bob 15\n\nA crushing loss."
+    if missing != "preview":
+        text += "\n\n### Cam vs. Dee\n\nCam is projected ahead."
+    writer, _ = writer_factory([_message([_text(text)]), _message([_verdict()], stop_reason="tool_use")])
+    with pytest.raises(ValueError, match="missing.*matchup"):
+        writer.write(facts, outlook=outlook)
+
+
+def test_matchup_coverage_uses_rendered_names_and_distinct_preview_headings(writer_factory):
+    # Mutation: compare raw KTC owner names to sanitized text, or reuse a recap as its own preview.
+    from sleeper_dynasty.models.recap import MatchupRecap, MatchupPreview
+    facts = _facts()
+    facts.matchups = [MatchupRecap("Team KTC", "Bob", 25, 15, 10, False, False)]
+    outlook = OutlookFacts(10, [MatchupPreview("Team KTC", "Bob", 30, 20, "Team KTC", 10)], [], [], [])
+    recap = "### Team KTC 25 vs. Bob 15\n\nA crushing loss."
+    preview = "\n\n### Team KTC vs. Bob\n\nNext week's projections: 30 vs. 20."
+    writer, _ = writer_factory([_message([_text(recap + preview)]), _message([_verdict()], stop_reason="tool_use")])
+    assert "Team trade value" in writer.write(facts, outlook=outlook)
+    incomplete, _ = writer_factory([_message([_text(recap)]), _message([_verdict()], stop_reason="tool_use")])
+    with pytest.raises(ValueError, match="missing preview matchup"):
+        incomplete.write(facts, outlook=outlook)
 
 
 def test_write_requires_structured_review_and_returns_sanitized_draft(writer_factory):
@@ -387,7 +453,7 @@ def test_truncation_blocks_publication_and_still_records_cost(
         ["recap"] if stage == "recap" else ["recap", "recap_review"]
     )
     assert [r["cost_usd"] for r in records] == (
-        [0.0023] if stage == "recap" else [0.0023, 0.0069]
+        [0.0069] if stage == "recap" else [0.0069, 0.0069]
     )
     assert len(requests) == len(responses)
 
@@ -407,14 +473,14 @@ def test_write_records_both_stages_in_real_cost_ledger(writer_factory, tmp_path)
     assert [r["writer"] for r in records] == ["recap", "recap_review"]
     assert all(r["league_id"] == "test-league" for r in records)
     assert [r["model"] for r in records] == [
-        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-6",
         "claude-sonnet-4-6",
     ]
-    assert [r["cost_usd"] for r in records] == [0.0023, 0.0069]
+    assert [r["cost_usd"] for r in records] == [0.0069, 0.0069]
 
 
-def test_review_uses_sonnet_and_longer_deadline(writer_factory):
-    # Mutation: send factual review to the draft model, or retain the 90-second timeout.
+def test_draft_and_independent_review_use_sonnet_with_longer_deadline(writer_factory):
+    # Mutation: use the less capable draft model again, or retain the 90-second timeout.
     writer, requests = writer_factory(
         [
             _message([_text("Draft")]),
@@ -422,7 +488,7 @@ def test_review_uses_sonnet_and_longer_deadline(writer_factory):
         ]
     )
     writer.write(_facts())
-    assert requests[0]["model"] == "claude-haiku-4-5-20251001"
+    assert requests[0]["model"] == "claude-sonnet-4-6"
     assert requests[1]["model"] == "claude-sonnet-4-6"
     assert all(request["_timeout"]["read"] == 300 for request in requests)
 
@@ -463,7 +529,7 @@ def test_rejection_is_corrected_with_evidence_then_reviewed_again(
         "recap_review",
     ]
     assert [r["model"] for r in store.read_all()] == [
-        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-6",
         "claude-sonnet-4-6",
         "claude-sonnet-4-6",
         "claude-sonnet-4-6",

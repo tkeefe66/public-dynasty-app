@@ -1,4 +1,4 @@
-"""Automatic weekly Analyst generation. Saved editions are never regenerated."""
+"""Automatic weekly Analyst generation; results can gain a reviewed roast revision."""
 from __future__ import annotations
 
 import asyncio
@@ -22,6 +22,7 @@ from sleeper_dynasty.engine.recap import build_recap_facts
 from sleeper_dynasty.engine.recap_results import render_results_recap
 from sleeper_dynasty.api.projections import normalize_projection
 from sleeper_dynasty.llm.cost_store import LlmCostStore
+from sleeper_dynasty.llm.recap_packet import ArchivedPacket
 from sleeper_dynasty.llm.recap_writer import RecapWriter
 from sleeper_dynasty.models.player import build_players
 
@@ -82,13 +83,51 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                 return
             last_week = min(int(state.get("week", 0)) - 1, (league.playoff_week_start or 15) - 1, 18)
             saved_editions = store.editions(league_id)
-            existing = {(d["season"], d["week"]) for d in saved_editions}
+            existing = {(d["season"], d["week"]): d for d in saved_editions}
             if correction_week is not None:
                 if not correction_reason or not correction_reason.strip():
                     raise ValueError("Explicit correction requires a reader-visible reason")
                 if not 1 <= correction_week <= last_week or (league.season, correction_week) not in existing:
                     raise ValueError("Only an already published completed week can be corrected")
-            elif not any((league.season, w) not in existing for w in range(1, last_week + 1)):
+            elif not any((league.season, w) not in existing
+                         or existing[(league.season, w)]["edition_type"] == "results"
+                         for w in range(1, last_week + 1)):
+                return
+            active_writer = writer
+            if correction_week is None and not skip_llm:
+                for week in range(1, last_week + 1):
+                    previous = existing.get((league.season, week))
+                    if previous is None or previous["edition_type"] != "results":
+                        continue
+                    if writer is None:
+                        from app.services.refresh_service import _llm_over_budget
+                        if not os.environ.get("ANTHROPIC_API_KEY") or await _llm_over_budget(cache_dir):
+                            break
+                    if not store.start_attempt(league_id, league.season, week,
+                            (now or datetime.now(timezone.utc)).timestamp()):
+                        continue
+                    try:
+                        if active_writer is None:
+                            active_writer = RecapWriter(cost_store=LlmCostStore(cache_dir), league_id=league_id)
+                        # A later retry must preserve the original scores, bets,
+                        # profiles, news chronology and next-week forecast.
+                        facts = ArchivedPacket(previous["facts"])
+                        outlook = ArchivedPacket(previous["outlook"]) if previous.get("outlook") else None
+                        markdown = await asyncio.to_thread(active_writer.write, facts,
+                            lore=previous.get("lore"), outlook=outlook)
+                        if not isinstance(markdown, str) or not markdown.strip():
+                            raise ValueError("Analyst returned empty text")
+                        context = previous["facts"].get("player_context", {})
+                        edition = {**previous, "markdown": markdown.strip(), "edition_type": "roast",
+                            "model": active_writer.model, "generated_at": datetime.now(timezone.utc).isoformat(),
+                            "sources": context.get("sources", []), "context_note": context.get("note")}
+                        store.save_correction(league_id, edition,
+                            "Full Analyst roast added after the results edition; original results preserved.", claimed=True)
+                        log.info("Saved Analyst roast revision league=%s season=%s week=%s", league_id, league.season, week)
+                    except Exception:
+                        log.warning("Analyst roast upgrade failed league=%s season=%s week=%s; results retained for retry",
+                                    league_id, league.season, week, exc_info=True)
+            if correction_week is None and all((league.season, w) in existing for w in range(1, last_week + 1)):
                 return
             rosters = await client.get_rosters(league_id)
             overrides = NameOverrideStore(cache_dir=cache_dir).read(league_id)
@@ -98,7 +137,6 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
             players = build_players(await client.get_players())
             profiles = ProfileStore(cache_dir).read(league_id)
             lore = json.dumps({r.owner_name: profiles[r.owner_id] for r in rosters if r.owner_id in profiles}) if profiles else None
-            active_writer = writer
             for week in range(1, last_week + 1):
                 results = await client.get_matchup_results(league_id, week)
                 if not complete_results(results, rosters, week):
@@ -107,7 +145,8 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                 rosters = advance_standings(rosters, results)
                 if correction_week is not None and week != correction_week:
                     continue
-                if correction_week is None and (league.season, week) in existing:
+                previous = existing.get((league.season, week))
+                if correction_week is None and previous is not None:
                     continue
                 use_ai = not skip_llm and (writer is not None or bool(os.environ.get("ANTHROPIC_API_KEY")))
                 if use_ai and writer is None:

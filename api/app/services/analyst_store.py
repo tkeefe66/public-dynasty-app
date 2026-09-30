@@ -131,7 +131,7 @@ class AnalystStore:
         return True
 
     def save_correction(self, league_id: str, edition: dict, reason: str, *, claimed: bool = False) -> None:
-        """Explicit operator correction; never called by automatic generation."""
+        """Append an operator correction or approved results-to-roast revision."""
         if not reason.strip():
             raise ValueError("A correction needs a reader-visible reason")
         data = AnalystEdition.model_validate(edition).model_dump()
