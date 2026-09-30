@@ -1,4 +1,5 @@
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Path, Response
 from pydantic import BaseModel, Field
@@ -22,6 +23,7 @@ class PublicEdition(BaseModel):
     league_name: str
     generated_at: str
     markdown: str
+    edition_type: Literal["roast", "results"] = "roast"
     revision: int
     correction_note: str | None
     sources: list[AnalystSource] = Field(default_factory=list)

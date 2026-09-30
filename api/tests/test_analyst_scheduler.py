@@ -9,8 +9,8 @@ from tests.test_analyst import setup_league
 
 
 @pytest.mark.asyncio
-async def test_failed_generation_backoff_survives_restart_and_resets_for_new_week(tmp_path, monkeypatch):
-    # Mutation: retry on every refresh, forget retries on restart, or block a new week's first attempt.
+async def test_results_survive_restart_and_do_not_block_next_weeks_roast(tmp_path, monkeypatch):
+    # Mutation: regenerate saved results on restart, or stop trying AI for future weeks.
     from app.services import analyst
     from app.services.analyst_store import AnalystStore
     monkeypatch.setattr(analyst, "load_player_context", AsyncMock(return_value={}))
@@ -20,9 +20,12 @@ async def test_failed_generation_backoff_survives_restart_and_resets_for_new_wee
     now = datetime(2026, 9, 15, 8, tzinfo=timezone.utc)
     await analyst.generate_analyst(client, entry, tmp_path, writer=writer, now=now)
     assert writer.write.call_count == 1
+    store = AnalystStore(tmp_path)
+    assert store.editions("123")[0]["edition_type"] == "results"
+    original = store.edition_path("123", 2026, 1).read_bytes()
     writer.write.side_effect = None
     await analyst.generate_analyst(client, entry, tmp_path, writer=writer, now=now + timedelta(minutes=29))
-    assert AnalystStore(tmp_path).editions("123") == []
+    assert store.edition_path("123", 2026, 1).read_bytes() == original
     assert writer.write.call_count == 1
     await analyst.generate_analyst(client, entry, tmp_path, writer=writer, now=now + timedelta(minutes=30))
     assert [e["week"] for e in AnalystStore(tmp_path).editions("123")] == [1]
@@ -31,12 +34,14 @@ async def test_failed_generation_backoff_survives_restart_and_resets_for_new_wee
     client.get_matchup_results.side_effect = lambda lid, week: [replace(r, week=week) for r in results]
     await analyst.generate_analyst(client, entry, tmp_path, writer=writer, now=now + timedelta(minutes=31))
     assert [e["week"] for e in AnalystStore(tmp_path).editions("123")] == [2, 1]
-    assert writer.write.call_count == 3
+    assert store.editions("123")[0]["edition_type"] == "roast"
+    assert writer.write.call_count == 2
 
 
 @pytest.mark.asyncio
-async def test_scheduler_publishes_without_chain_cache_or_grader(tmp_path, monkeypatch):
-    # Mutation: continue requiring a full grader refresh before a missing edition can be saved.
+@pytest.mark.parametrize("over_budget", [False, True])
+async def test_scheduler_publishes_without_chain_cache_or_grader(tmp_path, monkeypatch, over_budget):
+    # Mutation: require the full grader or available AI budget before saving a missing edition.
     from app.services import analyst, analyst_scheduler
     from app.services.analyst_store import AnalystStore
     from app.services import refresh_service
@@ -46,12 +51,18 @@ async def test_scheduler_publishes_without_chain_cache_or_grader(tmp_path, monke
     monkeypatch.setattr(analyst, "RecapWriter", lambda **kw: writer)
     monkeypatch.setattr(analyst, "load_player_context", AsyncMock(return_value={}))
     monkeypatch.setattr(analyst, "load_bets_snapshot", AsyncMock(return_value={}))
-    monkeypatch.setattr(refresh_service, "_llm_over_budget", AsyncMock(return_value=False))
+    monkeypatch.setattr(refresh_service, "_llm_over_budget", AsyncMock(return_value=over_budget))
     monkeypatch.setattr(analyst_scheduler, "_member_league_ids", AsyncMock(return_value=["123", "470.l.123"]))
     monkeypatch.setattr(analyst_scheduler, "SleeperClient", lambda: client)
     monkeypatch.setattr(refresh_service.GraderService, "run", AsyncMock(side_effect=AssertionError("Grader must not run")))
     await analyst_scheduler.generate_member_editions(tmp_path)
-    assert AnalystStore(tmp_path).editions("123")[0]["markdown"] == "## Week one\nAlice wins."
+    saved = AnalystStore(tmp_path).editions("123")[0]
+    if over_budget:
+        assert saved["edition_type"] == "results"
+        assert "Alice 25.00, Bob 15.00" in saved["markdown"]
+        writer.write.assert_not_called()
+    else:
+        assert saved["markdown"] == "## Week one\nAlice wins."
     assert not (tmp_path / "chain_123.json").exists()
     client.close.assert_awaited_once()
 

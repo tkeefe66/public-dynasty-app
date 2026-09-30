@@ -10,6 +10,12 @@ const editions = [
 ];
 
 describe("The Analyst", () => {
+  it("labels results editions without claiming AI authorship", () => {
+    // Mutation: show the AI-written label for deterministic fallback content.
+    render(<AnalystArchive leagueId="123" editions={[{ ...editions[0], edition_type: "results" }]} />);
+    expect(screen.getByText(/Results edition from verified league scores/)).toBeInTheDocument();
+    expect(screen.queryByText(/AI-written from league results/)).not.toBeInTheDocument();
+  });
   it("labels a correction and preserves readable original text", () => {
     // Mutation: silently replace the article without exposing the original.
     render(<AnalystArchive leagueId="123" editions={[{
@@ -28,6 +34,7 @@ describe("The Analyst", () => {
     // Mutation: ignore the selected edition and always render newest.
     render(<AnalystArchive leagueId="123" editions={editions} selected="2026-1" />);
     expect(screen.getByRole("heading", { name: "Opening week" })).toBeInTheDocument();
+    expect(screen.getByText(/AI-written from league results/)).toBeInTheDocument();
     expect(screen.queryByText("Alice")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "2026 · Week 2" })).toHaveAttribute("href", "/league/123/analyst?edition=2026-2");
   });

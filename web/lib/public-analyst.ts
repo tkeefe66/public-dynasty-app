@@ -10,6 +10,7 @@ export const publicAnalyst = cache(async (token: string) => {
   return response.json() as Promise<{
     season: number; week: number; league_name: string; generated_at: string;
     markdown: string; revision: number; correction_note: string | null;
+    edition_type?: "roast" | "results";
     sources?: AnalystSource[]; context_note?: string | null;
   }>;
 });

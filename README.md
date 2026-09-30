@@ -182,13 +182,19 @@ refresh. Automatic/manual league refresh also checks for missing editions.
 Both paths generate completed regular-season editions for the current NFL season. Sleeper must have advanced
 to the next week, and every matchup must have scores and starter data. Existing
 editions are never regenerated, including on a forced refresh. Missed weeks are
-filled oldest first. An unavailable model, missing API key, exhausted monthly
-LLM budget, or incomplete results leaves the edition unsaved for a later retry.
-Paid generation attempts share a persistent per-edition cooldown: 30 minutes,
-then one hour, three hours, and at most once every six hours after repeated
-failures. Restarts and manual refreshes cannot bypass that cooldown; a new
-week starts immediately when complete results are available. The monthly LLM
-budget still applies, and `TRADE_GRADER_AUTO_REFRESH=false` disables both loops.
+filled oldest first. If AI writing or review fails, a clearly labeled results
+edition is compiled directly from the computed facts and saved immediately.
+It covers every matchup, leading starters, legal bench scenarios, verified
+standings, recorded bets, and the next-week preview when available. Missing
+optional context is labeled unavailable. It makes no news-based explanations
+or inferred bet settlements. Missing API credentials, exhausted monthly LLM
+budget, `skip_llm`, or an existing AI retry cooldown also use this zero-AI path.
+Saved results editions remain write-once; later refreshes do not replace them
+with a roast. Explicit corrections still require approved AI output.
+Incomplete results or archive errors leave the edition unsaved for a later
+check. Paid generation attempts retain a persistent cooldown (30 minutes,
+one hour, three hours, then six hours) if publication cannot finish. The monthly
+LLM budget still applies, and `TRADE_GRADER_AUTO_REFRESH=false` disables both loops.
 Factual review requests concise, quoted errors; corrections use the stronger
 review model to make exact text edits rather than rewrite the whole article,
 and must pass a fresh review before publication. Truncated or
@@ -203,7 +209,8 @@ historical knowledge. Forecast failures do not prevent saving the recap.
 Haiku drafts require a separate Sonnet factual review before publication. An
 actionable rejection gets one correction using the original facts and reviewer
 feedback, followed by a fresh review of the corrected draft. A second rejection,
-malformed verdict, provider error, or truncation leaves the edition unpublished.
+malformed verdict, provider error, or truncation discards the roast and publishes
+the results edition instead. Failed explicit corrections preserve the prior text.
 Each attempt makes at most four generation calls with five-minute request
 timeouts and no automatic SDK retries. A timeout logs unknown provider usage;
 it is not treated as a free call. Usage is attributed to the actual model and

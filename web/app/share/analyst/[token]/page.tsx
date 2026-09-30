@@ -27,6 +27,7 @@ export default async function SharedAnalyst({ params }: { params: { token: strin
       <p className="text-sm text-dim">The Analyst · {edition.season}</p>
       <h1 className="mt-2 font-display text-lead font-extrabold">Week {edition.week} recap</h1>
       <p className="mt-3 text-body">{edition.league_name}</p>
+      {edition.edition_type === "results" && <p className="mt-3 text-sm text-dim">Results edition from verified league scores</p>}
       {edition.correction_note && <p className="mt-3 text-sm text-body"><strong>Corrected edition.</strong> This page shows the latest corrected article.</p>}
     </header>
     <article><Article markdown={edition.markdown} /></article>

@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.services.analyst import generate_analyst
-from app.services.refresh_service import _llm_over_budget, _member_league_ids
+from app.services.refresh_service import _member_league_ids
 from sleeper_dynasty.api.sleeper import SleeperClient
 
 log = logging.getLogger(__name__)
@@ -15,8 +15,6 @@ CHECK_INTERVAL_SECONDS = 15 * 60
 
 
 async def generate_member_editions(cache_dir: Path) -> None:
-    if await _llm_over_budget(cache_dir):
-        return
     ids = [lid for lid in await _member_league_ids() if lid.isdigit()]
     limit = asyncio.Semaphore(3)
 
@@ -39,8 +37,8 @@ async def generate_member_editions(cache_dir: Path) -> None:
 async def analyst_loop(cache_dir: Path) -> None:
     """Publication starts after the upstream week rollover and complete results.
 
-    Check every 15 minutes, including overnight Monday/Tuesday. Paid failures
-    back off on disk in AnalystStore; normal refresh shares that same guard.
+    Check every 15 minutes, including overnight Monday/Tuesday. AI failures
+    publish a results edition; saved editions are never regenerated.
     """
     try:
         await asyncio.sleep(2)

@@ -6,20 +6,21 @@ from app.deps import get_cache_dir
 from app.services.analyst_store import AnalystStore
 
 
-def seed():
+def seed(edition_type="roast"):
     data = dict(season=2026, week=1, league_name="Test League", generated_at="2026-09-17T12:00:00Z",
                 model="test", markdown="Public recap with a $25 bet.", facts={"private": "hidden"}, lore="Private lore",
                 sources=[{"publisher": "RotoBaller", "title": "Injury report", "published_at": "2026-09-16T12:00:00Z",
                           "url": "https://www.rotoballer.com/player-news/example/1", "text": "Private source body"},
                          {"publisher": "Example", "title": "Unsafe URL", "url": "javascript:alert(1)"}],
-                context_note="Partial news coverage.")
+                context_note="Partial news coverage.", edition_type=edition_type)
     AnalystStore(get_cache_dir()).save("test", data)
     return data
 
 
-def test_public_link_is_limited_revocable_and_tracks_corrections(client):
+@pytest.mark.parametrize("edition_type", ["roast", "results"])
+def test_public_link_is_limited_revocable_and_tracks_corrections(client, edition_type):
     # Mutation: leak the full archive, keep revoked links alive, or pin stale prose.
-    data = seed()
+    data = seed(edition_type)
     url = "/api/league/test/analyst/2026/1/share"
     created = client.post(url)
     assert created.status_code == 200
@@ -34,7 +35,8 @@ def test_public_link_is_limited_revocable_and_tracks_corrections(client):
             response = anonymous.get(f"/api/public/analyst/{token}")
             assert response.status_code == 200
             assert "no-store" in response.headers["cache-control"]
-            assert set(response.json()) == {"season", "week", "league_name", "generated_at", "markdown", "revision", "correction_note", "sources", "context_note"}
+            assert set(response.json()) == {"season", "week", "league_name", "generated_at", "markdown", "revision", "correction_note", "sources", "context_note", "edition_type"}
+            assert response.json()["edition_type"] == edition_type
             assert response.json()["sources"][0]["url"].startswith("https://www.rotoballer.com/")
             assert response.json()["sources"][1]["url"] is None
             assert "Private source body" not in response.text

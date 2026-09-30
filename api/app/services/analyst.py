@@ -19,6 +19,7 @@ from app.services.analyst_bets import load_bets_snapshot
 from app.services.player_context import load_player_context
 from sleeper_dynasty.engine.recap_race import build_race_context
 from sleeper_dynasty.engine.recap import build_recap_facts
+from sleeper_dynasty.engine.recap_results import render_results_recap
 from sleeper_dynasty.api.projections import normalize_projection
 from sleeper_dynasty.llm.cost_store import LlmCostStore
 from sleeper_dynasty.llm.recap_writer import RecapWriter
@@ -69,9 +70,6 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
     # Analyst archives currently support Sleeper leagues only.
     if ".l." in league_id:
         return
-    if skip_llm or (writer is None and not os.environ.get("ANTHROPIC_API_KEY")):
-        log.warning("Analyst deferred for %s: LLM budget reached or API key absent; retry on refresh", league_id)
-        return
     try:
         store = AnalystStore(cache_dir)
         with store.claim(league_id) as claimed:
@@ -100,7 +98,7 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
             players = build_players(await client.get_players())
             profiles = ProfileStore(cache_dir).read(league_id)
             lore = json.dumps({r.owner_name: profiles[r.owner_id] for r in rosters if r.owner_id in profiles}) if profiles else None
-            active_writer = writer or RecapWriter(cost_store=LlmCostStore(cache_dir), league_id=league_id)
+            active_writer = writer
             for week in range(1, last_week + 1):
                 results = await client.get_matchup_results(league_id, week)
                 if not complete_results(results, rosters, week):
@@ -111,17 +109,20 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                     continue
                 if correction_week is None and (league.season, week) in existing:
                     continue
-                if writer is None:
+                use_ai = not skip_llm and (writer is not None or bool(os.environ.get("ANTHROPIC_API_KEY")))
+                if use_ai and writer is None:
                     from app.services.refresh_service import _llm_over_budget
                     if await _llm_over_budget(cache_dir):
-                        return
-                if correction_week is None and not store.start_attempt(
+                        use_ai = False
+                if use_ai and correction_week is None and not store.start_attempt(
                     league_id, league.season, week,
                     (now or datetime.now(timezone.utc)).timestamp(),
                 ):
-                    log.info("Analyst retry cooling down league=%s season=%s week=%s",
+                    log.info("Analyst AI retry cooling down; using results edition league=%s season=%s week=%s",
                              league_id, league.season, week)
-                    continue
+                    use_ai = False
+                if correction_week is not None and not use_ai:
+                    raise ValueError("AI unavailable for requested correction; preserving published edition")
                 projections = {}
                 try:
                     raw = await client.get_projections(league.season, week)
@@ -134,13 +135,16 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                     {r.roster_id: r.owner_name for r in rosters}, players,
                     league.roster_positions, projections,
                 )
-                try:
-                    facts.player_context = await load_player_context(
-                        cache_dir, league.season, week, results, players)
-                except Exception:
-                    log.warning("Analyst player context unavailable; using verified scores only", exc_info=True)
-                    facts.player_context = {"players": [], "sources": [],
-                        "note": "Player news and snap context were unavailable for this edition. No explanation for low scores is assumed."}
+                if len(facts.matchups) * 2 != len(results):
+                    raise ValueError(f"Week {week} recap is missing matchup scores; retry after complete results")
+                if use_ai:
+                    try:
+                        facts.player_context = await load_player_context(
+                            cache_dir, league.season, week, results, players)
+                    except Exception:
+                        log.warning("Analyst player context unavailable; using verified scores only", exc_info=True)
+                        facts.player_context = {"players": [], "sources": [],
+                            "note": "Player news and snap context were unavailable for this edition. No explanation for low scores is assumed."}
                 log.info("Generating Analyst league=%s season=%s week=%s", league_id, league.season, week)
                 # Missed weeks get a retrospective only. A current forecast
                 # cannot be presented as what we knew several weeks ago.
@@ -176,24 +180,39 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                         datetime.now(timezone.utc), prior["facts"]["bets"] if prior else None)
                 else:
                     facts.bets = {"available": False, "reason": "Historical bet states are unavailable; do not backdate today's ledger."}
-                markdown = await asyncio.to_thread(active_writer.write, facts, lore=lore, outlook=outlook)
-                if not isinstance(markdown, str) or not markdown.strip():
-                    raise ValueError("Analyst returned empty text; retry on next refresh")
+                edition_type = "results"
+                model = "verified-results-v1"
+                if use_ai:
+                    try:
+                        if active_writer is None:
+                            active_writer = RecapWriter(cost_store=LlmCostStore(cache_dir), league_id=league_id)
+                        markdown = await asyncio.to_thread(active_writer.write, facts, lore=lore, outlook=outlook)
+                        if not isinstance(markdown, str) or not markdown.strip():
+                            raise ValueError("Analyst returned empty text")
+                        edition_type = "roast"
+                        model = active_writer.model
+                    except Exception:
+                        if correction_week is not None:
+                            raise
+                        log.warning("Analyst roast failed league=%s season=%s week=%s; publishing verified results",
+                                    league_id, league.season, week, exc_info=True)
+                if edition_type == "results":
+                    markdown = render_results_recap(facts.to_dict(), outlook.to_dict() if outlook else None)
                 edition = {
                     "season": league.season, "week": week, "league_name": league.name,
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                    "model": active_writer.model, "markdown": markdown.strip(),
+                    "model": model, "edition_type": edition_type, "markdown": markdown.strip(),
                     "facts": facts.to_dict(),
                     "outlook": outlook.to_dict() if outlook else None,
                     "lore": lore,
-                    "sources": facts.player_context.get("sources", []),
-                    "context_note": facts.player_context.get("note"),
+                    "sources": facts.player_context.get("sources", []) if edition_type == "roast" else [],
+                    "context_note": facts.player_context.get("note") if edition_type == "roast" else None,
                 }
                 if correction_week is not None:
                     # Already holds the generation claim; retain it through publication.
                     store.save_correction(league_id, edition, correction_reason, claimed=True)
                 else:
                     store.save(league_id, edition)
-                log.info("Saved Analyst league=%s season=%s week=%s", league_id, league.season, week)
+                log.info("Saved Analyst league=%s season=%s week=%s type=%s", league_id, league.season, week, edition_type)
     except Exception:
         log.exception("Analyst generation failed for %s; saved editions preserved; retry on next refresh", league_id)

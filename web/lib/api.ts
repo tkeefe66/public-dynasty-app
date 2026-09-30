@@ -66,6 +66,7 @@ export interface AnalystSource {
 }
 
 export interface AnalystEdition {
+  edition_type?: "roast" | "results";
   season: number;
   week: number;
   league_name: string;

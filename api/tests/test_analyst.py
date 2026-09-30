@@ -154,33 +154,95 @@ async def test_never_generates_unfinished_or_wrong_season(tmp_path, state):
 
 
 @pytest.mark.asyncio
-async def test_failed_generation_retries_and_budget_skip_does_not_write(tmp_path):
-    # Mutation: mark a failed or budget-skipped edition as successfully saved.
+@pytest.mark.parametrize("failure", [RuntimeError("provider unavailable"), TimeoutError("timeout"),
+                                      ValueError("review rejected"), "", None])
+async def test_failed_roast_publishes_independent_results_once(tmp_path, failure):
+    # Mutation: leave reviewed failures unpublished, or publish rejected/empty prose.
     from app.services.analyst import generate_analyst
     from app.services.analyst_store import AnalystStore
-    from datetime import datetime, timedelta, timezone
-    now = datetime(2026, 9, 15, 8, tzinfo=timezone.utc)
     client, entry, writer = setup_league()
-    await generate_analyst(client, entry, tmp_path, writer=writer, skip_llm=True)
-    writer.write.assert_not_called()
-    writer.write.side_effect = RuntimeError("provider unavailable")
-    await generate_analyst(client, entry, tmp_path, writer=writer, now=now)
-    assert AnalystStore(tmp_path).editions("123") == []
+    if isinstance(failure, Exception):
+        writer.write.side_effect = failure
+    else:
+        writer.write.return_value = failure
+    await generate_analyst(client, entry, tmp_path, writer=writer)
+    store = AnalystStore(tmp_path)
+    saved = store.editions("123")[0]
+    assert saved["edition_type"] == "results"
+    assert "Alice 25.00, Bob 15.00" in saved["markdown"]
+    assert saved["sources"] == []
+    before = store.edition_path("123", 2026, 1).read_bytes()
     writer.write.side_effect = None
-    await generate_analyst(client, entry, tmp_path, writer=writer, now=now + timedelta(minutes=30))
-    assert len(AnalystStore(tmp_path).editions("123")) == 1
+    writer.write.return_value = "Late roast"
+    await generate_analyst(client, entry, tmp_path, writer=writer)
+    assert store.edition_path("123", 2026, 1).read_bytes() == before
+    writer.write.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_partial_week_is_not_published(tmp_path):
-    # Mutation: accept a week with missing opponents or missing player scores.
+@pytest.mark.parametrize("reason", ["skip", "key", "budget", "cooldown", "constructor"])
+async def test_results_publish_without_ai_availability(tmp_path, monkeypatch, reason):
+    # Mutation: retain an early AI-only return, or construct/pay for AI in results-only mode.
+    from app.services import analyst, refresh_service
+    from app.services.analyst_store import AnalystStore
+    import time
+    client, entry, _ = setup_league()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    if reason == "key":
+        monkeypatch.delenv("ANTHROPIC_API_KEY")
+    monkeypatch.setattr(refresh_service, "_llm_over_budget", AsyncMock(return_value=reason == "budget"))
+    constructor = Mock(side_effect=RuntimeError("AI unavailable"))
+    monkeypatch.setattr(analyst, "RecapWriter", constructor)
+    store = AnalystStore(tmp_path)
+    if reason == "cooldown":
+        with store.claim("123"):
+            store.start_attempt("123", 2026, 1, time.time())
+    await analyst.generate_analyst(client, entry, tmp_path, skip_llm=reason == "skip")
+    saved = store.editions("123")[0]
+    assert saved["edition_type"] == "results"
+    assert "Alice 25.00, Bob 15.00" in saved["markdown"]
+    if reason != "constructor":
+        constructor.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["opponent", "starter", "score", "player_score"])
+async def test_partial_week_is_not_published(tmp_path, invalid):
+    # Mutation: bypass complete/finite score checks in the results-only path.
     from app.services.analyst import generate_analyst
     from app.services.analyst_store import AnalystStore
     client, entry, writer = setup_league()
-    client.get_matchup_results.return_value.pop()
-    await generate_analyst(client, entry, tmp_path, writer=writer)
+    results = client.get_matchup_results.return_value
+    if invalid == "opponent":
+        results.pop()
+    elif invalid == "starter":
+        results[0].players_points.clear()
+    elif invalid == "score":
+        from dataclasses import replace
+        results[0] = replace(results[0], points=float("nan"))
+    else:
+        results[0].players_points["p1"] = float("nan")
+    await generate_analyst(client, entry, tmp_path, writer=writer, skip_llm=True)
     assert AnalystStore(tmp_path).editions("123") == []
     writer.write.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_scoreless_placeholder_cannot_publish_a_partial_results_edition(tmp_path):
+    # Mutation: publish 'Every matchup' when the facts builder dropped a 0-0 placeholder.
+    from app.services.analyst import generate_analyst
+    from app.services.analyst_store import AnalystStore
+    client, entry, writer = setup_league()
+    client.get_rosters.return_value.extend([
+        Roster(3, "c", "Cam", ["p3"], 0, 0, 0, 0, 0),
+        Roster(4, "d", "Dee", ["p4"], 0, 0, 0, 0, 0),
+    ])
+    client.get_matchup_results.return_value.extend([
+        MatchupResult(1, 2, 3, 0, ["p3"], ["p3"], {"p3": 0}),
+        MatchupResult(1, 2, 4, 0, ["p4"], ["p4"], {"p4": 0}),
+    ])
+    await generate_analyst(client, entry, tmp_path, writer=writer, skip_llm=True)
+    assert AnalystStore(tmp_path).editions("123") == []
 
 
 def test_corrupt_archive_fails_closed_and_path_is_validated(tmp_path):
@@ -332,9 +394,14 @@ async def test_real_writer_publishes_only_an_approved_correction(tmp_path, appro
     try:
         await generate_analyst(client, entry, tmp_path, writer=writer)
         saved = AnalystStore(tmp_path).editions("123")
-        assert [e["markdown"] for e in saved] == (
-            ["Alice scored 25 points."] if approved else []
-        )
+        assert len(saved) == 1
+        if approved:
+            assert saved[0]["markdown"] == "Alice scored 25 points."
+            assert saved[0]["edition_type"] == "roast"
+        else:
+            assert saved[0]["edition_type"] == "results"
+            assert "Alice 25.00, Bob 15.00" in saved[0]["markdown"]
+            assert "250 points" not in saved[0]["markdown"]
         assert writer._request.call_count == 4
     finally:
         writer._client.close()
