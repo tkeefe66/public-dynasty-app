@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Response
 
 from app.deps import get_cache_dir
 from app.models.scoring import ScoringResp
+from app.services.name_override_store import NameOverrideStore
 from app.services.scoring_leaders import load_scoring_leaders
 from sleeper_dynasty.api.sleeper import SleeperClient
 
@@ -20,6 +21,11 @@ async def scoring_leaders(league_id: str, response: Response):
     client = SleeperClient()
     try:
         data = await load_scoring_leaders(league_id, get_cache_dir(), client)
+        overrides = NameOverrideStore(get_cache_dir()).read(league_id)
+        data = {**data, "franchises": [
+            {**franchise, "owner_name": overrides.get(franchise["owner_id"]) or franchise["owner_name"]}
+            for franchise in data["franchises"]
+        ]}
         response.headers["Cache-Control"] = "private, no-store"
         return data
     except httpx.HTTPStatusError as exc:

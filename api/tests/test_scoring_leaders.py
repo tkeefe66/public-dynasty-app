@@ -3,7 +3,12 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from sleeper_dynasty.models.league import League
+from sleeper_dynasty.models.league import League, Roster
+
+
+def roster(roster_id, owner_id, players):
+    return Roster(roster_id=roster_id, owner_id=owner_id, owner_name="Team",
+                  players=players, wins=0, losses=0, ties=0, points_for=0, points_against=0)
 
 
 class Source:
@@ -24,7 +29,14 @@ class Source:
 
     async def get_players(self):
         return {"rostered": {"position": "WR", "full_name": "Rostered Player"},
+                "inactive": {"position": "WR", "full_name": "Inactive Player"},
                 "free": {"position": "WR", "full_name": "Free Agent"}}
+
+    async def get_rosters(self, league_id):
+        return [roster(1, "owner", ["rostered", "inactive"]), roster(2, "", [])]
+
+    async def get_users(self, league_id):
+        return {"owner": {"display_name": "Manager", "team_name": "First Team"}}
 
     async def get_stats(self, season, week):
         self.stats_calls.append(week)
@@ -102,7 +114,7 @@ async def test_missing_free_agent_metadata_never_silently_changes_wr1(tmp_path):
 
     class PartialPlayers(Source):
         async def get_players(self):
-            return {"rostered": {"position": "WR"}}
+            return {"rostered": {"position": "WR"}, "inactive": {"position": "WR"}}
 
     with pytest.raises(ValueError, match="player details"):
         await load_scoring_leaders("123", tmp_path, PartialPlayers())
@@ -117,6 +129,83 @@ async def test_stale_player_catalog_refetches_before_ranking(tmp_path):
     FileCache(tmp_path / "scoring").write("players.json", {"rostered": {"position": "WR"}})
     result = await load_scoring_leaders("123", tmp_path, Source())
     assert result["players"][0]["player_id"] == "free"
+
+
+@pytest.mark.asyncio
+async def test_franchises_keep_global_ranks_full_totals_and_unranked_roster_members(tmp_path):
+    # Mutation: rerank a team's players, sum only points earned for that team,
+    # omit inactive/unowned rosters, or give missing scores a zero and a rank.
+    from app.services.scoring_leaders import load_scoring_leaders
+    from sleeper_dynasty.cache import FileCache
+
+    # A still-fresh pre-franchise cache must not omit the new view.
+    FileCache(tmp_path / "scoring").write("leaders_123.json", {"players": []})
+    result = await load_scoring_leaders("123", tmp_path, Source())
+    team, empty = result["franchises"]
+    assert (team["roster_id"], team["name"], team["owner_name"]) == (1, "First Team", "Manager")
+    assert team["players"][0] == result["players"][1]
+    assert (team["players"][0]["rank"], team["players"][0]["points"]) == (2, 24)
+    inactive = team["players"][1]
+    assert (inactive["name"], inactive["rank"], inactive["points"], inactive["points_per_game"]) == (
+        "Inactive Player", None, None, None)
+    assert empty["roster_id"] == 2 and empty["players"] == []
+    assert empty["name"] == "Franchise 2" and empty["owner_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_incomplete_rosters_fail_instead_of_mislabeling_players_as_free_agents(tmp_path):
+    # Mutation: accept one of two rosters and label the missing team's players free agents.
+    from app.services.scoring_leaders import load_scoring_leaders
+
+    class PartialRosters(Source):
+        async def get_rosters(self, league_id):
+            return (await super().get_rosters(league_id))[:1]
+
+    with pytest.raises(ValueError, match="roster"):
+        await load_scoring_leaders("123", tmp_path, PartialRosters())
+
+
+@pytest.mark.asyncio
+async def test_roster_changes_refresh_without_recalculating_player_ranks(tmp_path):
+    # Mutation: keep a stale owner after the response cache expires, or drop scores on transfer.
+    from app.services.scoring_leaders import load_scoring_leaders
+    from sleeper_dynasty.cache import FileCache
+
+    source = Source()
+    await load_scoring_leaders("123", tmp_path, source)
+    cache = FileCache(tmp_path / "scoring")
+    cache.invalidate("board_v2_123.json")
+    cache.invalidate("rosters_123.json")
+
+    async def transferred(league_id):
+        return [roster(1, "owner", []), roster(2, "", ["rostered"])]
+    source.get_rosters = transferred
+    result = await load_scoring_leaders("123", tmp_path, source)
+    assert result["franchises"][0]["players"] == []
+    assert result["franchises"][1]["players"][0]["points"] == 24
+    assert result["franchises"][1]["players"][0]["rank"] == 2
+    assert sorted(source.stats_calls) == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_roster_only_positions_keep_ties_with_unrostered_players(tmp_path):
+    # Mutation: calculate tie labels using only positions in the starting lineup.
+    from app.services.scoring_leaders import load_scoring_leaders
+
+    class RemovedKickerSlot(Source):
+        async def get_players(self):
+            return {**await super().get_players(), "k1": {"position": "K"}, "k2": {"position": "K"}}
+
+        async def get_stats(self, season, week):
+            return {**await super().get_stats(season, week), "k1": {"gp": 1}, "k2": {"gp": 1}}
+
+        async def get_rosters(self, league_id):
+            return [roster(1, "owner", ["k1"]), roster(2, "", [])]
+
+    result = await load_scoring_leaders("123", tmp_path, RemovedKickerSlot())
+    assert all(p["position"] == "WR" for p in result["players"])
+    kicker = result["franchises"][0]["players"][0]
+    assert (kicker["rank"], kicker["points"], kicker["tied"]) == (1, 0, True)
 
 
 def test_route_reports_source_rate_limit_and_closes_client(client, monkeypatch):
@@ -151,14 +240,20 @@ def test_route_returns_ranked_payload(client, monkeypatch):
 
     async def load(*args):
         return {"league_id": "123", "league_name": "Test", "season": 2026,
-                "through_week": 2, "updated_at": "2026-09-30T00:00:00Z",
+                "through_week": 2, "updated_at": "2026-09-30T00:00:00Z", "franchises": [
+                    {"roster_id": 1, "owner_id": "owner", "name": "First Team", "owner_name": "Manager",
+                     "players": [{"player_id": "inactive", "name": "Inactive", "position": "WR",
+                                  "rank": None, "points": None, "games": 0, "points_per_game": None}]}],
                 "players": [{"player_id": "p", "name": "Player", "position": "WR",
                              "team": None, "rank": 1, "points": 42, "games": 2,
                              "points_per_game": 21}]}
 
     monkeypatch.setattr(scoring, "SleeperClient", lambda: SimpleNamespace(close=close))
     monkeypatch.setattr(scoring, "load_scoring_leaders", load)
+    monkeypatch.setattr(scoring, "NameOverrideStore", lambda path: SimpleNamespace(read=lambda league: {"owner": "Saved name"}))
     response = client.get("/api/league/123/scoring")
     assert response.status_code == 200
     assert response.json()["players"][0]["rank"] == 1
     assert response.json()["through_week"] == 2
+    assert response.json()["franchises"][0]["owner_name"] == "Saved name"
+    assert response.json()["franchises"][0]["players"][0]["points"] is None

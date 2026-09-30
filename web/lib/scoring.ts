@@ -4,6 +4,7 @@ export interface ScoringPlayer {
   position: string;
   team: string | null;
   rank: number;
+  tied?: boolean;
   points: number;
   games: number;
   points_per_game: number;
@@ -16,4 +17,19 @@ export interface ScoringResp {
   through_week: number;
   updated_at: string;
   players: ScoringPlayer[];
+  franchises: ScoringFranchise[];
+}
+
+export type ScoringRosterPlayer = Omit<ScoringPlayer, "rank" | "points" | "points_per_game"> & {
+  rank: number | null;
+  points: number | null;
+  points_per_game: number | null;
+};
+
+export interface ScoringFranchise {
+  roster_id: number;
+  owner_id: string | null;
+  name: string;
+  owner_name: string | null;
+  players: ScoringRosterPlayer[];
 }
