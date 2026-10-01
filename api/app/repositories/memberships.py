@@ -59,12 +59,34 @@ async def add(
 
 
 async def remove(db: AsyncSession, *, user_id: str, league_id: str) -> None:
+    from app.services.generation.models import (
+        GenerationOperation,
+        LeagueSeason,
+        LeagueSeries,
+    )
+    from app.services.generation.store import audit, lock_control
+    await lock_control(db)
     await db.execute(
         delete(LeagueMembership).where(
             LeagueMembership.user_id == user_id,
             LeagueMembership.league_id == league_id,
         )
     )
+    if not await db.scalar(select(LeagueMembership.id).where(LeagueMembership.league_id == league_id).limit(1)):
+        season = await db.get(LeagueSeason, league_id)
+        if season:
+            series = await db.get(LeagueSeries, season.series_id)
+            current = await db.scalar(select(LeagueSeason).where(LeagueSeason.series_id == series.id)
+                .order_by(LeagueSeason.season.desc()).limit(1))
+            if current.league_id == league_id:
+                series.hold = series.hold or "membership_removed"
+                series.revision += 1
+                audit(db, user_id, "series_membership_hold", series.id, "Last current-season membership removed")
+            for job in (await db.scalars(select(GenerationOperation).where(
+                GenerationOperation.league_id == league_id,
+                GenerationOperation.state.in_(("queued", "running"))))).all():
+                job.state, job.reason = "held", "membership_removed"
+                job.generation += 1
 
 
 async def league_ids_with_members(db: AsyncSession) -> list[str]:

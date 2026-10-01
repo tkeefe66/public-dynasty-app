@@ -42,26 +42,31 @@ async def admit_automatic(maker):
     async with maker.begin() as db:
         await lock_control(db)
         candidates = (await db.scalars(select(GenerationCandidate).where(
-            GenerationCandidate.hold == "", GenerationCandidate.eligible_at > 0
-        ).order_by(GenerationCandidate.observed_at).limit(100))).all()
+            GenerationCandidate.hold == "", GenerationCandidate.eligible_at > 0,
+            GenerationCandidate.eligible_at <= stamp()
+        ).order_by(GenerationCandidate.eligible_at, GenerationCandidate.key).limit(100))).all()
         for candidate in candidates:
+            # Rotate bounded scans so paused/manual subjects cannot starve later leagues.
+            candidate.eligible_at = stamp() + 60
             policy = await resolve_policy(db, candidate.series_id)
             feature = policy["policy"]["features"][candidate.feature]
             if policy["blocked_by"] or feature["paused"] or feature["mode"] != "automatic":
                 continue
-            from app.services.generation.planner import automatic_reason
+            from app.services.generation.planner import automatic_eligibility
             season = await db.get(LeagueSeason, candidate.league_id)
             import json
-            if not season or automatic_reason(season, candidate.feature,
+            if not season or await automatic_eligibility(db, season, candidate.feature,
                     json.loads(candidate.payload_json), stamp()):
                 continue
             # A paid narrative is generated once per semantic event. Refreshes,
             # model changes and prompt edits never create a new authorization.
             key = "automatic:" + digest([candidate.subject, candidate.event])
             if await db.scalar(select(GenerationOperation.id).where(GenerationOperation.authorization_key == key)):
+                candidate.eligible_at = 0
                 continue
             head = await db.get(ArtifactHead, candidate.subject)
             if head and candidate.feature == "trade_story":
+                candidate.eligible_at = 0
                 continue
             # Automatic generation runs as an explicit current owner principal.
             owners = (await db.scalars(select(User).where(User.is_admin.is_(True),
@@ -74,6 +79,7 @@ async def admit_automatic(maker):
                 try:
                     await authorize_candidate(db, candidate.key, actor_id=owner.id, actor_kind="scheduler",
                         reason="Automatic generation for a new eligible event", authorization_key=key)
+                    candidate.eligible_at = 0
                     break
                 except Held:
                     continue

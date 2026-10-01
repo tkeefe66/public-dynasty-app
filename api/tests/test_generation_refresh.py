@@ -58,6 +58,19 @@ def test_force_is_not_a_member_bypass(client, refresh_db):
     assert response.status_code == 422
 
 
+def test_deleted_cache_can_rebuild_after_recent_success_without_paid_work(client, refresh_db, monkeypatch):
+    monkeypatch.setattr("app.services.chain_cache.ChainCache.read", lambda *a, **kw: None)
+    first = client.post("/api/league/synthetic/refresh-jobs",json={}).json()
+    async def finish():
+        async with refresh_db.begin() as db:
+            job=await db.get(GenerationOperation,first["id"])
+            job.state,job.active_key="succeeded",None
+    asyncio.run(finish())
+    second=client.post("/api/league/synthetic/refresh-jobs",json={}).json()
+    assert second["id"] != first["id"]
+    assert second["state"] == "queued"
+
+
 def test_yahoo_submission_requires_own_current_grant(client, refresh_db, monkeypatch):
     monkeypatch.setenv("YAHOO_DEV_ACCESS_TOKEN", "not-an-account-connection")
     response = client.post("/api/league/470.l.100000001/refresh-jobs", json={})

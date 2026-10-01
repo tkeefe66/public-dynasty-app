@@ -66,6 +66,11 @@ def _truth(value) -> bool:
     return str(value).lower() in ("1", "true")
 
 
+def _format_evidence(settings) -> bool:
+    flags = [settings[key] for key in ("is_keeper_league", "uses_roster_import") if key in settings]
+    return bool(flags) and all(type(value) in (int, str) and value in (0, 1, "0", "1") for value in flags)
+
+
 def _team_abbr(value):
     value = str(value or "").upper()
     return {"LA": "LAR", "JAC": "JAX", "WSH": "WAS"}.get(value, value)
@@ -387,10 +392,7 @@ class YahooAdapter:
             or _truth(settings.get("uses_roster_import"))
             else "redraft",
             standings_settings={"playoff_seed_type": 0},
-            format_verified=any(
-                settings.get(key) in (0, 1, "0", "1")
-                for key in ("is_keeper_league", "uses_roster_import")
-            ),
+            format_verified=_format_evidence(settings),
         )
         self._metadata[league_id] = meta
         self._leagues[league_id] = (league, renew_to_league_key(meta.get("renew")))

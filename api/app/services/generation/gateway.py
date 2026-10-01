@@ -66,8 +66,8 @@ class Gateway:
             if not supports_feature(json.loads(season.capabilities_json), season.provider, job.feature):
                 raise Held("feature_unsupported")
             if job.actor_kind == "scheduler":
-                from app.services.generation.planner import automatic_reason
-                reason = automatic_reason(season, job.feature, json.loads(job.payload_json), stamp())
+                from app.services.generation.planner import automatic_eligibility
+                reason = await automatic_eligibility(db, season, job.feature, json.loads(job.payload_json), stamp())
                 if reason:
                     raise Held(reason)
             if job.feature not in config["policy"]["features"]:

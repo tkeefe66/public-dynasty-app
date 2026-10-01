@@ -84,7 +84,9 @@ async def update_policy(db, scope, value, expected_revision, actor, reason):
 
 async def control_action(db, body, actor):
     control = await lock_control(db)
-    if control.revision != body.expected_revision:
+    from app.services.generation.recovery import bootstrap_control
+    initial = body.expected_revision == 0 and bootstrap_control(control)
+    if control.revision != body.expected_revision and not initial:
         raise Conflict("Control state changed. Reload before applying this action.")
     before = data(control)
     if body.action == "pause":
@@ -205,7 +207,9 @@ async def job_action(db, job_id, body, actor):
             ProviderAttempt.operation_id == job_id, ProviderAttempt.state.in_(UNRESOLVED)).limit(1)):
         raise Held("provider_outcome_unknown")
     if job.kind == "generation" and job.calls >= job.max_calls:
-        raise Held("attempt_allowance_exhausted")
+        saved = (await db.scalars(select(ProviderAttempt).where(ProviderAttempt.operation_id == job_id))).all()
+        if len(saved) != job.calls or any(a.state != "received" or a.usage_state != "known" or a.error_code for a in saved):
+            raise Held("attempt_allowance_exhausted")
     before = {"state": job.state, "calls": job.calls}
     job.state, job.reason = "queued", ""
     audit(db, actor, "job_resumed", job_id, body.reason, before, {"state": job.state, "calls": job.calls})

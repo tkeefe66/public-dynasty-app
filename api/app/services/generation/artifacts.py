@@ -9,6 +9,7 @@ from app.services.generation.models import (
     ContentArtifact,
     GenerationOutbox,
     ProviderAttempt,
+    stamp,
 )
 from app.services.generation.store import (
     Held,
@@ -86,6 +87,25 @@ async def save_artifact(db, operation_id, generation, validated):
     policy = await resolve_policy(db, job.series_id)
     if policy["blocked_by"]:
         raise Held(policy["blocked_by"][0])
+    from app.config import get_settings
+    from app.services.generation.models import LeagueSeason
+    from app.services.generation.policy import paid_capabilities, supports_feature
+    feature = policy["policy"]["features"][job.feature]
+    if feature["paused"] or feature["mode"] == "disabled":
+        raise Held("feature_paused")
+    if job.actor_kind == "scheduler" and feature["mode"] != "automatic":
+        raise Held("manual_only")
+    if get_settings().generation_emergency_pause:
+        raise Held("emergency_pause")
+    season = await db.get(LeagueSeason, job.league_id)
+    if not season or not season.verified_at or not supports_feature(
+            paid_capabilities(json.loads(season.capabilities_json)), season.provider, job.feature):
+        raise Held("capability_unknown_or_unsupported")
+    if job.actor_kind == "scheduler":
+        from app.services.generation.planner import automatic_eligibility
+        reason = await automatic_eligibility(db, season, job.feature, json.loads(job.payload_json), stamp())
+        if reason:
+            raise Held(reason)
     if not control.epoch or job.epoch != control.epoch:
         raise Held("restore_quarantine")
     head = await db.get(ArtifactHead, job.subject)

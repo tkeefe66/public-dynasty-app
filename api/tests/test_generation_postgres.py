@@ -64,3 +64,22 @@ async def test_two_gateway_instances_cannot_send_the_same_stage(pgmaker):
     transport.release.set()
     await first
     assert transport.sends == 1
+
+
+@pytest.mark.asyncio
+async def test_committed_pause_wins_against_waiting_admission(pgmaker):
+    from app.services.generation.gateway import Gateway
+    from app.services.generation.store import Held, lock_control
+
+    from tests.test_generation_gateway import REQUEST, FakeTransport, seed_job
+    await seed_job(pgmaker)
+    transport=FakeTransport()
+    async with pgmaker.begin() as db:
+        control=await lock_control(db)
+        control.hold="owner_paused"
+        waiting=asyncio.create_task(Gateway(pgmaker,transport,epoch="test-epoch").invoke("job",1,1,REQUEST))
+        await asyncio.sleep(0.05)
+        assert not waiting.done()
+    with pytest.raises(Held,match="owner_paused"):
+        await waiting
+    assert transport.sends==0

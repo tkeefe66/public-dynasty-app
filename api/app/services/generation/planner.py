@@ -3,13 +3,14 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.services.generation.artifacts import import_artifact, overlay, subject_key
 from app.services.generation.models import (
     ArtifactHead,
     GenerationCandidate,
     GenerationOperation,
+    LeagueSeason,
     LeagueSeries,
     stamp,
 )
@@ -57,12 +58,29 @@ async def observe(db, *, series_id, league_id, feature, subject, event, payload)
 
 
 def automatic_reason(season, feature, payload, now):
+    scope = payload.get("target", {}).get("scope")
+    if scope and scope not in ("all", str(season.season)):
+        return "historical_approval_required"
+    if payload.get("phase") not in (None, "regular"):
+        return "historical_approval_required"
     if feature == "trade_story":
         if int(payload.get("event_at") or 0) < now - 7 * 86400:
             return "historical_approval_required"
     elif not season.latest_week or payload.get("week") != season.latest_week:
         return "missed_event_approval_required"
     return ""
+
+
+async def automatic_eligibility(db, season, feature, payload, now):
+    current_year = await db.scalar(select(func.max(LeagueSeason.season)).where(
+        LeagueSeason.series_id == season.series_id))
+    if season.season != current_year or (payload.get("season") and payload["season"] != current_year):
+        return "historical_approval_required"
+    series = await db.get(LeagueSeries, season.series_id)
+    if (not series.activated_at or int(payload.get("event_at") or 0) <= series.activated_at
+            or (feature != "trade_story" and int(payload.get("week") or 0) <= series.activation_week)):
+        return "historical_approval_required"
+    return automatic_reason(season, feature, payload, now)
 
 
 def _origin(raw, tx, fallback):

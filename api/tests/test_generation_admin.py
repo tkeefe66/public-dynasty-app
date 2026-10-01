@@ -118,3 +118,15 @@ def test_registry_keeps_leagues_with_no_current_members(client, admin_db):
     response = client.get("/api/admin/generation/leagues").json()
     assert response["records"][0]["id"] == "series"
     assert response["records"][0]["members"] == 0
+
+
+def test_first_control_action_accepts_uninitialized_read_revision(client, admin_db):
+    from sqlalchemy import delete
+    from app.services.generation.models import GenerationControl
+    async def empty():
+        async with admin_db.begin() as db:
+            await db.execute(delete(GenerationControl))
+    asyncio.run(empty())
+    revision=client.get("/api/admin/generation").json()["control"]["revision"]
+    assert client.post("/api/admin/generation/control",json={
+        "action":"pause","expected_revision":revision,"reason":"Keep new installation paused"}).status_code==200

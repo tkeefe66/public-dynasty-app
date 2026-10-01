@@ -48,7 +48,9 @@ async def submit(request: Request, league_id: str, body: RefreshRequest,
             from app.services.yahoo_connection import YahooConnectionService
             await YahooConnectionService(db).ensure_grant(user.id, league_id)
     try:
-        job = await submit_refresh(db, league_id, user.id, idempotency_key=body.idempotency_key)
+        from app.services.chain_cache import ChainCache
+        missing = ChainCache(get_settings().cache_dir).read(league_id, max_age_seconds=10**10) is None
+        job = await submit_refresh(db, league_id, user.id, idempotency_key=body.idempotency_key, cache_missing=missing)
     except Conflict as exc:
         raise HTTPException(409, str(exc)) from exc
     return public_job(job)

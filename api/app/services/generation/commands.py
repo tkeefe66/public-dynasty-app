@@ -60,7 +60,7 @@ async def require_actor(db, job: GenerationOperation):
 
 
 async def submit_refresh(db, league_id: str, actor_id: str, *,
-                         actor_kind="member", idempotency_key: str | None = None, kind="refresh"):
+                         actor_kind="member", idempotency_key: str | None = None, kind="refresh", cache_missing=False):
     if kind not in ("refresh", "analyst_refresh"):
         raise ValueError("Unregistered free refresh kind")
     await lock_control(db)
@@ -93,7 +93,7 @@ async def submit_refresh(db, league_id: str, actor_id: str, *,
         season = await db.get(LeagueSeason, league_id)
         config = await resolve_policy(db, season.series_id if season else "")
         interval = config["policy"]["refresh_interval_seconds"]
-    if last and last.created_at > stamp() - interval:
+    if last and last.created_at > stamp() - interval and not (cache_missing and last.state == "succeeded"):
         return await remember(last)
     connection = await db.get(YahooConnection, actor_id) if ".l." in league_id else None
     row = GenerationOperation(kind=kind, league_id=league_id,

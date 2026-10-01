@@ -74,14 +74,20 @@ async def set_series(db, series_id, *, expected_revision, lifecycle, profile,
         raise ValueError("Choose a supported league profile")
     before = {"lifecycle": series.lifecycle, "profile": series.profile, "hold": series.hold}
     if activate:
+        from app.db.models import LeagueMembership
         seasons = list((await db.scalars(select(LeagueSeason).where(
             LeagueSeason.series_id == series_id))).all())
         current = max(seasons, key=lambda s: s.season, default=None)
         if not current or not current.verified_at or not paid_capabilities(json.loads(current.capabilities_json)):
             raise ValueError("Refresh the current league to verify its capabilities before activation")
+        if not await db.scalar(select(LeagueMembership.id).where(
+                LeagueMembership.league_id == current.league_id).limit(1)):
+            raise ValueError("The current league needs a member before activation")
         series.activated_at = stamp()
         series.activation_week = current.latest_week
         series.hold = ""
+        from app.services.generation.administration import hold_backlog
+        await hold_backlog(db, [series.id])
     series.lifecycle = lifecycle
     series.profile = profile
     series.revision += 1
