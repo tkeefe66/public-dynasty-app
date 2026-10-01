@@ -177,3 +177,7 @@ class SideBet(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now, server_default=func.now()
     )
+
+
+# Register durable generation tables with the same migration/backup metadata.
+from app.services.generation import models as generation_models  # noqa: E402,F401

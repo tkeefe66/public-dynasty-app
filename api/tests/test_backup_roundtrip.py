@@ -198,9 +198,9 @@ async def test_full_backup_then_restore_pipeline_round_trips_db_and_cache(
         assert restored_path.read_bytes() == body, rel
 
     # --- Assert: manifest counts match what actually came back. ---
-    assert manifest["tables"] == {
+    assert manifest["tables"] == {**dict.fromkeys(Base.metadata.tables, 0), **{
         "users": 2, "league_memberships": 2, "app_settings": 1,
         "page_events": 2, "side_bets": 1,
         "yahoo_connections": 0, "yahoo_oauth_states": 0, "yahoo_league_grants": 0,
-    }
+    }}
     assert manifest["cache"]["members"] == 3

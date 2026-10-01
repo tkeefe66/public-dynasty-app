@@ -71,11 +71,12 @@ async def test_dump_then_load_round_trips_every_table(maker, tmp_path):
     async with maker() as db:
         blob, counts = await dump_database(db)
 
-    assert counts == {
+    assert {k: v for k, v in counts.items() if v} == {
         "users": 1, "league_memberships": 1, "app_settings": 1,
         "page_events": 1, "side_bets": 1,
         "yahoo_connections": 1, "yahoo_oauth_states": 1, "yahoo_league_grants": 1,
     }
+    assert set(counts) == set(Base.metadata.tables)
 
     # A fresh, migrated-but-empty target.
     engine2 = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'restored.db'}")

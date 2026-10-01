@@ -104,7 +104,5 @@ async def test_dumped_postgres_object_is_readable_gzip_jsonl(
     manifest = json.loads(
         rec.objects["backups/2026-08-12T09-00-00Z/manifest.json"]
     )
-    assert set(manifest["tables"]) == {
-        "users", "league_memberships", "app_settings", "page_events", "side_bets",
-        "yahoo_connections", "yahoo_oauth_states", "yahoo_league_grants",
-    }
+    from app.db.base import Base
+    assert set(manifest["tables"]) == set(Base.metadata.tables)
