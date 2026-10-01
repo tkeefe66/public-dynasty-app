@@ -11,10 +11,8 @@ import logging
 import re
 from importlib import resources
 
-import anthropic
-
 from sleeper_dynasty.llm._usage import usage_dict
-from sleeper_dynasty.llm.usage import report
+from sleeper_dynasty.llm.managed import DeniedClient
 from sleeper_dynasty.models.gm_rating_blurb import OwnerRatingFacts
 
 logger = logging.getLogger(__name__)
@@ -50,7 +48,7 @@ def parse_blurb(text: str) -> dict:
     try:
         data = json.loads(cleaned)
         if not isinstance(data, dict):
-            raise ValueError("not an object")
+            raise TypeError("not an object")
     except (json.JSONDecodeError, ValueError, TypeError):
         return {"blurb": _collapse(cleaned)}
 
@@ -69,10 +67,10 @@ def parse_blurb(text: str) -> dict:
 
 class GmRatingBlurbWriter:
     def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL,
-                 persona: str | None = None) -> None:
+                 persona: str | None = None, *, client=None) -> None:
         self.model = model
         self.persona = persona or load_blurb_persona()
-        self._client = anthropic.Anthropic(api_key=api_key)
+        self._client = client if client is not None else DeniedClient()
 
     def build_request(self, facts: OwnerRatingFacts) -> tuple[list[dict], list[dict]]:
         # No cache_control: persona is under Haiku 4.5's 4096-token cache
@@ -94,7 +92,6 @@ class GmRatingBlurbWriter:
             model=self.model, max_tokens=MAX_TOKENS,
             system=system, messages=messages,
         )
-        report("public-dynasty", self.model, resp.usage)
         result = parse_blurb(resp.content[0].text)
         result["_usage"] = usage_dict(resp.usage)
         return result

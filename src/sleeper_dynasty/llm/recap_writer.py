@@ -10,6 +10,7 @@ import json
 import logging
 import re
 from importlib import resources
+from itertools import pairwise
 
 import anthropic
 from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
@@ -17,7 +18,6 @@ from anthropic.types.message_create_params import MessageCreateParamsNonStreamin
 from sleeper_dynasty.llm._usage import usage_dict
 from sleeper_dynasty.llm.recap_packet import ArchivedPacket, editorial_facts
 from sleeper_dynasty.llm.trade_story_writer import sanitize_prose
-from sleeper_dynasty.llm.usage import report
 from sleeper_dynasty.models.recap import OutlookFacts, RecapFacts
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ REQUEST_TIMEOUT_SECONDS = 300.0
 # Full matchup recaps plus standings, bets and outlook can exceed 4096 tokens.
 MAX_TOKENS = 8192
 REVIEW_MAX_TOKENS = 8192
-MAX_REPAIRS = 2
+MAX_REPAIRS = 1
 REVIEW_TOOL: anthropic.types.ToolParam = {
     "name": "submit_recap_review",
     "description": (
@@ -105,7 +105,7 @@ def apply_recap_edits(text: str, response: anthropic.types.Message) -> str:
             raise ValueError("Analyst repair must quote one exact draft passage; refusing publication")
         spans.append((start, start + len(before), after))
     spans.sort()
-    if any(a[1] > b[0] for a, b in zip(spans, spans[1:])):
+    if any(a[1] > b[0] for a, b in pairwise(spans)):
         raise ValueError("Analyst repair edits overlap; refusing publication")
     for start, end, after in reversed(spans):
         text = text[:start] + after + text[end:]
@@ -124,14 +124,14 @@ def load_lore_template() -> str:
 
 def require_matchup_coverage(text: str, facts, outlook) -> None:
     """Every result and forecast needs its own matchup heading, as prompted."""
-    headings = [h.replace("**", "").casefold() for h in
+    headings = [h.replace("**", "").strip().casefold() for h in
                 re.findall(r"^#{2,4}\s+(.+)$", text, flags=re.MULTILINE)]
     packets = [("recap", facts.to_dict(), "winner", "loser")]
     if outlook is not None:
         packets.append(("preview", outlook.to_dict(), "home", "away"))
     for kind, packet, left, right in packets:
         for matchup in packet["matchups"]:
-            names = [sanitize_prose(str(matchup[k])).replace("**", "").casefold() for k in (left, right)]
+            names = [sanitize_prose(str(matchup[k])).replace("**", "").strip().casefold() for k in (left, right)]
             index = next((i for i, heading in enumerate(headings) if all(
                 re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", heading)
                 for name in names)), None)
@@ -151,16 +151,13 @@ class RecapWriter:
         cost_store=None,  # optional LlmCostStore instance
         league_id: str = "",
         review_model: str = DEFAULT_REVIEW_MODEL,
+        client=None,
     ) -> None:
         self.model = model
         self.review_model = review_model
         self.persona = persona or load_default_persona()
-        # api_key=None lets the SDK read ANTHROPIC_API_KEY from the env.
-        # A timed-out request may still be running and billable at the provider.
-        # Let long recaps finish, but never duplicate them with hidden SDK retries.
-        self._client = anthropic.Anthropic(
-            api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0
-        )
+        from sleeper_dynasty.llm.managed import DeniedClient
+        self._client = client if client is not None else DeniedClient()
         self._cost_store = cost_store
         self._league_id = league_id
 
@@ -224,7 +221,6 @@ class RecapWriter:
                 model,
             )
             raise
-        report("public-dynasty", model, resp.usage)
         if self._cost_store is not None:
             try:
                 u = usage_dict(resp.usage)
@@ -317,14 +313,15 @@ class RecapWriter:
         lore: str | None = None,
         outlook: OutlookFacts | ArchivedPacket | None = None,
     ) -> str:
-        """Draft, review, and allow two evidence-based corrections with fresh review.
+        """Draft, review, and allow one evidence-based correction with fresh review.
 
-        At most six provider calls. Provider failures, malformed verdicts and a
-        third rejection stop the attempt without returning any rejected text.
+        At most four provider calls. Provider failures, malformed verdicts and a
+        second rejection stop the attempt without returning any rejected text.
         Model review is a safeguard, not proof of factual accuracy.
         """
         system, messages = self.build_request(facts, lore, outlook)
         original_messages = messages
+        text = ""
         for attempt in range(MAX_REPAIRS + 1):
             stage = "recap" if attempt == 0 else "recap_repair"
             draft = self._request(system, messages, stage=stage)
@@ -362,6 +359,6 @@ class RecapWriter:
                     },
                 ]
         raise ValueError(
-            "Analyst factual review did not approve after two corrections; "
+            "Analyst factual review did not approve after one correction; "
             "refusing publication"
         )

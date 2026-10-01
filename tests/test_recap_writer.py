@@ -203,7 +203,8 @@ def writer_factory(monkeypatch):
             ),
         )
         writer = RecapWriter(
-            api_key="test", cost_store=cost_store, league_id="test-league"
+            client=anthropic.Anthropic(api_key="test", max_retries=0, timeout=300),
+            cost_store=cost_store, league_id="test-league"
         )
         clients.append(writer._client)
         return writer, requests
@@ -264,6 +265,7 @@ def test_player_context_is_identical_in_draft_and_review(writer_factory):
 def test_editorial_packet_keeps_relevant_context_without_all_rostered_players(writer_factory):
     # Mutation: send every rostered player's news, or discard context for a featured bench substitution.
     from copy import deepcopy
+
     from sleeper_dynasty.models.recap import BenchRegret, PlayerLine
     facts = _facts()
     facts.lineups = [{"owner": "Team A", "starters": [
@@ -296,7 +298,7 @@ def test_editorial_packet_keeps_relevant_context_without_all_rostered_players(wr
 @pytest.mark.parametrize("missing", ["recap", "preview"])
 def test_approved_but_incomplete_article_is_not_a_full_roast(writer_factory, missing):
     # Mutation: accept a factually approved article that leaves out an entire matchup.
-    from sleeper_dynasty.models.recap import MatchupRecap, MatchupPreview
+    from sleeper_dynasty.models.recap import MatchupPreview, MatchupRecap
     facts = _facts()
     facts.matchups = [MatchupRecap("Alice", "Bob", 25, 15, 10, False, False)]
     outlook = OutlookFacts(10, [MatchupPreview("Cam", "Dee", 30, 20, "Cam", 10)], [], [], [])
@@ -312,7 +314,7 @@ def test_approved_but_incomplete_article_is_not_a_full_roast(writer_factory, mis
 
 def test_matchup_coverage_uses_rendered_names_and_distinct_preview_headings(writer_factory):
     # Mutation: compare raw KTC owner names to sanitized text, or reuse a recap as its own preview.
-    from sleeper_dynasty.models.recap import MatchupRecap, MatchupPreview
+    from sleeper_dynasty.models.recap import MatchupPreview, MatchupRecap
     facts = _facts()
     facts.matchups = [MatchupRecap("Team KTC", "Bob", 25, 15, 10, False, False)]
     outlook = OutlookFacts(10, [MatchupPreview("Team KTC", "Bob", 30, 20, "Team KTC", 10)], [], [], [])
@@ -407,8 +409,8 @@ def test_paraphrased_review_feedback_reaches_repair_but_exact_edits_and_approval
     assert len(requests) == 4
 
 
-def test_second_repair_handles_an_error_first_identified_in_followup_review(writer_factory):
-    # Mutation: abandon a repairable draft when the next full review finds a different error.
+def test_followup_review_error_stops_instead_of_buying_second_repair(writer_factory):
+    # Mutation: MAX_REPAIRS=2 purchases two more stages after the allowance is exhausted.
     writer, requests = writer_factory([
         _message([_text("Team A scored 185 points. Team B won.")]),
         _message([_verdict({"approved": False, "checks": [
@@ -421,10 +423,9 @@ def test_second_repair_handles_an_error_first_identified_in_followup_review(writ
         _message([_edits(" Team B won.", "")], stop_reason="tool_use"),
         _message([_verdict()], stop_reason="tool_use"),
     ])
-    assert writer.write(_facts()) == "Team A scored 158 points."
-    assert len(requests) == 6
-    assert requests[4]["messages"][1]["content"] == "Team A scored 158 points. Team B won."
-    assert len(requests[4]["messages"]) == 3
+    with pytest.raises(ValueError, match="after one correction"):
+        writer.write(_facts())
+    assert len(requests) == 4
 
 
 def test_long_review_finishes_and_correction_uses_stronger_model(writer_factory):
@@ -616,7 +617,7 @@ def test_rejection_is_corrected_with_evidence_then_reviewed_again(
     ]
 
 
-def test_third_rejection_stops_after_two_corrections(writer_factory):
+def test_second_rejection_stops_after_one_correction(writer_factory):
     # Mutation: keep spending on revisions, or publish despite the final rejection.
     rejection = _message(
         [_verdict({"approved": False, "checks": [{"status": "needs_correction", "quote": "bad", "evidence": "Wrong score"}]})],
@@ -632,9 +633,9 @@ def test_third_rejection_stops_after_two_corrections(writer_factory):
             rejection,
         ]
     )
-    with pytest.raises(ValueError, match="after two corrections"):
+    with pytest.raises(ValueError, match="after one correction"):
         writer.write(_facts())
-    assert len(requests) == 6
+    assert len(requests) == 4
 
 
 @pytest.mark.parametrize("failure", ["timeout", 429, 500])

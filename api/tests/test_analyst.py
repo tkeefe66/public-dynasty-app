@@ -405,7 +405,7 @@ async def test_real_writer_publishes_only_an_approved_correction(tmp_path, appro
             assert saved[0]["edition_type"] == "results"
             assert "Alice 25.00, Bob 15.00" in saved[0]["markdown"]
             assert "250 points" not in saved[0]["markdown"]
-        assert writer._request.call_count == (4 if approved else 6)
+        assert writer._request.call_count == 4
     finally:
         writer._client.close()
 

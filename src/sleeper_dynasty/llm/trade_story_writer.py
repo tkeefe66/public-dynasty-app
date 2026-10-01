@@ -11,11 +11,9 @@ import logging
 import re
 from importlib import resources
 
-import anthropic
-
 from sleeper_dynasty.llm._usage import usage_dict
+from sleeper_dynasty.llm.managed import DeniedClient
 from sleeper_dynasty.llm.story_validation import repair_prose, tidy_headline
-from sleeper_dynasty.llm.usage import report
 from sleeper_dynasty.models.trade_story import TradeStoryFacts
 
 logger = logging.getLogger(__name__)
@@ -32,9 +30,9 @@ MAX_TOKENS = 1024
 # English and over-eager replacement would mangle legitimate prose.
 _KTC = r"K\.?T\.?C\.?"
 _KTC_SUBS = [
-    (re.compile(rf"\b{_KTC}\s+market value\b", re.I), "market value"),
-    (re.compile(rf"\b{_KTC}\s+value\b", re.I), "trade value"),
-    (re.compile(rf"\b{_KTC}\b", re.I), "trade value"),
+    (re.compile(rf"\b{_KTC}\s+market value\b", re.IGNORECASE), "market value"),
+    (re.compile(rf"\b{_KTC}\s+value\b", re.IGNORECASE), "trade value"),
+    (re.compile(rf"\b{_KTC}\b", re.IGNORECASE), "trade value"),
 ]
 
 
@@ -85,10 +83,10 @@ def parse_story(text: str) -> dict:
 
 class TradeStoryWriter:
     def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL,
-                 persona: str | None = None) -> None:
+                 persona: str | None = None, *, client=None) -> None:
         self.model = model
         self.persona = persona or load_persona()
-        self._client = anthropic.Anthropic(api_key=api_key)
+        self._client = client if client is not None else DeniedClient()
 
     def build_request(self, facts: TradeStoryFacts) -> tuple[list[dict], list[dict]]:
         # No cache_control: the persona (~1.4K tokens) is far under Haiku 4.5's
@@ -111,7 +109,6 @@ class TradeStoryWriter:
             model=self.model, max_tokens=MAX_TOKENS,
             system=system, messages=messages,
         )
-        report("public-dynasty", self.model, resp.usage)
         result = parse_story(resp.content[0].text)
         # Sanitize banned jargon, then apply always-safe repairs (dashes, headline
         # punctuation/markdown) to every rendered part. Semantic checks happen in

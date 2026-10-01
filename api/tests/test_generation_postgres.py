@@ -46,3 +46,21 @@ async def test_concurrent_submission_and_claim_has_one_winner(pgmaker):
     assert sum(value is not None for value in claims) == 1
     async with pgmaker() as db:
         assert await db.scalar(select(func.count()).select_from(GenerationOperation)) == 1
+
+
+@pytest.mark.asyncio
+async def test_two_gateway_instances_cannot_send_the_same_stage(pgmaker):
+    from app.services.generation.gateway import Gateway
+    from app.services.generation.store import Held
+
+    from tests.test_generation_gateway import REQUEST, FakeTransport, seed_job
+
+    job = await seed_job(pgmaker)
+    transport = FakeTransport(blocked=True)
+    first = asyncio.create_task(Gateway(pgmaker, transport, epoch="test-epoch").invoke(job, 1, 1, REQUEST))
+    await transport.started.wait()
+    with pytest.raises(Held, match="provider_outcome_unknown"):
+        await Gateway(pgmaker, transport, epoch="test-epoch").invoke(job, 1, 1, REQUEST)
+    transport.release.set()
+    await first
+    assert transport.sends == 1
