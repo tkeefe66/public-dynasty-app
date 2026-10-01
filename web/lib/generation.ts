@@ -56,8 +56,8 @@ export interface GenerationRecord {
   hold?: string; generation?: number; calls?: number; max_calls?: number; model?: string;
   cost_microusd?: number | null; usage_state?: string; action?: string; actor_id?: string;
   target?: string; error?: string; created_at?: number; observed_at?: number;
+  kind?: string; delivered?: boolean;
   before_json?: string; after_json?: string;
-  [key: string]: unknown;
 }
 export interface GenerationPage<T> { records: T[]; next_offset: number | null }
 export interface CampaignPreview {

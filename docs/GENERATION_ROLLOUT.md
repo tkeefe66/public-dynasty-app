@@ -2,6 +2,15 @@
 
 The application starts with paid work held. Free provider refreshes continue. Dollar caps are a separate policy decision; the existing nonzero monthly budget still stops new requests.
 
+## Finding the controls
+
+Open **Admin → AI writing**. The status at the top accounts for league-specific settings, global holds, the deployment pause, and feature safety stops. **Tracked AI spend** is the managed request ledger total across all leagues; it excludes earlier spending and unknown charges.
+
+- **Needs your review** lists stopped and held jobs separately from recent activity. **Review problem** explains the recorded reason, requests used, known cost, and the available recovery actions. Older generic failures explicitly say their exact cause was not recorded.
+- **Approve new content** requires selection, a reason, an exact preview, and a separate **Approve paid writing** action. Viewing and previewing content makes no AI requests.
+- **Settings** applies **Off**, **Ask me first**, or **Automatic** to all leagues, a league type, or a single league. Choosing **Use shared default** removes that override; the current saved value is not a preview of the inherited replacement. Reasons are entered beside each change.
+- **Recent activity** shows readable jobs and their saved request costs. **Advanced** contains AI requests and costs, saved content, change history, publication delivery, and activation/recovery controls. Only record types supported by the API offer a league filter.
+
 ## Release sequence
 
 1. Confirm the Railway project, environment, API service, Web service, database and volume. Record the approved commit for both services.
@@ -18,13 +27,13 @@ At launch, global and per-series paid concurrency are one. One blurb/story allow
 
 ## Pausing and uncertain attempts
 
-Use **Pause all paid work** for ordinary incidents. For deployment-level shutdown, set `TRADE_GRADER_GENERATION_EMERGENCY_PAUSE=true` and revoke the provider credential. An already admitted HTTP request may finish and be billed; its late receipt is still retained. Pausing prevents subsequent stages and publication.
+Use **Pause all AI writing** for ordinary incidents. For deployment-level shutdown, set `TRADE_GRADER_GENERATION_EMERGENCY_PAUSE=true` and revoke the provider credential. An already admitted HTTP request may finish and be billed; its late receipt is still retained. Pausing prevents subsequent stages and publication.
 
 For a timeout or lost response, inspect the immutable request/receipt and provider request ID. Do not infer “not sent” from elapsed time. Stop the original sending process first. Record provider evidence, then either record proven non-submission or abandon the uncertain attempt while leaving cost explicitly unknown. Both actions cancel the original job; replacement needs a new exact campaign preview and approval. Never reset an attempt's call allowance.
 
-If a successful late receipt settles the original attempt, **Resume settled work** replays its saved response and continues only the original remaining allowance. Unsettled attempts still block resume. Local receipt/accounting or artifact-storage failures and graceful worker shutdown hold the job for recovery; after storage is healthy and saved receipts reconcile, **Resume remaining steps** reuses completed stages. Resume is audited, reruns validation, and rechecks permission and publication gates. It cannot revive cancelled or restored authorizations.
+If a successful late receipt settles the original attempt, **Resume after receipt review** replays its saved response and continues only the original remaining allowance. Unsettled attempts still block resume. Local receipt/accounting or artifact-storage failures and graceful worker shutdown hold the job for recovery; after storage is healthy and saved receipts reconcile, **Resume remaining work** reuses completed stages. Resume is audited, reruns validation, and rechecks permission and publication gates. It cannot revive cancelled or restored authorizations.
 
-A failed file projection can retry the same saved artifact from **outbox**. This makes zero AI calls. A content correction is proposed from the current artifact, with a reason; preview and approval create a separate bounded authorization. Original Analyst editions and existing revision/share addresses remain intact.
+A failed file projection can retry the same saved artifact from **Advanced → Publication delivery**. This makes zero AI calls. A content correction is proposed from **Advanced → Saved content**, with a reason; preview and approval create a separate bounded authorization. Original Analyst editions and existing revision/share addresses remain intact.
 
 ## Restore
 
