@@ -183,3 +183,11 @@ class GenerationAudit(Base):
     before_json: Mapped[str] = mapped_column(String, default="{}")
     after_json: Mapped[str] = mapped_column(String, default="{}")
     created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class GenerationSubmission(Base):
+    """Every caller key binds its payload, including requests joining existing jobs."""
+    __tablename__ = "generation_submissions"
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    request_digest: Mapped[str] = mapped_column(String)
+    operation_id: Mapped[str] = mapped_column(String)
