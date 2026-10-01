@@ -128,6 +128,12 @@ async def _first_populated_table(database_url: str) -> tuple[str, int] | None:
                 if table.name not in existing:
                     continue
                 n = await conn.scalar(select(func.count()).select_from(table))
+                if n == 1 and table.name == "generation_control":
+                    from types import SimpleNamespace
+                    from app.services.generation.recovery import bootstrap_control
+                    row = (await conn.execute(select(table))).mappings().one()
+                    if bootstrap_control(SimpleNamespace(**row)):
+                        continue
                 if n:
                     return table.name, int(n)
         return None
@@ -153,13 +159,13 @@ async def _alembic_revision(database_url: str) -> str | None:
 async def _restore_db(database_url: str, blob: bytes) -> dict[str, int]:
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    from app.services.backup_service import load_database
+    from app.services.generation.recovery import restore_database
 
     engine = create_async_engine(database_url)
     maker = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with maker() as db:
-            counts = await load_database(db, blob)
+            counts = await restore_database(db, blob)
             await db.commit()
         return counts
     finally:
@@ -246,11 +252,14 @@ def main() -> int:
 
     blob = _get(client, args.bucket, f"{prefix}/postgres.jsonl.gz")
     counts = asyncio.run(_restore_db(args.database_url, blob))
-    if counts != manifest["tables"]:
+    compatible_counts = ({k: counts.get(k) for k in manifest["tables"]} == manifest["tables"]
+                         and all(v == 0 for k, v in counts.items() if k not in manifest["tables"]))
+    if not compatible_counts:
         print(f"  MISMATCH: restored {counts}, manifest says {manifest['tables']}",
               file=sys.stderr)
         return 1
     print(f"  database OK: {counts}")
+    print("  paid work quarantined: rotate the deployment epoch and reconcile before activation")
 
     # --- Cache volume ---
     args.cache_dir.mkdir(parents=True, exist_ok=True)

@@ -1,15 +1,16 @@
 FROM python:3.11-slim AS base
+COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /uvx /bin/
 WORKDIR /app
 
 # Install the existing grader package + the API service.
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock ./
 COPY src ./src
-RUN pip install --no-cache-dir -e .
-
 COPY api ./api
-RUN pip install --no-cache-dir -e ./api
+COPY scripts ./scripts
+RUN uv sync --frozen --all-packages --no-dev --no-editable
 
-ENV PYTHONUNBUFFERED=1 \
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
     TRADE_GRADER_CACHE_DIR=/data/sleeper-dynasty/cache
 
 # Railway provides PORT via env.

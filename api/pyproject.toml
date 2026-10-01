@@ -44,3 +44,6 @@ include = ["app*"]
 # repo's src, so prepend this worktree's src (and the api dir for `app`) so the
 # backend tests pick up the worktree's engine + app, not the main checkout's.
 pythonpath = [".", "../src"]
+
+[tool.uv.sources]
+sleeper-dynasty = { workspace = true }

@@ -49,6 +49,17 @@ jobs:
   api:
     name: api — pytest
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: local-generation-test
+          POSTGRES_DB: generation_tests
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      GENERATION_TEST_DATABASE_URL: postgresql+asyncpg://postgres:local-generation-test@127.0.0.1:5432/generation_tests
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,13 +67,19 @@ jobs:
           python-version: "3.11" # api/pyproject.toml requires >=3.11
       # The engine installs editable from the repo root; the API installs
       # editable on top, exactly as api/Dockerfile does it.
-      - run: pip install -e ".[dev]"
-      - run: pip install -e "./api[dev]"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.8"
+      - run: uv sync --frozen --all-packages --all-extras
       # `api/tests` and `tests/` are both packages named "tests", so a single
       # rootdir-wide pytest run collides. They are run separately, from their
       # own directories (see CLAUDE.md § Commands).
       - name: Backend tests
-        run: pytest -q
+        run: uv run --frozen pytest -q
         working-directory: api
       - name: Engine + CLI tests
-        run: pytest tests -q
+        run: uv run --frozen pytest tests -q
+      - name: Container runtime contract (no provider network)
+        run: |
+          docker build -f api/Dockerfile -t generation-contract .
+          docker run --rm --network none generation-contract python scripts/check_generation_runtime.py

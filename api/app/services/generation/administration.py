@@ -88,11 +88,14 @@ async def control_action(db, body, actor):
         raise Conflict("Control state changed. Reload before applying this action.")
     before = data(control)
     if body.action == "pause":
-        control.hold = "owner_paused"
+        if control.hold != "restore_quarantine":
+            control.hold = "owner_paused"
     elif body.action in ("activate", "resume"):
         epoch = get_settings().generation_execution_epoch
         if not epoch or not body.workers_stopped:
             raise Held("Confirm legacy workers stopped and configure the deployment execution epoch first")
+        if control.hold == "restore_quarantine" and control.epoch == epoch:
+            raise Held("fresh_execution_epoch_required")
         if body.action == "resume" and control.epoch != epoch:
             raise Held("restore_quarantine")
         control.epoch, control.hold = epoch, ""
@@ -196,6 +199,8 @@ async def job_action(db, job_id, body, actor):
         return data(await cancel(db, job_id, actor, body.reason))
     if job.state != "held":
         raise Held("Only held jobs can resume; failed jobs require a separate reviewed authorization")
+    if job.reason == "restore_reapproval_required" and job.kind == "generation":
+        raise Held("Cancel restored work, reconcile provider activity, then preview a separate authorization")
     if await db.scalar(select(ProviderAttempt.id).where(
             ProviderAttempt.operation_id == job_id, ProviderAttempt.state.in_(UNRESOLVED)).limit(1)):
         raise Held("provider_outcome_unknown")

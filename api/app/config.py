@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     refresh_interval_seconds: int = 3 * 3600
     llm_model: str | None = None  # env: TRADE_GRADER_LLM_MODEL — overrides all writer defaults
     # Separately configured epoch must match owner activation. Restore rotates
-    # DB epoch and holds generation; restoring old configuration cannot enable it.
+    # holds generation; activation requires rotating the deployment value.
     generation_execution_epoch: str = ""
     generation_emergency_pause: bool = False
     # LLM-regeneration throttle: within this window since the last LLM pass, the

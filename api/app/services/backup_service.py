@@ -117,6 +117,9 @@ async def load_database(session: AsyncSession, blob: bytes) -> dict[str, int]:
             ]
             await session.execute(insert(table), decoded)
         counts[table.name] = len(rows)
+    unknown = set(by_table) - set(Base.metadata.tables)
+    if unknown:
+        raise ValueError("Backup contains unsupported tables: " + ", ".join(sorted(unknown)))
     log.info("backup: restored %s", counts)
     return counts
 

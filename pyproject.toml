@@ -33,3 +33,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 sleeper_dynasty = ["llm/prompts/*.md", "data/*.json.gz"]
+
+[tool.uv.workspace]
+members = ["api"]

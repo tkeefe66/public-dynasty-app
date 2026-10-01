@@ -48,7 +48,9 @@ async def drain(maker, cache_dir):
     for ident in ids:
         # Short file projection is serialized with DB mutations; no provider I/O.
         async with maker.begin() as db:
-            await lock_control(db)
+            control = await lock_control(db)
+            if control.hold == "restore_quarantine":
+                return
             item = await db.get(GenerationOutbox, ident, populate_existing=True)
             if item.delivered:
                 continue
