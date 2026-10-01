@@ -57,6 +57,53 @@ async def test_worker_records_one_receipt_and_artifact_and_never_rebuys(maker, t
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("format", ["dynasty", "keeper", "redraft"])
+@pytest.mark.parametrize("shape", ["builder_list", "mapping"])
+async def test_worker_accepts_real_gm_pillars_without_buying_a_repair(maker, tmp_path, format, shape):
+    """Mutation: checking labels against the builder's list rejects valid highlights.
+
+    Nonempty pillar values mirror the production canary packet, with synthetic identity.
+    Build and JSON-round-trip it so the fixture exercises the actual persisted shape.
+    """
+    from sleeper_dynasty.engine.gm_rating_blurb import build_owner_rating_facts
+
+    await prepare(maker)
+    pillars = {"results": {"weight": 0.6, "contribution": -145,
+        "signals": {"playoff_success": {"contribution": -58}, "luck": {"contribution": -44}}}}
+    if format != "redraft":
+        pillars["assets"] = {"weight": 0.4, "contribution": -53,
+            "signals": {"young_core_share": {"contribution": -43}, "roster_value_share": {"contribution": -10}}}
+    facts = build_owner_rating_facts(scope_label="career", owner_name="Owner", team_name="Synthetic Team",
+        rank=11, rating=1302, pillars=pillars, outcome_signals={"made_playoffs": 0.25})
+    facts.user_id = "u"
+    packet = json.loads(json.dumps(facts.to_dict()))
+    if shape == "mapping":
+        packet["pillars"] = {item["label"].lower(): item for item in packet["pillars"]}
+    async with maker.begin() as db:
+        job = await db.get(GenerationOperation, "job")
+        saved = json.loads(job.payload_json)
+        saved["facts"] = packet
+        job.payload_json = dump(saved)
+        job.request_digest = digest(saved)
+    highlights = {"Results": "Playoff success and close games weigh on the record."}
+    if format != "redraft":
+        highlights["Assets"] = "Young core and roster value need improvement."
+    body = {**BODY, "content": [{"type": "text", "text": json.dumps({
+        "blurb": "Ranked eleventh, with a 1302 rating and no championships.", "highlights": highlights})}]}
+    transport = FakeTransport(body=json.dumps(body))
+    worker = Worker(maker, tmp_path, transport=transport, epoch="test-epoch")
+    assert await worker.tick()
+    async with maker() as db:
+        job = await db.get(GenerationOperation, "job")
+        assert job.state == "succeeded", job.reason
+        artifact = await db.get(ContentArtifact, job.artifact_id)
+        assert json.loads(artifact.payload_json)["pillars"] == {k.lower(): v for k, v in highlights.items()}
+        assert await db.scalar(select(func.count()).select_from(ProviderAttempt)) == 1
+    assert not await worker.tick()
+    assert transport.sends == 1
+
+
+@pytest.mark.asyncio
 async def test_worker_restart_cannot_retry_unknown_call(maker, tmp_path):
     await prepare(maker)
     transport = FakeTransport(lost=True)

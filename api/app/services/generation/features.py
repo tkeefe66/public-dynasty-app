@@ -18,6 +18,11 @@ class ValidatedOutput:
 
 
 def validate(feature, result, facts, raw=None):
+    if feature == "gm_rating_blurb":
+        # The facts builder persists labeled lists; older callers also supply mappings.
+        # Read both without rewriting saved facts or changing their generation hashes.
+        pillars = (set(facts.pillars) if isinstance(facts.pillars, dict) else
+            {item["label"].lower() for item in facts.pillars})
     if raw is not None:
         text = "".join(block.get("text", "") for block in raw.get("content", []) if block.get("type") == "text")
         try:
@@ -31,7 +36,7 @@ def validate(feature, result, facts, raw=None):
         if feature == "gm_rating_blurb":
             highlights = structured.get("highlights", {})
             if not isinstance(highlights, dict) or any(
-                k.lower() not in facts.pillars or not isinstance(v, str) or len(v.split()) > 16
+                k.lower() not in pillars or not isinstance(v, str) or len(v.split()) > 16
                 for k, v in highlights.items()
             ):
                 return ["Use only supported pillar highlights of at most 16 words"]
@@ -57,7 +62,7 @@ def validate(feature, result, facts, raw=None):
     if not isinstance(highlights, dict):
         return [*errors, "Highlights must be an object"]
     for pillar, text in highlights.items():
-        if pillar not in facts.pillars or not isinstance(text, str) or len(text.split()) > 16:
+        if pillar not in pillars or not isinstance(text, str) or len(text.split()) > 16:
             errors.append("Use only supported pillar highlights of at most 16 words")
     return errors
 

@@ -20,12 +20,10 @@ class OwnerRatingFacts:
     scope_label: str          # "career" | "the 2025 season"
     rank: int
     rating: int
-    # pillar name -> {label, weight, contribution, top_signals[], worst_signals[]}.
-    # A mapping, not a list: blurb_gen builds it as {p: pb.model_dump()} and it
-    # serializes into the facts packet as a JSON object. Which keys exist is the
-    # league's pillar set — Results + Assets normally, Results only for redraft
-    # (nothing carries over, so Assets has no subject).
-    pillars: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # The builder emits a list of labeled summaries; mapping-shaped callers are
+    # also supported. Preserve either shape when serializing saved facts.
+    # Results + Assets normally; Results only for redraft.
+    pillars: list[dict[str, Any]] | dict[str, dict[str, Any]] = field(default_factory=dict)
     championships: int = 0
     made_playoffs_rate: float = 0.0
     draft_capital_counted: bool = False
