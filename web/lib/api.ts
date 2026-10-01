@@ -404,6 +404,12 @@ export function adminBackups(): Promise<AdminBackupStatus> {
   return jsonFetch<AdminBackupStatus>(`${BASE}/admin/backups`);
 }
 
+export function generationRequest<T>(path = "", body?: unknown, method = "POST"): Promise<T> {
+  return jsonFetch<T>(`${BASE}/admin/generation${path}`, body === undefined ? undefined : {
+    method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+}
+
 export function setBudget(monthlyBudgetUsd: number): Promise<BudgetStatus> {
   return jsonFetch<BudgetStatus>(`${BASE}/admin/budget`, {
     method: "PUT",

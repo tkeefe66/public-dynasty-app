@@ -4,6 +4,7 @@ import { TopBar } from "@/components/TopBar";
 import { BudgetEditor } from "@/components/BudgetEditor";
 import { LlmCostPanel } from "@/components/LlmCostPanel";
 import { DauBar } from "@/components/admin/DauBar";
+import { GenerationControl } from "@/components/admin/GenerationControl";
 import { StateMessage } from "@/components/furniture/StateMessage";
 import { Panel } from "@/components/furniture/Panel";
 import { Row } from "@/components/furniture/Row";
@@ -166,6 +167,7 @@ export default async function AdminPage() {
 
         {/* Stat cards */}
         <StatGrid stats={stats} className="mt-6" />
+        <GenerationControl />
 
         {/* Usage */}
         <h2 className="mt-10 border-b border-rule pb-1.5 font-display text-section font-bold tracking-[-0.024em]">Usage</h2>

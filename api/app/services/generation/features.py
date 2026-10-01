@@ -1,6 +1,7 @@
 """Run bounded writers on immutable facts. Invalid output is never published."""
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -16,7 +17,24 @@ class ValidatedOutput:
     stages: int
 
 
-def validate(feature, result, facts):
+def validate(feature, result, facts, raw=None):
+    if raw is not None:
+        text = "".join(block.get("text", "") for block in raw.get("content", []) if block.get("type") == "text")
+        try:
+            structured = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip()).strip())
+        except (TypeError, ValueError):
+            return ["Return valid structured JSON, with every required field"]
+        required = {"trade_story": ("verdict",), "gm_rating_blurb": ("blurb",),
+                    "franchise_blurb": ("lead", "body")}[feature]
+        if not isinstance(structured, dict) or any(not isinstance(structured.get(k), str) for k in required):
+            return ["Return an object with text in every required field"]
+        if feature == "gm_rating_blurb":
+            highlights = structured.get("highlights", {})
+            if not isinstance(highlights, dict) or any(
+                k.lower() not in facts.pillars or not isinstance(v, str) or len(v.split()) > 16
+                for k, v in highlights.items()
+            ):
+                return ["Use only supported pillar highlights of at most 16 words"]
     if feature == "trade_story":
         from sleeper_dynasty.llm.story_validation import find_violations
         prose = "\n".join([result.get("lede", ""), *(result.get("beats") or [])]).strip()
@@ -35,7 +53,7 @@ def validate(feature, result, facts):
     errors = []
     if not isinstance(result.get("blurb"), str) or not result["blurb"].strip():
         errors.append("Provide a nonempty GM profile")
-    highlights = result.get("highlights", {})
+    highlights = result.get("pillars", {})
     if not isinstance(highlights, dict):
         return [*errors, "Highlights must be an object"]
     for pillar, text in highlights.items():
@@ -48,6 +66,10 @@ async def generate(job, gateway):
     saved = json.loads(job.payload_json)
     policy = json.loads(job.policy_json)["policy"]["features"][job.feature]
     managed = ManagedClient(gateway, job.id, job.generation, asyncio.get_running_loop(), policy["max_tokens"])
+    if saved.get("correction_base"):
+        managed.correction = ("Revise only the requested issue, preserving other claims and using only the saved facts. "
+            "Do not invent facts to satisfy the correction. Requested correction: " + saved["correction_reason"]
+            + "\nPrevious content:\n" + json.dumps(saved["previous_content"]))
     kwargs = {"model": policy["model"], "client": managed}
 
     def run():
@@ -82,7 +104,7 @@ async def generate(job, gateway):
         for _ in range(min(2, job.max_calls)):
             result = writer.write(facts)
             result.pop("_usage", None)  # Gateway is the authoritative accounting record.
-            errors = validate(job.feature, result, facts)
+            errors = validate(job.feature, result, facts, managed.last_response)
             if not errors:
                 return {**result, "generated_at": datetime.now(UTC).isoformat(),
                     "generation_period": {"season": saved.get("season"), "week": saved.get("week")},

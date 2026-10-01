@@ -375,7 +375,8 @@ def build_trade_detail(
                    lede=raw_story.get("lede", ""),
                    beats=raw_story.get("beats", []) or [],
                    body=raw_story.get("body", ""),
-                   generated_at=raw_story.get("generated_at"))
+                   generated_at=raw_story.get("generated_at"),
+                   generation_period=raw_story.get("generation_period"))
         if raw_story else None
     )
     lineage = {uid: [_to_lineage(n) for n in nodes] for uid, nodes in raw_lineage.items()}

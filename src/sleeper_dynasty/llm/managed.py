@@ -36,6 +36,7 @@ class ManagedClient:
         self.stage = 0
         self.last_response = None
         self.feedback = None
+        self.correction = None
 
     @property
     def messages(self):
@@ -49,6 +50,8 @@ class ManagedClient:
         if running is self.loop:
             raise RuntimeError("Run synchronous writers in a worker thread, not the gateway event loop")
         request["max_tokens"] = min(request["max_tokens"], self.max_tokens)
+        if self.correction and self.stage == 0:
+            request["messages"] = [*request["messages"], {"role": "user", "content": self.correction}]
         if self.feedback and self.last_response:
             request["messages"] = [*request["messages"],
                 {"role": "assistant", "content": self.last_response["content"]},

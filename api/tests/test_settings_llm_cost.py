@@ -12,9 +12,14 @@ _FAKE_ADMIN = SimpleNamespace(id="test-user", email="admin@test.local", is_admin
 
 
 @pytest.fixture(autouse=True)
-def _authorized_admin():
+def _authorized_admin(maker):
     # The llm-cost/config endpoints are admin-guarded; these tests predate auth.
     _app.dependency_overrides[require_admin] = lambda: _FAKE_ADMIN
+    from app.db.session import get_db
+    async def isolated():
+        async with maker.begin() as db:
+            yield db
+    _app.dependency_overrides[get_db] = isolated
     try:
         yield
     finally:

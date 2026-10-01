@@ -91,7 +91,9 @@ def effective(layers: list[tuple[str, dict]]) -> dict:
     result = Policy().model_dump()
     sources: dict[str, str] = {}
     blocked: list[str] = []
-    feature_pauses: set[str] = set()
+    feature_pauses: dict[str, str] = {}
+    ceilings: dict[str, tuple[int, str]] = {}
+    pause_source = None
 
     def origins(data, source, prefix=""):
         for key, value in data.items():
@@ -102,6 +104,9 @@ def effective(layers: list[tuple[str, dict]]) -> dict:
                 sources[name] = source
 
     origins(result, "defaults")
+    app_values = next((value for source, value in layers if source == "app"), {})
+    for name in ("max_concurrency", "breaker_failures"):
+        ceilings[name] = (app_values.get(name, result[name]), "app" if name in app_values else "defaults")
     for source, value in layers:
         result = merge(result, value)
         # Validate merged values before checking truthiness of any flag.
@@ -109,14 +114,23 @@ def effective(layers: list[tuple[str, dict]]) -> dict:
         origins(value, source)
         if value.get("paused") is True:
             blocked.append(f"{source}_paused")
+            pause_source = source
+        for name in ("max_concurrency", "breaker_failures"):
+            if name in value and (name not in ceilings or value[name] < ceilings[name][0]):
+                ceilings[name] = (value[name], source)
         for key, feature in value.get("features", {}).items():
             if feature.get("paused") is True or feature.get("mode") == "disabled":
-                feature_pauses.add(key)
+                feature_pauses[key] = source
     policy = Policy.model_validate(result)
     if blocked:
         policy.paused = True
+        sources["paused"] = pause_source
     if policy.paused and not blocked:
         blocked.append("activation_required")
-    for key in feature_pauses:
+    for key, source in feature_pauses.items():
         policy.features[key].paused = True
+        sources[f"features.{key}.paused"] = source
+    for key, (value, source) in ceilings.items():
+        setattr(policy, key, value)
+        sources[key] = source
     return {"policy": policy.model_dump(), "sources": sources, "blocked_by": blocked}

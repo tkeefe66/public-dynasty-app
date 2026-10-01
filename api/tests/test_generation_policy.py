@@ -108,3 +108,15 @@ async def test_captured_missing_format_payload_cannot_activate(maker):
         with pytest.raises(ValueError, match="verify"):
             await set_series(db, season.series_id, expected_revision=1, lifecycle="active",
                 profile="dynasty", actor="owner", reason="activate", activate=True)
+def test_lower_scope_cannot_raise_app_concurrency_and_reports_true_pause_origin():
+    from app.services.generation.policy import effective
+    result = effective([("app", {"paused": True, "max_concurrency": 1}),
+        ("profile:dynasty", {"paused": False, "max_concurrency": 4})])
+    assert result["policy"]["max_concurrency"] == 1
+    assert result["sources"]["paused"] == "app"
+    assert result["sources"]["max_concurrency"] == "app"
+def test_profile_cannot_raise_default_app_concurrency():
+    from app.services.generation.policy import effective
+    resolved = effective([("app", {"paused": False}), ("profile:dynasty", {"max_concurrency": 4})])
+    assert resolved["policy"]["max_concurrency"] == 1
+    assert effective([("app", {"paused": False, "max_concurrency": 4})])["policy"]["max_concurrency"] == 4

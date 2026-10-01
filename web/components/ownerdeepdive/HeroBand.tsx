@@ -2,6 +2,7 @@
 
 import { FranchiseRating, OwnerDetailResp, ProseSegment, RankView, TrackRecord } from "@/lib/types";
 import { Emphasis, isEmphasisKind } from "@/components/furniture/Emphasis";
+import { GenerationStamp, GenerationPeriod } from "@/components/GenerationStamp";
 import { StatStrip } from "./ui";
 import { franchiseLetterTone, ordinal, ownerIdentitySlot } from "./util";
 
@@ -147,11 +148,13 @@ function ReadBody({ segments }: { segments: ProseSegment[] }) {
  *  A pre-marks cached blurb has no lead and no segments and renders as plain
  *  prose in the same panel — an older blurb is prose, never an empty panel. */
 function ReadPanel({
-  lead, blurb, segments,
+  lead, blurb, segments, at, period,
 }: {
   lead?: string | null;
   blurb?: string | null;
   segments?: ProseSegment[] | null;
+  at?: string | null;
+  period?: GenerationPeriod | null;
 }) {
   if (!lead && !blurb && !segments?.length) return null;
   // No mono label above this panel. It had one ("The read") on the theory that
@@ -176,6 +179,7 @@ function ReadPanel({
           {segments?.length ? <ReadBody segments={segments} /> : blurb}
         </div>
       )}
+      <GenerationStamp at={at} period={period} />
     </div>
   );
 }
@@ -240,6 +244,8 @@ export function HeroBand({
         lead={detail.franchise_lead}
         blurb={detail.franchise_blurb}
         segments={detail.franchise_segments}
+        at={detail.franchise_generated_at}
+        period={detail.franchise_generation_period}
       />
     </header>
   );

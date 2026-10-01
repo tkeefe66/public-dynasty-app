@@ -77,3 +77,20 @@ async def test_admin_removed_from_live_allowlist_cannot_send(maker, tmp_path, mo
     assert transport.sends == 0
     async with maker() as db:
         assert (await db.get(GenerationOperation, "job")).reason == "admin_permission_removed"
+
+
+@pytest.mark.asyncio
+async def test_invalid_structured_blurb_uses_only_one_repair_and_never_publishes(maker, tmp_path):
+    await prepare(maker)
+    body = {**BODY, "content": [{"type": "text", "text": json.dumps({"blurb": "Strong record.",
+        "highlights": {"invented_pillar": "Unsupported claim"}})}]}
+    transport = FakeTransport(body=json.dumps(body))
+    await Worker(maker, tmp_path, transport=transport, epoch="test-epoch").tick()
+    assert transport.sends == 2
+    async with maker() as db:
+        assert (await db.get(GenerationOperation, "job")).state == "needs_attention"
+        assert await db.scalar(select(func.count()).select_from(ContentArtifact)) == 0
+        attempts = (await db.scalars(select(ProviderAttempt).order_by(ProviderAttempt.stage))).all()
+        assert len(attempts) == 2
+        assert "Correct only these validation failures" in attempts[1].request_json
+        assert all(a.cost_microusd is not None for a in attempts)

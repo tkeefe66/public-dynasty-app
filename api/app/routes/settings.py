@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.config import get_settings
+from app.db.session import get_db
 from app.deps import get_cache_dir
+from app.repositories.app_settings import get_monthly_budget
 from app.services.chain_cache import ChainCache
+from app.services.generation.store import resolve_policy
+from app.services.generation.usage import ledger_records, month_known, unknown_count
 from app.services.name_override_store import NameOverrideStore
 from sleeper_dynasty.llm.cost_store import LlmCostStore
-from sleeper_dynasty.llm.trade_story_writer import DEFAULT_MODEL
 
 # League-scoped (owner-names): guarded by league membership in main.py.
 league_router = APIRouter()
@@ -23,7 +25,7 @@ admin_router = APIRouter()
 def _parse_ts(ts: str) -> datetime:
     dt = datetime.fromisoformat(ts)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -31,8 +33,8 @@ def _dense_days(start: datetime, end: datetime) -> list[str]:
     """Every UTC calendar day from `start` through `end`, inclusive, as
     'YYYY-MM-DD' strings ascending. Mirrors the zero-fill convention in
     app/repositories/events.py — bucketed in pure Python, dialect-portable."""
-    d = start.astimezone(timezone.utc).date()
-    d_end = end.astimezone(timezone.utc).date()
+    d = start.astimezone(UTC).date()
+    d_end = end.astimezone(UTC).date()
     out: list[str] = []
     while d <= d_end:
         out.append(d.isoformat())
@@ -114,6 +116,7 @@ class _DailyBucket(BaseModel):
 
 
 class LlmCostResponse(BaseModel):
+    unknown_cost_attempts: int = 0
     period: str
     total_cost_usd: float
     total_calls: int
@@ -130,24 +133,30 @@ class LlmCostResponse(BaseModel):
 
 class ConfigResponse(BaseModel):
     llm_model: str
+    effective: dict
 
 
 @admin_router.get("/api/settings/llm-cost", response_model=LlmCostResponse)
-def get_llm_cost(
+async def get_llm_cost(
+    db: Annotated[object, Depends(get_db)],
     period: Literal["today", "7d", "30d", "all"] = "7d",
 ) -> LlmCostResponse:
     store = LlmCostStore(_cache_dir())
     records = store.read_all()
+    records += await ledger_records(db)
+    records.sort(key=lambda r: r["ts"])
+    effective = await resolve_policy(db)
+    active = effective["policy"]["features"]["trade_story"]["model"]
 
     # Monthly-budget guardrail status (independent of the selected period).
     from app.services.refresh_service import month_to_date_spend
-    _budget = get_settings().llm_monthly_budget_usd
-    _mtd = month_to_date_spend(_cache_dir())
+    _budget = await get_monthly_budget(db)
+    _mtd = month_to_date_spend(_cache_dir()) + await month_known(db)
     _remaining = (
         round(max(0.0, _budget - _mtd), 6) if _budget and _budget > 0 else None
     )
 
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     if period == "today":
         cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
         days = 1
@@ -167,9 +176,10 @@ def get_llm_cost(
             if _parse_ts(r["ts"]) >= cutoff
         ]
 
+    uncertain = await unknown_count(db, cutoff)
     if not records:
-        active = get_settings().llm_model or DEFAULT_MODEL
         return LlmCostResponse(
+            unknown_cost_attempts=uncertain,
             period=period, total_cost_usd=0.0, total_calls=0,
             daily_avg_usd=0.0, daily=[], by_writer={}, by_league={},
             active_model=active,
@@ -237,9 +247,9 @@ def get_llm_cost(
         if entry is not None:
             lc.name = (entry.league_name_by_id or {}).get(lid)
 
-    active = get_settings().llm_model or DEFAULT_MODEL
 
     return LlmCostResponse(
+        unknown_cost_attempts=uncertain,
         period=period,
         total_cost_usd=total_cost,
         total_calls=total_calls,
@@ -255,5 +265,6 @@ def get_llm_cost(
 
 
 @admin_router.get("/api/settings/config", response_model=ConfigResponse)
-def get_config() -> ConfigResponse:
-    return ConfigResponse(llm_model=get_settings().llm_model or DEFAULT_MODEL)
+async def get_config(db: Annotated[object, Depends(get_db)]) -> ConfigResponse:
+    effective = await resolve_policy(db)
+    return ConfigResponse(llm_model=effective["policy"]["features"]["trade_story"]["model"], effective=effective)

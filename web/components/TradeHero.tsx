@@ -1,5 +1,6 @@
 import { LensMargins, LensWinners, TradeCall, TradeSideView, TradeStory } from "@/lib/types";
 import { fmtDateShort } from "@/lib/format-date";
+import { GenerationStamp } from "@/components/GenerationStamp";
 import { fmtLensMargin, LENS_LABEL_LOWER, LENS_ORDER, soleDecidedLens } from "@/lib/trade-lens";
 
 export interface TradeHeroProps {
@@ -265,6 +266,7 @@ export function TradeHero({
               </div>
             )
           )}
+          {story && <GenerationStamp at={story.generated_at} period={story.generation_period} />}
         </div>
 
         <RulingStamp

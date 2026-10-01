@@ -456,6 +456,8 @@ export interface FranchiseRating {
   pillars: Record<string, PillarBreakdown>;
   /** LLM-written one-line highlight per pillar key (v2: results/assets). */
   pillar_highlights?: Record<string, string>;
+  writing_generated_at?: string | null;
+  writing_period?: { season?: number | null; week?: number | null } | null;
 }
 
 /** One season's finish + bracket result for the Track Record chapter. */
@@ -539,6 +541,8 @@ export interface OwnerDetailResp {
    *  case `franchise_blurb` is rendered as prose. Never HTML — each segment
    *  becomes an element and React escapes its text. */
   franchise_segments?: ProseSegment[] | null;
+  franchise_generated_at?: string | null;
+  franchise_generation_period?: { season?: number | null; week?: number | null } | null;
   draft_picks_by_season?: Record<string, DraftPickResult[]>;
   production_series?: OwnerProductionSeries;
   production_verdict?: Record<string, ProductionVerdict>;
@@ -623,6 +627,7 @@ export interface TradeStory {
   beats?: string[];
   body: string;
   generated_at?: string | null;
+  generation_period?: { season?: number | null; week?: number | null } | null;
 }
 
 export interface LineageNode {

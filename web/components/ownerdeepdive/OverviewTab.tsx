@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
+import { GenerationStamp } from "@/components/GenerationStamp";
 import { FranchiseRating, OwnerDetailResp, PillarBreakdown } from "@/lib/types";
 import { ContributionRow } from "@/components/RatingBars";
 import { Panel } from "../furniture/Panel";
@@ -144,6 +145,7 @@ function RatingDrivers({ fr }: { fr: FranchiseRating }) {
         })}
         <TotalRow fr={fr} pillars={pillars} />
       </Panel>
+      {!!Object.keys(fr.pillar_highlights || {}).length && <GenerationStamp at={fr.writing_generated_at} period={fr.writing_period} />}
       <p className="mt-2 text-figure leading-snug text-dim">
         Every signal is scored against your league and centered on a C (average) GM. The bar shows
         direction and size; the figure carries the sign.

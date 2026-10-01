@@ -202,6 +202,8 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
         GenerationOperation.subject == candidate.subject,
         GenerationOperation.state.in_(("queued", "running", "held", "needs_attention"))))
     if pending:
+        if pending.request_digest != candidate.digest:
+            raise Held("An existing job has different facts; resolve it before approving replacement work")
         return pending
     unresolved = await db.scalar(select(ProviderAttempt.id).join(
         GenerationOperation, GenerationOperation.id == ProviderAttempt.operation_id).where(

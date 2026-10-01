@@ -24,6 +24,7 @@ interface DailyBucket {
 interface LlmCostData {
   period: string;
   total_cost_usd: number;
+  unknown_cost_attempts?: number;
   total_calls: number;
   daily_avg_usd: number;
   daily: DailyBucket[];
@@ -109,6 +110,10 @@ export function LlmCostPanel() {
       </div>
 
       {loading && <IndeterminateBar className="max-w-[220px]" label="Loading cost data" />}
+      {!!data?.unknown_cost_attempts && <p role="status" className="mt-3 text-prose text-warn-strong">
+        {data.unknown_cost_attempts} request(s) have an unknown cost. Totals include known costs only.
+        Review these requests in Generation controls.
+      </p>}
 
       {!loading && data && (
         <>

@@ -122,8 +122,9 @@ class BudgetReq(BaseModel):
 
 
 async def _budget_status(db: AsyncSession, cache_dir: Path) -> BudgetStatus:
+    from app.services.generation.usage import month_known
     budget = await app_settings.get_monthly_budget(db)
-    mtd = month_to_date_spend(cache_dir)
+    mtd = month_to_date_spend(cache_dir) + await month_known(db)
     remaining = round(max(0.0, budget - mtd), 6) if budget and budget > 0 else None
     return BudgetStatus(
         monthly_budget_usd=budget, month_to_date_usd=mtd,
@@ -162,6 +163,12 @@ async def leagues(
         )
     ).all()
     spend = _spend_by_league(_cache_dir())
+    from app.services.generation.usage import ledger_records
+    month = datetime.now(tz=timezone.utc).strftime("%Y-%m")
+    for record in await ledger_records(db):
+        if record["ts"].startswith(month):
+            lid = record["league_id"]
+            spend[lid] = spend.get(lid, 0) + record["cost_usd"]
     activity = await events.league_activity(db)
     cache = ChainCache(cache_dir=_cache_dir())
     out: list[AdminLeague] = []

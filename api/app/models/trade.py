@@ -81,6 +81,7 @@ class TradeStory(BaseModel):
     beats: list[str] = []
     body: str
     generated_at: str | None = None
+    generation_period: dict[str, int | None] | None = None
 
 
 class LineageNode(BaseModel):

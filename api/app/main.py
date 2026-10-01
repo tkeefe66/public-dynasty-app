@@ -137,6 +137,8 @@ def create_app() -> FastAPI:
     # App-owner admin surface (each route self-guards via require_admin).
     from app.routes import admin
     app.include_router(admin.router)
+    from app.routes import generation_admin
+    app.include_router(generation_admin.router)
     return app
 
 

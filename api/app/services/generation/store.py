@@ -65,11 +65,12 @@ def audit(db, actor: str, action: str, target: str, reason: str,
     log.info("generation transition action=%s target=%s actor=%s", action, target, actor)
 
 
-async def resolve_policy(db, series_id: str = "") -> dict:
+async def resolve_policy(db, series_id: str = "", *, profile: str = "") -> dict:
     scopes = ["app"]
     series = await db.get(LeagueSeries, series_id) if series_id else None
-    if series and series.profile:
-        scopes.append("profile:" + series.profile)
+    profile = series.profile if series else profile
+    if profile:
+        scopes.append("profile:" + profile)
     if series:
         scopes.append("series:" + series.id)
     rows = {r.scope: r for r in (await db.scalars(select(GenerationPolicy).where(

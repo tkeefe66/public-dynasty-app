@@ -239,6 +239,8 @@ class FranchiseRatingView(BaseModel):
     pillars: dict[str, PillarBreakdown] = {}   # the receipt: results/skill/outlook
     # LLM-written one-line highlight per pillar (results/skill/outlook).
     pillar_highlights: dict[str, str] = {}
+    writing_generated_at: str | None = None
+    writing_period: dict[str, int | None] | None = None
 
 
 class ProseSegment(BaseModel):
@@ -280,6 +282,8 @@ class OwnerDetailResp(BaseModel):
     franchise_blurb: str | None = None
     franchise_lead: str | None = None
     franchise_segments: list[ProseSegment] | None = None
+    franchise_generated_at: str | None = None
+    franchise_generation_period: dict[str, int | None] | None = None
     # str(season) -> picks the owner drafted that season (Future & Draft tab).
     draft_picks_by_season: dict[str, list[DraftPickResult]] = {}
     # Production timeline (Phase 1): side -> metric -> [points]; metric -> verdict.

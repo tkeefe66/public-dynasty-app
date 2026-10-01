@@ -260,6 +260,8 @@ def build_owner_detail(
             rank=gm_row.rank, of=total_owners or gm_row.rank, trend=gm_row.trend,
             pillars=gm_row.pillars,
             pillar_highlights=rating_blurb.get("pillars") or {},
+            writing_generated_at=rating_blurb.get("generated_at"),
+            writing_period=rating_blurb.get("generation_period"),
         )
 
     # Why the letter is missing, when it is. Derived from the entry rather than
@@ -388,6 +390,8 @@ def build_owner_detail(
         franchise_blurb=franchise_blurb,
         franchise_lead=franchise_lead,
         franchise_segments=franchise_segments,
+        franchise_generated_at=_fr_blurb.get("generated_at"),
+        franchise_generation_period=_fr_blurb.get("generation_period"),
         draft_picks_by_season=draft_picks_by_season,
         production_series=production_series,
         production_verdict=production_verdict,
