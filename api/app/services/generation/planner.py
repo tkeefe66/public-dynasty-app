@@ -134,6 +134,10 @@ async def collect(db, entry, cache_dir):
 
 
 async def collect_analyst(db, league_id, series_id, cache_dir):
+    # Yahoo does not support Analyst editions. Its provider keys contain dots
+    # and must never enter the Sleeper-only archive path validator.
+    if ".l." in league_id:
+        return
     from app.services.analyst_store import AnalystEdition, AnalystStore
     store = AnalystStore(cache_dir)
     root = store.league_dir(league_id)
