@@ -12,7 +12,7 @@ async def ledger_records(db):
             ProviderAttempt.cost_microusd.is_not(None), ProviderAttempt.state != "not_sent"
         ).order_by(ProviderAttempt.created_at))).all()
     return [{"ts": datetime.fromtimestamp(a.created_at, UTC).isoformat(), "model": a.model,
-        "writer": job.feature, "league_id": job.league_id, "cost_usd": a.cost_microusd / 1_000_000,
+        "writer": job.feature, "league_id": job.league_id, "cost_usd": float(a.cost_microusd / 1_000_000),
         "attempt_id": a.id} for a, job in rows]
 
 
@@ -23,7 +23,10 @@ async def unknown_count(db, cutoff=None):
     return await db.scalar(query)
 
 
-async def month_known(db):
+async def month_known(db) -> float:
     start = int(datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp())
-    return (await db.scalar(select(func.coalesce(func.sum(ProviderAttempt.cost_microusd), 0))
-        .where(ProviderAttempt.created_at >= start))) / 1_000_000
+    microusd = await db.scalar(select(func.coalesce(func.sum(ProviderAttempt.cost_microusd), 0))
+        .where(ProviderAttempt.created_at >= start))
+    # PostgreSQL SUM(bigint) returns Decimal; USD consumers combine legacy floats.
+    # Keep ledger storage exact; expose USD as legacy-compatible floats.
+    return float(microusd / 1_000_000)

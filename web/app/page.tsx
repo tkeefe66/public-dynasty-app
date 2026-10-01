@@ -7,7 +7,7 @@ import { StateMessage } from "@/components/furniture/StateMessage";
 import { Panel } from "@/components/furniture/Panel";
 import { Row } from "@/components/furniture/Row";
 import { Name } from "@/components/furniture/Name";
-import { adminOverview, myLeagues, type MyLeague } from "@/lib/api";
+import { getMe, myLeagues, type MyLeague } from "@/lib/api";
 
 // Authenticated "My Leagues" home. Middleware guarantees a signed-in user.
 export const dynamic = "force-dynamic";
@@ -21,11 +21,10 @@ export default async function HomePage() {
     loadError = true;
   }
 
-  // Show the Admin link only to app owners (admin endpoint 403s otherwise).
+  // A reporting outage must not hide the owner's Admin shortcut.
   let isAdmin = false;
   try {
-    await adminOverview();
-    isAdmin = true;
+    isAdmin = (await getMe()).is_admin;
   } catch {
     isAdmin = false;
   }

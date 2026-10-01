@@ -15,6 +15,7 @@ import {
   adminOverview,
   adminUsers,
   adminActiveUsers,
+  getMe,
   type AdminBackupStatus,
   type AdminLeague,
   type AdminOverview,
@@ -96,12 +97,15 @@ function StatGrid({
 }
 
 export default async function AdminPage() {
+  let isAdmin = false;
   let overview: AdminOverview;
   let leagues: AdminLeague[];
   let users: AdminUser[];
   let activeUsers: AdminActiveUsers;
   let backups: AdminBackupStatus | null;
   try {
+    isAdmin = (await getMe()).is_admin;
+    if (!isAdmin) throw new ApiError(403, "App owners only");
     [overview, leagues, users, activeUsers, backups] = await Promise.all([
       adminOverview(),
       adminLeagues(),
@@ -118,20 +122,27 @@ export default async function AdminPage() {
       err instanceof ApiError && (err.status === 401 || err.status === 403);
     return (
       <Shell>
-        <TopBar />
-        <section className="mt-16 max-w-lg">
+        <TopBar activeNav="admin" />
+        <section className="mt-8 max-w-4xl">
+          {isAdmin && !denied && (
+            <>
+              <h1 className="font-display text-lead font-extrabold tracking-[-0.03em]">Admin</h1>
+              <GenerationControl />
+            </>
+          )}
           <StateMessage
+            className="mt-8 max-w-lg"
             tone={denied ? "neutral" : "negative"}
-            kicker={denied ? "App owners only" : "Admin data didn't load"}
+            kicker={denied ? "App owners only" : "Reporting unavailable"}
             headline={
               denied
                 ? "This area is for app owners."
-                : "The numbers are there — we couldn't reach them."
+                : "Admin reports didn't load."
             }
             body={
               denied
                 ? "Your leagues and franchise pages are all on the home screen."
-                : "Not you — us. Refresh once the backend answers."
+                : "We couldn't load usage, league, or user reports. Refresh to try again."
             }
           />
           <Link
@@ -158,12 +169,9 @@ export default async function AdminPage() {
 
   return (
     <Shell>
-      <TopBar />
+      <TopBar activeNav="admin" />
       <section className="mt-8 max-w-4xl">
-        <p className="font-mono text-label uppercase tracking-widest text-dim">
-          App owner
-        </p>
-        <h1 className="mt-2 font-display text-lead font-extrabold tracking-[-0.03em]">Admin</h1>
+        <h1 className="font-display text-lead font-extrabold tracking-[-0.03em]">Admin</h1>
 
         {/* Stat cards */}
         <StatGrid stats={stats} className="mt-6" />

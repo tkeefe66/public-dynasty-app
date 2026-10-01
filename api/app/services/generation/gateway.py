@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import UTC
 
 from sqlalchemy import func, select
 
@@ -109,14 +108,9 @@ class Gateway:
             from app.repositories.app_settings import get_monthly_budget
             budget = await get_monthly_budget(db)
             if budget > 0:
-                from datetime import datetime
-
+                from app.services.generation.usage import month_known
                 from app.services.refresh_service import month_to_date_spend
-                month_start = int(datetime.now(UTC).replace(day=1, hour=0, minute=0,
-                    second=0, microsecond=0).timestamp())
-                paid = await db.scalar(select(func.coalesce(func.sum(ProviderAttempt.cost_microusd), 0)).where(
-                    ProviderAttempt.created_at >= month_start))
-                if month_to_date_spend(get_settings().cache_dir) + paid / 1_000_000 >= budget:
+                if month_to_date_spend(get_settings().cache_dir) + await month_known(db) >= budget:
                     raise Held("legacy_budget_reached")
             attempt = ProviderAttempt(operation_id=job.id, stage=stage, generation=generation,
                 request_digest=request_hash, request_json=dump(request), model=allowed_model,

@@ -6,8 +6,9 @@ import { ThemeToggle } from "./ThemeToggle";
 import { Mark as Icon, MarkName as IconName } from "./furniture/Mark";
 import { WeekNote } from "./WeekNote";
 import { Wordmark } from "./furniture/Wordmark";
+import { getMe } from "@/lib/api";
 
-type NavKey = "dashboard" | "trades" | "owners" | "gm" | "bets" | "draft" | "scoring" | "methodology" | "settings";
+type NavKey = "dashboard" | "trades" | "owners" | "gm" | "bets" | "draft" | "scoring" | "methodology" | "settings" | "admin";
 
 interface Props {
   activeNav?: NavKey;
@@ -194,6 +195,17 @@ function UtilityMenu({ leagueId, activeNav }: { leagueId?: string; activeNav?: N
  * group (week note, theme, utility sheet).
  */
 export function TopBar({ activeNav, rightSlot, leagueId, year, lens }: Props) {
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    // Navigation follows the authenticated role, never a report's availability.
+    getMe().then((me) => {
+      if (mounted) setIsAdmin(me.is_admin);
+    }).catch(() => {
+      if (mounted) setIsAdmin(false);
+    });
+    return () => { mounted = false; };
+  }, []);
   const [saved, setSaved] = useState<{ leagueId: string; year?: string; lens?: string } | null>(null);
   useEffect(() => {
     if (leagueId) {
@@ -261,6 +273,15 @@ export function TopBar({ activeNav, rightSlot, leagueId, year, lens }: Props) {
           {/* Drawn at the right end of the nav strip (Dashboard.dc.html) —
               renders nothing out of season or before the week is known. */}
           <WeekNote />
+          {isAdmin && (
+            <Link
+              href="/admin"
+              aria-current={activeNav === "admin" ? "page" : undefined}
+              className="inline-flex min-h-tap items-center px-1 font-bold text-stamp no-underline hover:underline"
+            >
+              Admin
+            </Link>
+          )}
           <ThemeToggle />
           <UtilityMenu leagueId={effectiveId} activeNav={activeNav} />
           {rightSlot}

@@ -83,3 +83,100 @@ async def test_committed_pause_wins_against_waiting_admission(pgmaker):
     with pytest.raises(Held,match="owner_paused"):
         await waiting
     assert transport.sends==0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("known_microusd, expected_usd, expected_calls", [(None, 1.0, 1), (1_234_567, 2.234567, 2)])
+async def test_postgres_legacy_admin_routes_combine_known_and_legacy_costs(
+    pgmaker, app, tmp_path, monkeypatch, known_microusd, expected_usd, expected_calls,
+):
+    """Mutation: return PostgreSQL SUM(bigint)'s Decimal without normalizing USD."""
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.auth.deps import require_admin
+    from app.db.session import get_db
+    from app.repositories.app_settings import set_monthly_budget
+    from app.services.generation.models import ProviderAttempt
+    from httpx import ASGITransport, AsyncClient
+
+    from sleeper_dynasty.llm.cost_store import LlmCostStore
+    from tests.test_generation_gateway import REQUEST, seed_job
+
+    monkeypatch.setenv("TRADE_GRADER_CACHE_DIR", str(tmp_path))
+    await seed_job(pgmaker)
+    LlmCostStore(tmp_path).record(model=REQUEST["model"], writer="trade_story",
+        league_id="synthetic", input_tokens=1_000_000, output_tokens=0)
+    async with pgmaker.begin() as db:
+        await set_monthly_budget(db, 10.0)
+        if known_microusd is not None:
+            db.add(ProviderAttempt(operation_id="job", stage=1, generation=1,
+                request_digest="synthetic", request_json="{}", model=REQUEST["model"],
+                state="received", usage_state="known", cost_microusd=known_microusd))
+            await db.flush()
+        total = await db.scalar(select(func.coalesce(func.sum(ProviderAttempt.cost_microusd), 0)))
+        assert isinstance(total, Decimal)
+
+    async def isolated():
+        async with pgmaker.begin() as db:
+            yield db
+
+    previous = app.dependency_overrides.copy()
+    app.dependency_overrides[get_db] = isolated
+    app.dependency_overrides[require_admin] = lambda: SimpleNamespace(id="owner", is_admin=True)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            overview = await client.get("/api/admin/overview")
+            cost = await client.get("/api/settings/llm-cost?period=all")
+            leagues = await client.get("/api/admin/leagues")
+            budget = await client.put("/api/admin/budget", json={"monthly_budget_usd": 10.0})
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous)
+
+    assert overview.status_code == cost.status_code == leagues.status_code == budget.status_code == 200
+    for status in (overview.json()["budget"], cost.json(), budget.json()):
+        assert status["monthly_budget_usd"] == 10.0
+        assert status["month_to_date_usd"] == pytest.approx(expected_usd)
+        assert status["budget_remaining_usd"] == pytest.approx(10.0 - expected_usd)
+    costs = cost.json()
+    assert costs["total_cost_usd"] == pytest.approx(expected_usd)
+    assert costs["total_calls"] == expected_calls
+    assert costs["by_writer"]["trade_story"]["cost_usd"] == pytest.approx(expected_usd)
+    assert costs["by_league"]["synthetic"]["cost_usd"] == pytest.approx(expected_usd)
+    assert sum(day["cost_usd"] for day in costs["daily"]) == pytest.approx(expected_usd)
+    assert leagues.json()[0]["spend_mtd_usd"] == pytest.approx(expected_usd)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("budget, admitted", [(1.75, False), (2.0, True)])
+async def test_postgres_budget_admission_combines_known_and_legacy_costs(pgmaker, tmp_path, monkeypatch, budget, admitted):
+    """Mutation: duplicate the unnormalized PostgreSQL SUM in budget admission."""
+    from app.repositories.app_settings import set_monthly_budget
+    from app.services.generation.gateway import Gateway
+    from app.services.generation.models import ProviderAttempt
+    from app.services.generation.store import Held
+
+    from sleeper_dynasty.llm.cost_store import LlmCostStore
+    from tests.test_generation_gateway import REQUEST, FakeTransport, seed_job
+
+    monkeypatch.setenv("TRADE_GRADER_CACHE_DIR", str(tmp_path))
+    job = await seed_job(pgmaker)
+    LlmCostStore(tmp_path).record(model=REQUEST["model"], writer="trade_story",
+        league_id="synthetic", input_tokens=500_000, output_tokens=0)
+    async with pgmaker.begin() as db:
+        await set_monthly_budget(db, budget)
+        db.add(ProviderAttempt(operation_id="earlier-job", stage=1, generation=1,
+            request_digest="synthetic", request_json="{}", model=REQUEST["model"],
+            state="received", usage_state="known", cost_microusd=1_250_000))
+    transport = FakeTransport()
+    gateway = Gateway(pgmaker, transport, epoch="test-epoch")
+    if admitted:
+        await gateway.invoke(job, 1, 1, REQUEST)
+    else:
+        with pytest.raises(Held, match="legacy_budget_reached"):
+            await gateway.invoke(job, 1, 1, REQUEST)
+
+    async with pgmaker() as db:
+        assert await db.scalar(select(func.count()).select_from(ProviderAttempt)) == (2 if admitted else 1)
+    assert transport.sends == int(admitted)
