@@ -52,8 +52,8 @@ async def register_entry(db, entry, *, verified: bool = False) -> LeagueSeason:
             row.verified_at = stamp() if evidence else 0
             row.evidence_json = dump({"source": "provider_history" if verified else "legacy_cache",
                                       "chain": ids, "format_verified": bool(evidence)})
-            recap = entry.week_recap or {}
-            row.latest_week = int(recap.get("week") or 0)
+            period = getattr(entry, "generation_period", {}) or {}
+            row.latest_week = int(period.get("week") or 0) if period.get("season") == row.season else 0
             current = row
     await db.flush()
     if current is None:

@@ -151,7 +151,7 @@ async def test_receipt_storage_failure_does_not_resend(maker, monkeypatch):
     async def unavailable(*args):
         raise RuntimeError("receipt storage unavailable")
     monkeypatch.setattr(gateway,"record_receipt",unavailable)
-    with pytest.raises(RuntimeError,match="storage unavailable"):
+    with pytest.raises(Held,match="receipt_persistence_failed"):
         await gateway.invoke("job",1,1,REQUEST)
     with pytest.raises(Held,match="provider_outcome_unknown"):
         await Gateway(maker,transport,epoch="test-epoch").invoke("job",1,1,REQUEST)

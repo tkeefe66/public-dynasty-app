@@ -199,18 +199,19 @@ async def job_action(db, job_id, body, actor):
         raise Conflict("Job state changed; reload before acting")
     if body.action == "cancel":
         return data(await cancel(db, job_id, actor, body.reason))
-    if job.state != "held":
+    settled_recovery = job.state == "needs_attention" and job.reason == "provider_outcome_unknown"
+    if job.state != "held" and not settled_recovery:
         raise Held("Only held jobs can resume; failed jobs require a separate reviewed authorization")
     if job.reason == "restore_reapproval_required" and job.kind == "generation":
         raise Held("Cancel restored work, reconcile provider activity, then preview a separate authorization")
     if await db.scalar(select(ProviderAttempt.id).where(
             ProviderAttempt.operation_id == job_id, ProviderAttempt.state.in_(UNRESOLVED)).limit(1)):
         raise Held("provider_outcome_unknown")
-    if job.kind == "generation" and job.calls >= job.max_calls:
+    if job.kind == "generation" and (settled_recovery or job.calls >= job.max_calls):
         saved = (await db.scalars(select(ProviderAttempt).where(ProviderAttempt.operation_id == job_id))).all()
         if len(saved) != job.calls or any(a.state != "received" or a.usage_state != "known" or a.error_code for a in saved):
-            raise Held("attempt_allowance_exhausted")
-    before = {"state": job.state, "calls": job.calls}
+            raise Held("provider_outcome_unknown" if settled_recovery else "attempt_allowance_exhausted")
+    before = {"state": job.state, "reason": job.reason, "calls": job.calls}
     job.state, job.reason = "queued", ""
     audit(db, actor, "job_resumed", job_id, body.reason, before, {"state": job.state, "calls": job.calls})
     return data(job)

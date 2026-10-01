@@ -148,6 +148,7 @@ class Worker:
         if job is None:
             return False
         heartbeat = asyncio.create_task(self.heartbeat(job))
+        publishing = False
         try:
             if job.kind != "generation":
                 await self.refresh(job)
@@ -155,6 +156,7 @@ class Worker:
                 from app.services.generation.artifacts import save_artifact
                 from app.services.generation.features import generate
                 result = await generate(job, self.gateway)
+                publishing = True
                 async with self.maker.begin() as db:
                     await save_artifact(db, job.id, job.generation, result)
         except OwnershipLost:
@@ -164,11 +166,11 @@ class Worker:
                 await lock_control(db)
                 row = await db.get(GenerationOperation, job.id)
                 if row.state == "running" and row.generation == job.generation:
-                    row.state, row.reason = "needs_attention", "worker_shutdown"
+                    row.state, row.reason = "held", "worker_shutdown"
                     row.generation += 1
             raise
         except Exception as exc:
-            code = exc.code if isinstance(exc, Held) else "execution_failed"
+            code = exc.code if isinstance(exc, Held) else ("publication_failed" if publishing else "execution_failed")
             from sleeper_dynasty.api.yahoo import YahooRateLimitError
             if isinstance(exc, YahooRateLimitError):
                 code = "yahoo_rate_limited"
@@ -179,7 +181,7 @@ class Worker:
                     row = await require_owner(db, job.id, job.generation)
                     if code in ("concurrency_busy", "series_concurrency_busy", "provider_cooldown"):
                         row.state, row.reason = "queued", code
-                    elif isinstance(exc, Held) and code not in (
+                    elif code == "publication_failed" or isinstance(exc, Held) and code not in (
                             "provider_outcome_unknown", "response_invalid", "pricing_unknown",
                             "provider_rejected", "attempt_allowance_exhausted"):
                         row.state, row.reason = "held", code

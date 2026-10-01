@@ -20,6 +20,7 @@ from app.services.generation.models import (
 from app.services.generation.policy import paid_capabilities, supports_feature
 from app.services.generation.store import (
     Held,
+    audit,
     digest,
     dump,
     lock_control,
@@ -140,7 +141,13 @@ class Gateway:
             if isinstance(exc, asyncio.CancelledError):
                 raise
             raise Held("provider_outcome_unknown") from None
-        await self.record_receipt(attempt_id, receipt)
+        try:
+            await self.record_receipt(attempt_id, receipt)
+        except Held:
+            raise
+        except Exception as exc:
+            log.exception("receipt persistence failed; attempt cannot be resent attempt=%s", attempt_id)
+            raise Held("receipt_persistence_failed") from exc
         async with self.maker.begin() as db:
             await lock_control(db)
             await require_owner(db, operation_id, generation)
@@ -175,6 +182,7 @@ class Gateway:
             row = await db.get(ProviderAttempt, attempt_id)
             if row.settled_at:
                 return
+            before = {"state": row.state, "error_code": row.error_code, "usage_state": row.usage_state}
             try:
                 body = json.loads(receipt.body)
                 usage_state, usage, amount = price_usage(body, json.loads(row.pricing_json))
@@ -185,6 +193,7 @@ class Gateway:
             row.usage_json = dump(usage)
             row.cost_microusd = amount
             row.settled_at = stamp()
+            row.error_code = ""
             if receipt.status >= 400:
                 row.error_code = "provider_rejected" if receipt.status < 500 else "provider_outcome_unknown"
                 row.state = "rejected" if receipt.status < 500 else "unknown"
@@ -199,6 +208,9 @@ class Gateway:
             elif usage_state != "known":
                 row.error_code = "response_invalid" if usage_state == "unknown" else "pricing_unknown"
                 control.provider_hold = "accounting_attention"
+            audit(db, "provider", "attempt_settled", attempt_id, "Saved receipt settled provider outcome",
+                before, {"state": row.state, "error_code": row.error_code,
+                    "usage_state": row.usage_state, "cost_microusd": amount})
             if amount is not None:
                 db.add(GenerationOutbox(key="usage:" + attempt_id, kind="telemetry",
                     payload_json=dump({"attempt_id": attempt_id, "operation_id": row.operation_id,

@@ -32,6 +32,22 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Generation controls", () => {
+  it("offers recovery of a settled unknown outcome using the original job", async () => {
+    const normal = request.getMockImplementation()!;
+    request.mockImplementation((path = "", ...args) => path.startsWith("/records/jobs")
+      ? Promise.resolve({ records: [{ id: "original-job", state: "needs_attention", reason: "provider_outcome_unknown",
+          generation: 3, feature: "gm_rating_blurb", league_id: "synthetic" }], next_offset: null })
+      : normal(path, ...args));
+    render(<GenerationControl />);
+    await screen.findByLabelText("Activity");
+    fireEvent.change(screen.getByLabelText("Reason for this change"), { target: { value: "Receipt settled" } });
+    fireEvent.change(screen.getByLabelText("Activity"), { target: { value: "jobs" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Resume settled work" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/jobs/original-job", {
+      action: "resume", expected_generation: 3, expected_state: "needs_attention", reason: "Receipt settled",
+    }));
+  });
+
   it("saves only explicit overrides with the observed revision and reason", async () => {
     render(<GenerationControl />);
     await screen.findByLabelText("Configuration scope");

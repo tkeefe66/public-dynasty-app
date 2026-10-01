@@ -4,17 +4,16 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy.ext.asyncio import async_engine_from_config
-from sqlalchemy import pool
-
 from app.config import get_settings
-from app.db.base import Base
 from app.db import models  # noqa: F401  — register tables on Base.metadata
+from app.db.base import Base
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
 
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Inject the runtime DB URL (TRADE_GRADER_DATABASE_URL or the SQLite default).
 config.set_main_option("sqlalchemy.url", get_settings().database_url)

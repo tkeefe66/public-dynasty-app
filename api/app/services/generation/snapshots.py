@@ -29,7 +29,8 @@ def build_inputs(entry, resolved, grades, supporting, resolved_dicts, current_ho
                 "event_at": int(rt.trade.traded_at.timestamp()), "season": facts.season,
                 "target": {"slot": "trade_stories", "key": tx}}})
     season = entry.league_season_by_id.get(entry.league_id, 0)
-    week = int((entry.week_recap or {}).get("week") or 0)
+    period = getattr(entry, "generation_period", {}) or {}
+    week = int(period.get("week") or 0) if period.get("season") == season else 0
     common = {"season": season, "week": week, "event_at": stamp()}
     event = f"{season}:week:{week:02d}"
     for scope, owners in owner_rating_facts_by_scope(entry).items():

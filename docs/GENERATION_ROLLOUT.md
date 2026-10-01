@@ -22,6 +22,8 @@ Use **Pause all paid work** for ordinary incidents. For deployment-level shutdow
 
 For a timeout or lost response, inspect the immutable request/receipt and provider request ID. Do not infer “not sent” from elapsed time. Stop the original sending process first. Record provider evidence, then either record proven non-submission or abandon the uncertain attempt while leaving cost explicitly unknown. Both actions cancel the original job; replacement needs a new exact campaign preview and approval. Never reset an attempt's call allowance.
 
+If a successful late receipt settles the original attempt, **Resume settled work** replays its saved response and continues only the original remaining allowance. Unsettled attempts still block resume. Local receipt/accounting or artifact-storage failures and graceful worker shutdown hold the job for recovery; after storage is healthy and saved receipts reconcile, **Resume remaining steps** reuses completed stages. Resume is audited, reruns validation, and rechecks permission and publication gates. It cannot revive cancelled or restored authorizations.
+
 A failed file projection can retry the same saved artifact from **outbox**. This makes zero AI calls. A content correction is proposed from the current artifact, with a reason; preview and approval create a separate bounded authorization. Original Analyst editions and existing revision/share addresses remain intact.
 
 ## Restore

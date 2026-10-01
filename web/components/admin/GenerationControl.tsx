@@ -308,6 +308,7 @@ export function GenerationControl() {
                   setDetail(await generationRequest(`/jobs/${row.id}`));
                 }, "Job evidence loaded.", false)}>Inspect</button>
                 {row.state === "held" && <button className={secondary} disabled={blocked} onClick={() => jobAction(row, "resume")}>Resume remaining steps</button>}
+                {row.state === "needs_attention" && row.reason === "provider_outcome_unknown" && <button className={secondary} disabled={blocked} onClick={() => jobAction(row, "resume")}>Resume settled work</button>}
                 {!["succeeded", "cancelled"].includes(row.state || "") && <button className={secondary} disabled={blocked} onClick={() => jobAction(row, "cancel")}>Cancel</button>}
               </div>}
               {kind === "outbox" && !!row.error && <button className={secondary} disabled={blocked} onClick={() => act(

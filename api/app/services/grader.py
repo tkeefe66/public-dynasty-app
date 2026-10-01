@@ -1752,23 +1752,36 @@ class GraderService:
         # the (possibly frozen) production series — a figure in the lead has to
         # reconcile with the standings on the same page.
         week_recap: dict = {}
-        if league_phase.get("phase") == "regular":
-            try:
-                from app.services.league_phase import playoff_start_by_season
-                from app.services.week_recap import (
-                    derive_week_recap, latest_completed_regular_week, traded_pids_by_user,
-                )
-                _ps_by_season = playoff_start_by_season(
-                    supporting["playoff_weeks_by_league"], supporting["league_season_by_id"],
-                )
-                _target = latest_completed_regular_week(
-                    matchups=supporting["matchups"],
-                    league_season_by_id=supporting["league_season_by_id"],
-                    playoff_start_by_season=_ps_by_season,
-                    nfl_state=_nfl_state,
-                )
-                if _target:
-                    _season, _week = _target
+        generation_period: dict = {}
+        try:
+            from app.services.league_phase import playoff_start_by_season
+            from app.services.week_recap import (
+                derive_week_recap,
+                latest_completed_regular_week,
+                traded_pids_by_user,
+            )
+            _ps_by_season = playoff_start_by_season(
+                supporting["playoff_weeks_by_league"], supporting["league_season_by_id"],
+            )
+            _target = latest_completed_regular_week(
+                matchups=supporting["matchups"],
+                league_season_by_id=supporting["league_season_by_id"],
+                playoff_start_by_season=_ps_by_season,
+                nfl_state=_nfl_state,
+            )
+            if _target:
+                _season, _week = _target
+                # The final regular week completes as the dashboard enters
+                # playoffs. Verify its scores independently of that display.
+                _expected = set(supporting["roster_to_user_by_league"].get(current_league_id, {}))
+                _scores = {rid: row.get("team_points")
+                    for (lid, wk, rid), row in supporting["matchups"].items()
+                    if lid == current_league_id and wk == _week}
+                if (_season == supporting["league_season_by_id"].get(current_league_id)
+                        and _expected and _expected <= _scores.keys()
+                        and all(_scores[rid] is not None for rid in _expected)):
+                    generation_period = {"season": _season, "week": _week}
+                if league_phase.get("phase") == "regular":
                     week_recap = derive_week_recap(
                         matchups=supporting["matchups"],
                         roster_to_user_by_league=supporting["roster_to_user_by_league"],
@@ -1780,8 +1793,8 @@ class GraderService:
                             league_season_by_id=supporting["league_season_by_id"],
                         ),
                     ) or {}
-            except Exception:
-                log.exception("week recap stage skipped; lead keeps its placeholder")
+        except Exception:
+            log.exception("completed week evidence unavailable; generation remains ineligible")
 
         # Live title-path state for the postseason lead. Value layer, never
         # frozen: who is alive changes every playoff week, so reusing a prior
@@ -1861,6 +1874,7 @@ class GraderService:
             league_phase=league_phase,
             capabilities=capabilities,
             week_recap=week_recap,
+            generation_period=generation_period,
             bracket_watch=bracket_watch,
             llm_generated_at=_llm_generated_at,
         )

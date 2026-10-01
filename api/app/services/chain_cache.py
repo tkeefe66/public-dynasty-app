@@ -104,6 +104,9 @@ class ChainCacheEntry:
     # layer, always recomputed, never frozen. Empty on pre-feature caches and
     # outside the regular season -> the lead keeps its placeholder skeleton.
     week_recap: dict = field(default_factory=dict)
+    # Completed regular-season input period, independent of dashboard phase.
+    # Empty until a free refresh verifies scores for every current roster.
+    generation_period: dict = field(default_factory=dict)
     # What this league supports: {"format", "future_picks", "roster_continuity",
     # "multiyear_history"} (see engine/capabilities.py). Same tier as
     # league_phase — as-of-today value layer, always recomputed, never frozen.
