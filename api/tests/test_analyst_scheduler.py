@@ -114,7 +114,8 @@ async def test_scheduler_publishes_without_chain_cache_or_grader(tmp_path, monke
         assert "Alice 25.00, Bob 15.00" in saved["markdown"]
         writer.write.assert_not_called()
     else:
-        assert saved["markdown"] == "## Week one\nAlice wins."
+        assert saved["edition_type"] == "results"
+        writer.write.assert_not_called()
     assert not (tmp_path / "chain_123.json").exists()
     client.close.assert_awaited_once()
 

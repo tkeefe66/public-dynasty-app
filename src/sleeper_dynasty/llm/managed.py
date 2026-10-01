@@ -60,4 +60,7 @@ class ManagedClient:
         response = future.result()
         self.stage = stage
         self.last_response = response
-        return Message.model_validate(response)
+        message = Message.model_validate(response)
+        if message.stop_reason not in ("end_turn", "tool_use"):
+            raise ValueError("Provider output is incomplete; no automatic continuation is authorized")
+        return message

@@ -46,6 +46,8 @@ class Policy(StrictModel):
             raise ValueError("Unknown feature; register its execution contract first")
         defaults = feature_defaults()
         for key, value in self.features.items():
+            if key == "analyst" and value.max_calls not in (2, 4):
+                raise ValueError("Analyst requires draft plus review, optionally one correction plus review")
             if key != "analyst" and value.max_calls > 2:
                 raise ValueError("Story and blurb workflows permit at most two calls")
             defaults[key] = value
@@ -65,6 +67,16 @@ def paid_capabilities(raw: dict | None) -> dict | None:
         return Capabilities.model_validate(raw).model_dump()
     except (ValueError, TypeError):
         return None
+
+
+def supports_feature(capabilities, provider, feature):
+    if not capabilities or provider not in ("sleeper", "yahoo") or feature not in FEATURES:
+        return False
+    if feature == "analyst":
+        return provider == "sleeper"
+    if feature == "franchise_blurb":
+        return capabilities["roster_continuity"]
+    return True
 
 
 def merge(left: dict, right: dict) -> dict:

@@ -181,6 +181,7 @@ class ChainCacheEntry:
     # not []) so the frontend omits the panel until the next refresh stamps it.
     draft_needs: dict[str, list[dict]] = field(default_factory=dict)
     schema_version: int = SCHEMA_VERSION
+    generation_inputs: list[dict] = field(default_factory=list)
 
 
 class ChainCache:

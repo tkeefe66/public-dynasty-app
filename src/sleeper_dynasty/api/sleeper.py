@@ -76,6 +76,7 @@ class SleeperClient:
                 playoff_round_type=settings.get("playoff_round_type", 0),
                 status=raw.get("status", "unknown"),
                 format=format_for_type(settings.get("type")),
+                format_verified=type(settings.get("type")) is int and settings["type"] in (0, 1, 2),
                 standings_settings={k: settings.get(k, 0) for k in ("divisions", "league_average_match", "playoff_seed_type")},
             ))
         return leagues
@@ -348,6 +349,7 @@ class SleeperClient:
             playoff_round_type=settings.get("playoff_round_type", 0),
             status=raw.get("status", "unknown"),
             format=format_for_type(settings.get("type")),
+            format_verified=type(settings.get("type")) is int and settings["type"] in (0, 1, 2),
             standings_settings={k: settings.get(k, 0) for k in ("divisions", "league_average_match", "playoff_seed_type")},
         )
         prev_id = raw.get("previous_league_id")

@@ -17,7 +17,7 @@ from app.services.generation.models import (
     ProviderAttempt,
     stamp,
 )
-from app.services.generation.policy import paid_capabilities
+from app.services.generation.policy import paid_capabilities, supports_feature
 from app.services.generation.store import (
     Held,
     digest,
@@ -63,8 +63,13 @@ class Gateway:
             season = await db.get(LeagueSeason, job.league_id)
             if not season or not season.verified_at or not paid_capabilities(json.loads(season.capabilities_json)):
                 raise Held("capability_unknown")
-            if job.feature == "analyst" and season.provider != "sleeper":
+            if not supports_feature(json.loads(season.capabilities_json), season.provider, job.feature):
                 raise Held("feature_unsupported")
+            if job.actor_kind == "scheduler":
+                from app.services.generation.planner import automatic_reason
+                reason = automatic_reason(season, job.feature, json.loads(job.payload_json), stamp())
+                if reason:
+                    raise Held(reason)
             if job.feature not in config["policy"]["features"]:
                 raise Held("feature_unregistered")
             feature = config["policy"]["features"][job.feature]
@@ -87,6 +92,8 @@ class Gateway:
             if set(request) - {"model", "max_tokens", "system", "messages", "tools", "tool_choice"}:
                 raise Held("request_option_unregistered")
             snapshot = pricing(allowed_model)
+            if hasattr(self.transport, "check_ready"):
+                self.transport.check_ready()
             pending = await db.scalar(select(func.count()).select_from(ProviderAttempt).where(
                 ProviderAttempt.state.in_(UNRESOLVED)))
             if pending >= config["policy"]["max_concurrency"]:

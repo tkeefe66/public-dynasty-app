@@ -387,6 +387,10 @@ class YahooAdapter:
             or _truth(settings.get("uses_roster_import"))
             else "redraft",
             standings_settings={"playoff_seed_type": 0},
+            format_verified=any(
+                settings.get(key) in (0, 1, "0", "1")
+                for key in ("is_keeper_league", "uses_roster_import")
+            ),
         )
         self._metadata[league_id] = meta
         self._leagues[league_id] = (league, renew_to_league_key(meta.get("renew")))

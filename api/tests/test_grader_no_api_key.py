@@ -15,6 +15,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import httpx
+import pytest
 
 from app.services.grader import GraderService
 
@@ -81,8 +82,16 @@ def _no_network(*a, **k):
     raise RuntimeError("network disabled in test")
 
 
-def test_run_skips_prose_cleanly_with_no_api_key(monkeypatch, caplog):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+@pytest.mark.parametrize("configured", [False, True])
+def test_refresh_never_constructs_paid_writers(monkeypatch, caplog, configured):
+    if configured:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-never-sent")
+    else:
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    constructed = []
+    def poison(*args, **kwargs):
+        constructed.append(True)
+        return _PoisonWriter(*args, **kwargs)
 
     # Poison every real writer class the generation stages would construct.
     # If the no-key gate fails to bypass a stage, instantiation raises
@@ -90,9 +99,9 @@ def test_run_skips_prose_cleanly_with_no_api_key(monkeypatch, caplog):
     import sleeper_dynasty.llm.trade_story_writer as tsw
     import sleeper_dynasty.llm.gm_rating_blurb_writer as gbw
     import sleeper_dynasty.llm.franchise_outlook_writer as fow
-    monkeypatch.setattr(tsw, "TradeStoryWriter", _PoisonWriter)
-    monkeypatch.setattr(gbw, "GmRatingBlurbWriter", _PoisonWriter)
-    monkeypatch.setattr(fow, "FranchiseOutlookWriter", _PoisonWriter)
+    monkeypatch.setattr(tsw, "TradeStoryWriter", poison)
+    monkeypatch.setattr(gbw, "GmRatingBlurbWriter", poison)
+    monkeypatch.setattr(fow, "FranchiseOutlookWriter", poison)
 
     # This minimal fake client is deliberately thin (no draft/projection
     # endpoints) so those unrelated stages fall back to their existing
@@ -120,13 +129,16 @@ def test_run_skips_prose_cleanly_with_no_api_key(monkeypatch, caplog):
     assert entry.trade_stories == {}
     assert entry.owner_rating_blurbs == {}
     assert entry.franchise_blurbs == {}
+    assert constructed == []
+    assert any(c["feature"] == "trade_story" for c in entry.generation_inputs)
 
     # Detected once, up front, and logged at INFO -- not per-stage, and not
     # the wall of tracebacks a retried TypeError would have produced.
     key_msgs = [r for r in caplog.records if "ANTHROPIC_API_KEY" in r.message]
-    assert len(key_msgs) == 1
-    assert key_msgs[0].levelno == logging.INFO
-    assert "skip" in key_msgs[0].message.lower()
+    assert len(key_msgs) == (0 if configured else 1)
+    if not configured:
+        assert key_msgs[0].levelno == logging.INFO
+        assert "skip" in key_msgs[0].message.lower()
 
     # The specific regression this fix closes: no retry-round log line for
     # any of the three prose stages (that log only fires from inside the

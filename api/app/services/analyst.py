@@ -7,6 +7,7 @@ import logging
 import math
 import os
 from collections import Counter
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,11 @@ from sleeper_dynasty.llm.recap_writer import RecapWriter
 from sleeper_dynasty.models.player import build_players
 
 log = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _no_fence():
+    yield None
 
 
 def complete_results(results, rosters, week: int) -> bool:
@@ -61,13 +67,16 @@ def advance_standings(rosters, results):
 
 async def generate_analyst(client, entry, cache_dir: Path, *, skip_llm=False, writer=None,
                            correction_week: int | None = None, correction_reason: str | None = None,
-                           now: datetime | None = None):
+                           now: datetime | None = None, publication_fence=None):
     """Catch up missing regular-season editions in order; retry on next refresh.
 
 No historic-season bulk generation. The first current-season refresh catches up
 completed weeks. Budget checks run per edition; page reads never invoke an LLM.
 """
     league_id = entry.league_id
+    # Production refreshes only collect evidence and publish deterministic results.
+    # Explicitly injected writers remain usable for pure tests.
+    skip_llm = skip_llm or writer is None
     # Analyst archives currently support Sleeper leagues only.
     if ".l." in league_id:
         return
@@ -107,8 +116,6 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                             (now or datetime.now(timezone.utc)).timestamp()):
                         continue
                     try:
-                        if active_writer is None:
-                            active_writer = RecapWriter(cost_store=LlmCostStore(cache_dir), league_id=league_id)
                         # A later retry must preserve the original scores, bets,
                         # profiles, news chronology and next-week forecast.
                         facts = ArchivedPacket(previous["facts"])
@@ -176,7 +183,7 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                 )
                 if len(facts.matchups) * 2 != len(results):
                     raise ValueError(f"Week {week} recap is missing matchup scores; retry after complete results")
-                if use_ai:
+                if use_ai or week == last_week:
                     try:
                         facts.player_context = await load_player_context(
                             cache_dir, league.season, week, results, players)
@@ -223,8 +230,6 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                 model = "verified-results-v1"
                 if use_ai:
                     try:
-                        if active_writer is None:
-                            active_writer = RecapWriter(cost_store=LlmCostStore(cache_dir), league_id=league_id)
                         markdown = await asyncio.to_thread(active_writer.write, facts, lore=lore, outlook=outlook)
                         if not isinstance(markdown, str) or not markdown.strip():
                             raise ValueError("Analyst returned empty text")
@@ -247,11 +252,11 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                     "sources": facts.player_context.get("sources", []) if edition_type == "roast" else [],
                     "context_note": facts.player_context.get("note") if edition_type == "roast" else None,
                 }
-                if correction_week is not None:
-                    # Already holds the generation claim; retain it through publication.
-                    store.save_correction(league_id, edition, correction_reason, claimed=True)
-                else:
-                    store.save(league_id, edition)
+                async with (publication_fence or _no_fence)():
+                    if correction_week is not None:
+                        store.save_correction(league_id, edition, correction_reason, claimed=True)
+                    else:
+                        store.save(league_id, edition)
                 log.info("Saved Analyst league=%s season=%s week=%s type=%s", league_id, league.season, week, edition_type)
     except Exception:
         log.exception("Analyst generation failed for %s; saved editions preserved; retry on next refresh", league_id)

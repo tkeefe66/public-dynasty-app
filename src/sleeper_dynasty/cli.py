@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import anthropic
+from sleeper_dynasty.llm.managed import UnmanagedGenerationError
 
 from sleeper_dynasty.api.fantasycalc import fetch_fantasycalc_values
 from sleeper_dynasty.api.ktc import build_pick_value_table, fetch_ktc_values
@@ -1038,6 +1039,9 @@ async def _run_recap(args: argparse.Namespace) -> None:
         writer = RecapWriter(model=args.model, persona=persona)
         try:
             markdown = writer.write(facts, lore=lore, outlook=outlook)
+        except UnmanagedGenerationError as e:
+            print(str(e), file=sys.stderr)
+            return
         except anthropic.APIError as e:
             print(f"Anthropic API error: {e}", file=sys.stderr)
             return

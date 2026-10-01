@@ -35,12 +35,14 @@ async def require_actor(db, job: GenerationOperation):
         LeagueMembership.league_id == job.league_id))).all())
     if not member_ids:
         raise Held("membership_removed")
-    if job.actor_kind != "scheduler":
+    if job.actor_kind != "scheduler" or job.kind == "generation":
         user = await db.get(User, job.actor_id)
         if not user:
             raise Held("actor_removed")
-        if job.kind == "generation" and not user.is_admin:
-            raise Held("admin_permission_removed")
+        if job.kind == "generation":
+            from app.config import get_settings
+            if not user.is_admin or user.email.lower() not in get_settings().admin_email_list:
+                raise Held("admin_permission_removed")
         if job.actor_id not in member_ids and not (user.is_admin and ".l." not in job.league_id):
             raise Held("membership_removed")
     if ".l." in job.league_id:
@@ -200,12 +202,16 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
         raise Held("provider_outcome_unknown")
     from app.services.generation.models import ArtifactHead
     head = await db.get(ArtifactHead, candidate.subject)
+    if head and head.hold:
+        raise Held(head.hold)
+    connection = await db.get(YahooConnection, actor_id) if ".l." in candidate.league_id else None
     row = GenerationOperation(kind="generation", league_id=candidate.league_id,
         series_id=candidate.series_id, feature=candidate.feature, subject=candidate.subject,
         authorization_key=authorization_key, active_key="generate:" + candidate.subject,
         candidate_key=candidate.key, request_digest=candidate.digest,
         payload_json=candidate.payload_json, policy_json=dump(settings),
         actor_id=actor_id, actor_kind=actor_kind, max_calls=feature["max_calls"],
+        connection_generation=connection.generation if connection else "",
         expected_artifact=head.artifact_id if head else "", epoch=control.epoch, reason=reason)
     await require_actor(db, row)
     db.add(row)
@@ -226,6 +232,7 @@ async def attention(db, operation_id, generation, code):
         breakers = json.loads(control.breakers_json)
         item = breakers.setdefault(job.feature, {"failures": 0, "open": False})
         item["failures"] += 1
-        item["open"] = item["open"] or item["failures"] >= 3
+        settings = await resolve_policy(db, job.series_id)
+        item["open"] = item["open"] or item["failures"] >= settings["policy"]["breaker_failures"]
         control.breakers_json = dump(breakers)
     return job

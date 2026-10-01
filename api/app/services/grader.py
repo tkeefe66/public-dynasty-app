@@ -468,7 +468,6 @@ class GraderService:
         )
 
         from app.config import get_settings as _get_settings
-        _llm_model_override: str | None = _get_settings().llm_model
 
         # Detected once, up front: with no key configured, every prose stage
         # below (trade stories, GM blurbs, franchise outlooks) would otherwise
@@ -537,6 +536,7 @@ class GraderService:
                 "league_id": lg.league_id, "season": lg.season,
                 "name": lg.name, "total_rosters": lg.total_rosters,
                 "playoff_week_start": lg.playoff_week_start,
+                "format_verified": getattr(lg, "format_verified", False),
             }
             for lg in chain
         ]
@@ -729,7 +729,7 @@ class GraderService:
         # budget guard, rather than constructing a real writer that can only
         # fail. A test-injected `_story_writer` still runs regardless of the
         # environment (it never touches the network).
-        _no_key_stories = _llm_key_missing and _story_writer is None
+        _no_key_stories = _story_writer is None
         if skip_llm or _no_key_stories:
             # Budget guard or no API key configured: generate no new prose;
             # reuse whatever was last cached.
@@ -741,15 +741,12 @@ class GraderService:
                     "LLM skipped: monthly budget reached")
                 await progress_cb("stories", "Skipping trade stories (LLM budget reached)")
             else:
-                await progress_cb("stories", "Skipping trade stories (no ANTHROPIC_API_KEY)")
+                await progress_cb("stories", "Reusing saved stories; generation managed separately")
         else:
             await progress_cb("stories", "Writing trade stories")
             try:
                 from app.services.story_gen import generate_stories
                 writer = _story_writer
-                if writer is None:
-                    from sleeper_dynasty.llm.trade_story_writer import TradeStoryWriter
-                    writer = TradeStoryWriter(model=_llm_model_override) if _llm_model_override else TradeStoryWriter()  # reads ANTHROPIC_API_KEY
                 prior = {}
                 if cache_dir is not None:
                     prev = read_prior()
@@ -1868,7 +1865,7 @@ class GraderService:
             llm_generated_at=_llm_generated_at,
         )
 
-        _no_key_blurbs = _llm_key_missing and _blurb_writer is None
+        _no_key_blurbs = _blurb_writer is None
         if skip_llm or _no_key_blurbs:
             _prev_b = read_prior()
             entry.owner_rating_blurbs = (
@@ -1876,7 +1873,7 @@ class GraderService:
             )
             if not skip_llm:
                 await progress_cb(
-                    "owner_blurbs", "Skipping GM profiles (no ANTHROPIC_API_KEY)")
+                    "owner_blurbs", "Reusing saved GM profiles")
         else:
             await progress_cb("owner_blurbs", "Writing GM profiles")
             try:
@@ -1884,9 +1881,6 @@ class GraderService:
                     generate_owner_rating_blurbs, owner_rating_facts_by_scope,
                 )
                 blurb_writer = _blurb_writer
-                if blurb_writer is None:
-                    from sleeper_dynasty.llm.gm_rating_blurb_writer import GmRatingBlurbWriter
-                    blurb_writer = GmRatingBlurbWriter(model=_llm_model_override) if _llm_model_override else GmRatingBlurbWriter()  # reads ANTHROPIC_API_KEY
                 prior_blurbs: dict = {}
                 if cache_dir is not None:
                     prev_b = read_prior()
@@ -1912,7 +1906,7 @@ class GraderService:
             # as the budget guard. Constructing the real writer is deferred
             # into that branch so a missing key never builds one that can
             # only fail the call.
-            _no_key_franchise = _llm_key_missing and _franchise_writer is None
+            _no_key_franchise = _franchise_writer is None
 
             # Signature trade per owner = highest realized received_ktc.
             best_by_uid: dict[str, tuple[float, str]] = {}
@@ -1983,14 +1977,9 @@ class GraderService:
                 if not skip_llm:
                     await progress_cb(
                         "franchise_blurbs",
-                        "Skipping franchise outlooks (no ANTHROPIC_API_KEY)")
+                        "Reusing saved franchise outlooks")
             else:
                 fr_writer = _franchise_writer
-                if fr_writer is None:
-                    from sleeper_dynasty.llm.franchise_outlook_writer import (
-                        FranchiseOutlookWriter,
-                    )
-                    fr_writer = FranchiseOutlookWriter(model=_llm_model_override) if _llm_model_override else FranchiseOutlookWriter()  # reads ANTHROPIC_API_KEY
                 entry.franchise_blurbs = await generate_franchise_blurbs(
                     facts_by_owner=facts_by_owner, prior_blurbs=prior_fr,
                     writer=fr_writer, progress_cb=progress_cb,
@@ -2001,6 +1990,18 @@ class GraderService:
             log.exception("franchise blurb stage failed")
             entry.warnings.append(f"franchise blurbs skipped: {e}")
 
+        if not any((_story_writer, _blurb_writer, _franchise_writer)):
+            entry.llm_generated_at = _prev_llm_at
+        # Facts are free; paid work is admitted later against durable policy.
+        from app.services.generation.snapshots import build_inputs
+        try:
+            entry.generation_inputs = build_inputs(
+                entry, resolved, grades, supporting, resolved_dicts,
+                current_holders, facts_by_owner if "facts_by_owner" in locals() else {},
+            )
+        except Exception:
+            log.exception("generation facts unavailable for %s", current_league_id)
+            entry.warnings.append("Generation facts could not be prepared; saved prose retained.")
         return entry
 
     async def _compute_became(

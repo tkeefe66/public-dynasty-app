@@ -426,7 +426,7 @@ async def test_shared_refresh_invokes_generation_after_writing_cache(
     async def generate(client, result, cache_dir, *, skip_llm):
         assert ChainCache(cache_dir).read("123") is not None
         assert result.league_id == "123"
-        assert skip_llm is False
+        assert skip_llm is True
     spy = AsyncMock(side_effect=generate)
     monkeypatch.setattr(analyst, "generate_analyst", spy)
     await refresh_service.refresh_league(object(), "123", cache_dir=tmp_path)

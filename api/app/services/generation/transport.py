@@ -15,6 +15,10 @@ class Receipt:
 
 
 class AnthropicTransport:
+    def check_ready(self):
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise Held("provider_key_missing")
+
     async def send(self, request: dict) -> Receipt:
         key = os.environ.get("ANTHROPIC_API_KEY")
         if not key:

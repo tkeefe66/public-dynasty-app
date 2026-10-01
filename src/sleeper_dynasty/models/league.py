@@ -23,6 +23,8 @@ class League:
     # silently demote a league.
     format: str = "dynasty"
     standings_settings: dict = field(default_factory=dict)
+    # Permission evidence: display defaults never authorize paid processing.
+    format_verified: bool = False
 
 
 @dataclass

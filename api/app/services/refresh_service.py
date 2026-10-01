@@ -104,6 +104,7 @@ async def refresh_league(
     cache_dir: Path,
     force: bool = False,
     progress_cb=None,
+    generation_fence=None,
 ):
     """Refresh one league: run the grader, write the ChainCache. Returns the entry.
 
@@ -122,14 +123,27 @@ async def refresh_league(
         if OwnerIdentityStore(cache_dir).read(league_id).version != entry.owner_identity_version:
             raise ValueError("Owner links changed during refresh. Retry to rebuild with the current links.")
 
-    ChainCache(cache_dir=cache_dir).write(league_id, entry)
+    if generation_fence:
+        from app.services.generation.planner import collect
+        async with generation_fence() as db:
+            await collect(db, entry, cache_dir)
+            ChainCache(cache_dir=cache_dir).write(league_id, entry)
+    else:
+        ChainCache(cache_dir=cache_dir).write(league_id, entry)
     log.info("refresh complete for %s (%d trades)",
              league_id, len(entry.resolved_trades or []))
     await _snapshot_ratings(client, league_id, entry, cache_dir)
     from app.services.player_context import collect_player_news
     await collect_player_news(client, league_id, cache_dir)
     from app.services.analyst import generate_analyst
-    await generate_analyst(client, entry, cache_dir, skip_llm=await _llm_over_budget(cache_dir))
+    options = {"publication_fence": generation_fence} if generation_fence else {}
+    await generate_analyst(client, entry, cache_dir, skip_llm=True, **options)
+    if generation_fence:
+        from app.services.generation.planner import collect_analyst
+        from app.services.generation.models import LeagueSeason
+        async with generation_fence() as db:
+            season = await db.get(LeagueSeason, league_id)
+            await collect_analyst(db, league_id, season.series_id, cache_dir)
     return entry
 
 

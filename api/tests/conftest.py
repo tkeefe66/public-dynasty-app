@@ -23,6 +23,12 @@ FAKE_USER = SimpleNamespace(id="test-user", email="admin@test.local", is_admin=T
 
 
 @pytest.fixture(autouse=True)
+def generation_owner_allowlist(request, monkeypatch):
+    if request.node.path.name.startswith("test_generation"):
+        monkeypatch.setenv("TRADE_GRADER_ADMIN_EMAILS", "owner@test.local,admin@test.local")
+
+
+@pytest.fixture(autouse=True)
 def isolate_player_context_network(monkeypatch):
     """Source tests inject public payloads; no API test reaches real news feeds."""
     from sleeper_dynasty.api.player_context import PlayerContextClient, SourceUnavailable
