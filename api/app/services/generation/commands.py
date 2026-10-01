@@ -35,7 +35,9 @@ async def require_actor(db, job: GenerationOperation):
         LeagueMembership.league_id == job.league_id))).all())
     if not member_ids:
         raise Held("membership_removed")
-    if job.actor_kind != "scheduler" or job.kind == "generation":
+    if not job.actor_id:
+        raise Held("actor_removed")
+    if job.actor_id:
         user = await db.get(User, job.actor_id)
         if not user:
             raise Held("actor_removed")
@@ -53,14 +55,16 @@ async def require_actor(db, job: GenerationOperation):
         if (not connection or connection.status != "connected" or not grant
                 or grant.generation != connection.generation
                 or connection.generation != job.connection_generation
-                or grant.expires_at <= stamp()):
+                or (job.kind == "generation" and grant.expires_at <= stamp())):
             raise Held("provider_grant_changed")
 
 
 async def submit_refresh(db, league_id: str, actor_id: str, *,
-                         actor_kind="member", idempotency_key: str | None = None):
+                         actor_kind="member", idempotency_key: str | None = None, kind="refresh"):
+    if kind not in ("refresh", "analyst_refresh"):
+        raise ValueError("Unregistered free refresh kind")
     await lock_control(db)
-    request_hash = digest({"league_id": league_id, "actor_kind": actor_kind})
+    request_hash = digest({"league_id": league_id, "actor_kind": actor_kind, "kind": kind})
     key = f"{actor_id}:{idempotency_key}" if idempotency_key else None
     if key:
         prior = await db.get(GenerationSubmission, key)
@@ -81,18 +85,18 @@ async def submit_refresh(db, league_id: str, actor_id: str, *,
         return await remember(active)
     last = await db.scalar(select(GenerationOperation).where(
         GenerationOperation.league_id == league_id,
-        GenerationOperation.kind == "refresh").order_by(
+        GenerationOperation.kind == kind).order_by(
             GenerationOperation.created_at.desc()).limit(1))
     # Rate-limited requests join a recent result instead of buying new I/O.
     interval = 900
-    if actor_kind == "scheduler":
+    if actor_kind == "scheduler" and kind == "refresh":
         season = await db.get(LeagueSeason, league_id)
         config = await resolve_policy(db, season.series_id if season else "")
         interval = config["policy"]["refresh_interval_seconds"]
     if last and last.created_at > stamp() - interval:
         return await remember(last)
     connection = await db.get(YahooConnection, actor_id) if ".l." in league_id else None
-    row = GenerationOperation(kind="refresh", league_id=league_id,
+    row = GenerationOperation(kind=kind, league_id=league_id,
         actor_id=actor_id, actor_kind=actor_kind, active_key=active_key,
         idempotency_key=key, request_digest=request_hash,
         connection_generation=connection.generation if connection else "")
@@ -122,8 +126,13 @@ async def claim_operation(db, worker_id: str, *, now: int | None = None):
         job.updated_at = now
     await db.flush()
     query = select(GenerationOperation).where(GenerationOperation.state == "queued")
+    free_running = await db.scalar(select(GenerationOperation.id).where(
+        GenerationOperation.state == "running",
+        GenerationOperation.kind.in_(("refresh", "analyst_refresh"))).limit(1))
+    if free_running:
+        query = query.where(GenerationOperation.kind == "generation")
     if control.hold or control.provider_hold or control.cooldown_until > now:
-        query = query.where(GenerationOperation.kind == "refresh")
+        query = query.where(GenerationOperation.kind.in_(("refresh", "analyst_refresh")))
     job = await db.scalar(query.order_by(GenerationOperation.created_at).with_for_update(skip_locked=True).limit(1))
     if job:
         job.state = "running"

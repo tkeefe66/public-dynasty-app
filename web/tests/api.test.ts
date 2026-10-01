@@ -8,36 +8,52 @@ describe("api client", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  it("turns a Yahoo provider limit into an actionable refresh error", () => {
-    // Mutation: discarding server error-event data hides the provider limit.
-    let stream: EventTarget & { close: ReturnType<typeof vi.fn> };
-    class TestEventSource extends EventTarget {
-      close = vi.fn();
-      constructor() { super(); stream = this; }
-    }
-    vi.stubGlobal("EventSource", TestEventSource);
+  it("turns a durable Yahoo provider hold into an actionable error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: "job", state: "needs_attention", reason: "yahoo_rate_limited", progress: {},
+      message: "private upstream details",
+    }), { status: 202 }));
     const onEvent = vi.fn();
     refreshStream("synthetic-league", onEvent);
-    stream!.dispatchEvent(new MessageEvent("error", {
-      data: JSON.stringify({ stage: "error", error_code: "yahoo_rate_limited", message: "private upstream details" }),
-    }));
-    expect(onEvent).toHaveBeenCalledWith({ stage: "error", message: expect.stringMatching(/Yahoo.*wait/i) });
+    await vi.waitFor(() => expect(onEvent).toHaveBeenCalledWith({ stage: "error", message: expect.stringMatching(/Yahoo.*wait/i) }));
     expect(onEvent.mock.calls[0][0].message).not.toContain("private");
-    expect(stream!.close).toHaveBeenCalledOnce();
   });
 
-  it.each([undefined, "not-json", '{"message":"private upstream details"}'])("keeps unknown stream failures generic (%s)", (data) => {
-    // Mutation: echoing arbitrary error payloads exposes internal failures.
-    let stream: EventTarget;
-    class TestEventSource extends EventTarget {
-      close() {}
-      constructor() { super(); stream = this; }
-    }
-    vi.stubGlobal("EventSource", TestEventSource);
+  it("keeps server exceptions private", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ detail: "private upstream details" }), { status: 500 }));
     const onEvent = vi.fn();
     refreshStream("synthetic-league", onEvent);
-    stream!.dispatchEvent(data === undefined ? new Event("error") : new MessageEvent("error", { data }));
-    expect(onEvent).toHaveBeenCalledWith({ stage: "error", message: "The refresh stopped before it finished. Try again." });
+    await vi.waitFor(() => expect(onEvent).toHaveBeenCalledWith({ stage: "error", message: expect.stringMatching(/needs attention/) }));
+    expect(onEvent.mock.calls[0][0].message).not.toContain("private");
+  });
+
+  it("submits once, observes with GET, and finishes without another submission", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "job", state: "queued", reason: "", progress: {} }), { status: 202 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "job", state: "succeeded", reason: "", progress: {} })));
+    const onEvent = vi.fn();
+    refreshStream("synthetic-league", onEvent);
+    await vi.runAllTimersAsync();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[0][1]?.method).toBe("POST");
+    expect(fetchSpy.mock.calls[1][1]?.method).toBeUndefined();
+    expect(fetchSpy.mock.calls[1][0]).toContain("/refresh-jobs/job");
+    expect(onEvent).toHaveBeenLastCalledWith({ stage: "done" });
+    vi.useRealTimers();
+  });
+
+  it("closing the watcher never cancels the durable job", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "job", state: "queued", progress: {} })));
+    const onEvent = vi.fn();
+    const watcher = refreshStream("synthetic-league", onEvent);
+    watcher.close();
+    await vi.runAllTimersAsync();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(fetchSpy.mock.calls[0][0]).toMatch(/refresh-jobs$/);
+    vi.useRealTimers();
   });
 
   it("dashboard appends year+lens query params", async () => {

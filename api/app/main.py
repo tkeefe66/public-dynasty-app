@@ -16,6 +16,7 @@ from app.ratelimit import limiter
 from app.services.backup_service import backup_loop
 from app.services.analyst_scheduler import analyst_loop
 from app.services.refresh_service import auto_refresh_loop
+from app.services.generation.worker import worker_loop
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         # Create the identity DB engine eagerly (one pool, no first-request race).
         init_engine()
-        tasks = []
+        tasks = [asyncio.create_task(worker_loop(settings.cache_dir))]
         # Liveness: keep known leagues warm in the background.
         if settings.auto_refresh:
             tasks.append(asyncio.create_task(auto_refresh_loop(
@@ -53,7 +54,7 @@ def create_app() -> FastAPI:
             log.info("auto-refresh scheduler started (every %ss)",
                      settings.refresh_interval_seconds)
             tasks.append(asyncio.create_task(analyst_loop(settings.cache_dir)))
-            log.info("Analyst scheduler started (checks every 15 minutes; persistent retry backoff)")
+            log.info("Analyst scheduler started (submits free checks every 15 minutes)")
         # Durability: daily backup of Postgres + the cache volume to R2.
         if settings.backup_configured:
             tasks.append(asyncio.create_task(backup_loop(settings.cache_dir)))

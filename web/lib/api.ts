@@ -412,34 +412,65 @@ export function setBudget(monthlyBudgetUsd: number): Promise<BudgetStatus> {
   });
 }
 
+export interface RefreshJob {
+  id: string;
+  state: string;
+  reason: string;
+  progress: { stage?: string; message?: string; done?: number; total?: number };
+}
+
 export function refreshStream(
   leagueId: string,
   onEvent: (e: { stage: string; message?: string; done?: number; total?: number }) => void,
-): EventSource {
-  const es = new EventSource(
-    `${BASE}/league/${leagueId}/refresh`,
-    { withCredentials: false } as EventSourceInit,
-  );
-  es.addEventListener("progress", (ev) => {
-    onEvent(JSON.parse((ev as MessageEvent).data));
-  });
-  es.addEventListener("done", (ev) => {
-    onEvent(JSON.parse((ev as MessageEvent).data));
-    es.close();
-  });
-  es.addEventListener("error", (ev) => {
-    let message = "The refresh stopped before it finished. Try again.";
-    try {
-      // Only known error codes become user-facing copy; never echo exceptions.
-      const payload = JSON.parse((ev as MessageEvent).data);
-      if (payload?.error_code === "yahoo_rate_limited") {
-        message = "Yahoo is limiting API access right now. Please wait before retrying. Your league is saved, and completed seasons will be reused.";
-      }
-    } catch { /* Network failures have no JSON payload. */ }
+): { close: () => void } {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
+  let polls = 0;
+  const close = () => {
+    closed = true;
+    controller.abort();
+    if (timer !== undefined) clearTimeout(timer);
+  };
+  const error = (reason?: string) => {
+    if (closed) return;
+    const message = reason === "yahoo_rate_limited"
+      ? "Yahoo is limiting API access right now. Please wait before retrying. Your league is saved, and completed seasons will be reused."
+      : "The refresh needs attention. Your saved data is retained; the administrator can inspect its job.";
     onEvent({ stage: "error", message });
-    es.close();
-  });
-  return es;
+    close();
+  };
+  const observe = async (job: RefreshJob): Promise<void> => {
+    if (closed) return;
+    if (job.state === "succeeded") {
+      onEvent({ stage: "done" });
+      close();
+      return;
+    }
+    if (["held", "needs_attention", "cancelled", "superseded"].includes(job.state)) {
+      error(job.reason);
+      return;
+    }
+    onEvent({ ...job.progress, stage: job.progress.stage || "queued",
+      message: job.progress.message || "Refresh queued. You can leave this page while it runs." });
+    if (++polls >= 300) {
+      onEvent({ stage: "error", message: "Refresh is still running. It will continue in the background; return later to see the updated data." });
+      close();
+      return;
+    }
+    timer = setTimeout(() => {
+      void jsonFetch<RefreshJob>(
+        `${BASE}/league/${encodeURIComponent(leagueId)}/refresh-jobs/${encodeURIComponent(job.id)}`,
+        { signal: controller.signal },
+      ).then(observe).catch(() => error());
+    }, 2000);
+  };
+  // A single POST submits work. Polling and close() never cancel or recreate it.
+  void jsonFetch<RefreshJob>(`${BASE}/league/${encodeURIComponent(leagueId)}/refresh-jobs`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idempotency_key: crypto.randomUUID() }), signal: controller.signal,
+  }).then(observe).catch(() => error());
+  return { close };
 }
 
 // ── Side bets ──────────────────────────────────────────────────────────────

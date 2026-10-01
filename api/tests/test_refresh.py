@@ -1,101 +1,77 @@
+"""Refresh execution belongs to the worker, independent of browser observers."""
 import json
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
-from app.services.chain_cache import ChainCacheEntry
+from app.services.chain_cache import ChainCache
+from app.services.generation.models import GenerationOperation
+from app.services.generation.worker import Worker
+
+from tests.test_generation_gateway import seed_job
+from tests.test_refresh_service import _entry
 
 
-def _fake_entry(league_id: str) -> ChainCacheEntry:
-    return ChainCacheEntry(
-        league_id=league_id, chain=[],
-        resolved_trades=[], grades={},
-        owners={}, playoff_weeks_by_league={},
-        roster_to_user_by_league={}, league_name_by_id={},
-        league_season_by_id={}, cached_at="2026-05-28T12:00:00Z",
-        warnings=[],
-    )
-
-
-def test_refresh_streams_events(client, tmp_path):
-    async def fake_run(self, *, client, current_league_id, progress_cb,
-                       _build_trade_history=None, _pull_supporting_data=None, **kwargs):
+@pytest.mark.asyncio
+async def test_worker_refresh_persists_progress_and_cache(maker, tmp_path, monkeypatch):
+    await seed_job(maker)
+    async with maker.begin() as db:
+        job = await db.get(GenerationOperation, "job")
+        job.kind, job.state, job.actor_kind = "refresh", "queued", "member"
+    entry = _entry(league_id="synthetic", chain=[{"league_id": "synthetic", "season": 2026,
+        "format_verified": True}], league_season_by_id={"synthetic": 2026})
+    async def grade(self, *, progress_cb, **kwargs):
+        assert kwargs["force"] is False
         await progress_cb("chain", "Walking")
-        await progress_cb("done", "All set")
-        return _fake_entry(current_league_id)
-
-    with patch("app.routes.refresh._cache_dir", return_value=tmp_path), \
-         patch("app.services.refresh_service.GraderService.run", new=fake_run):
-        with client.stream("GET", "/api/league/100000001/refresh") as resp:
-            assert resp.status_code == 200
-            chunks = []
-            for line in resp.iter_lines():
-                if line.startswith("data:"):
-                    chunks.append(json.loads(line[5:].strip()))
-    stages = [c["stage"] for c in chunks]
-    assert "chain" in stages
-    assert "done" in stages
-
-
-def test_refresh_writes_cache_on_completion(client, tmp_path):
-    async def fake_run(self, *, client, current_league_id, progress_cb,
-                       _build_trade_history=None, _pull_supporting_data=None, **kwargs):
-        await progress_cb("done", "done")
-        return _fake_entry(current_league_id)
-
-    with patch("app.routes.refresh._cache_dir", return_value=tmp_path), \
-         patch("app.services.refresh_service.GraderService.run", new=fake_run):
-        with client.stream("GET", "/api/league/100000001/refresh") as resp:
-            list(resp.iter_lines())
-    cache_file = tmp_path / "chain_100000001.json"
-    assert cache_file.exists()
+        return entry
+    client = SimpleNamespace(close=AsyncMock())
+    connected = AsyncMock(return_value=client)
+    monkeypatch.setattr("app.services.platform_client.connected_client", connected)
+    monkeypatch.setattr("app.services.grader.GraderService.run", grade)
+    monkeypatch.setattr("app.services.analyst.generate_analyst", AsyncMock())
+    monkeypatch.setattr("app.services.player_context.collect_player_news", AsyncMock())
+    await Worker(maker, tmp_path).tick()
+    assert ChainCache(tmp_path).read("synthetic") is not None
+    client.close.assert_awaited_once()
+    assert connected.call_args.kwargs["user_id"] == "owner"
+    async with maker() as db:
+        job = await db.get(GenerationOperation, "job")
+        assert job.state == "succeeded"
+        assert json.loads(job.progress_json)["stage"] == "done"
 
 
-def test_refresh_reports_provider_limit_without_exposing_exception(client, tmp_path):
-    # Mutation: dropping the typed error code leaves the user with a generic failure.
+@pytest.mark.asyncio
+async def test_provider_limit_is_saved_without_private_exception(maker, tmp_path, monkeypatch):
     from sleeper_dynasty.api.yahoo import YahooRateLimitError
-
-    with patch("app.routes.refresh._cache_dir", return_value=tmp_path), \
-         patch("app.routes.refresh.refresh_league", new=AsyncMock(
-             side_effect=YahooRateLimitError("private upstream details")
-         )):
-        response = client.get("/api/league/100000001/refresh")
-    errors = [json.loads(line[5:]) for line in response.text.splitlines()
-              if line.startswith("data:")]
-    assert errors == [{"stage": "error", "error_code": "yahoo_rate_limited"}]
-    assert "private upstream details" not in response.text
-
-
-def test_refresh_passes_force_to_grader(client, tmp_path):
-    captured = {}
-
-    async def fake_run(self, *, client, current_league_id, progress_cb,
-                       cache_dir=None, force=False, **kwargs):
-        captured["force"] = force
-        captured["cache_dir"] = cache_dir
-        await progress_cb("done", "ok")
-        return _fake_entry(current_league_id)
-
-    with patch("app.routes.refresh._cache_dir", return_value=tmp_path), \
-         patch("app.services.refresh_service.GraderService.run", new=fake_run):
-        with client.stream("GET", "/api/league/100000001/refresh?force=1") as r:
-            for _ in r.iter_lines():
-                pass
-    assert captured["force"] is True
-    assert captured["cache_dir"] is not None
+    await seed_job(maker)
+    async with maker.begin() as db:
+        job = await db.get(GenerationOperation, "job")
+        job.kind, job.state = "refresh", "queued"
+    monkeypatch.setattr(Worker, "refresh", AsyncMock(side_effect=YahooRateLimitError("private upstream details")))
+    await Worker(maker, tmp_path).tick()
+    async with maker() as db:
+        job = await db.get(GenerationOperation, "job")
+        assert job.reason == "yahoo_rate_limited"
+        assert "private" not in job.progress_json
 
 
-def test_yahoo_refresh_without_connection_fails_before_sse(client,monkeypatch,maker,app):
-    # Mutation: constructing the client inside the stream sends HTTP 200 and
-    # cannot return the connection-required response the UI needs.
-    monkeypatch.setenv('YAHOO_DEV_ACCESS_TOKEN','must-not-authorize-other-users')
-    from app.db.session import get_db
-    async def isolated_db():
-        async with maker() as db:
-            from app.db.models import User
-            db.add(User(id="test-user", google_sub="g1", email="test@example.test"))
-            await db.commit()
-            yield db
-    app.dependency_overrides[get_db] = isolated_db
-    response=client.get('/api/league/470.l.100000001/refresh')
-    assert response.status_code==409
-    assert 'connection' in response.json()['detail'].lower()
+@pytest.mark.asyncio
+async def test_revoked_manual_yahoo_actor_never_uses_another_member(maker, tmp_path, monkeypatch):
+    from app.db.models import LeagueMembership, User, YahooConnection, YahooLeagueGrant
+    from app.services.generation.models import stamp
+    await seed_job(maker)
+    lid = "470.l.100000001"
+    async with maker.begin() as db:
+        db.add(User(id="other", google_sub="other", email="other@test.local"))
+        for uid, generation in (("owner", "reconnected"), ("other", "current")):
+            db.add(LeagueMembership(user_id=uid, league_id=lid))
+            db.add(YahooConnection(user_id=uid, generation=generation, status="connected", sealed_tokens="synthetic", expires_at=stamp()+1000))
+            db.add(YahooLeagueGrant(user_id=uid, league_id=lid, generation=generation, expires_at=stamp()+1000))
+        job = await db.get(GenerationOperation, "job")
+        job.kind, job.state, job.league_id, job.connection_generation = "refresh", "queued", lid, "old-generation"
+    client = AsyncMock()
+    monkeypatch.setattr("app.services.platform_client.connected_client", client)
+    await Worker(maker, tmp_path).tick()
+    client.assert_not_awaited()
+    async with maker() as db:
+        assert (await db.get(GenerationOperation, "job")).reason == "provider_grant_changed"

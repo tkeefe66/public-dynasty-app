@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-
-from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock
 
 from app.db.engine import dispose_engine as real_dispose_engine
 from app.main import create_app
+from fastapi.testclient import TestClient
 
 
 def test_lifespan_starts_and_shuts_down_cleanly_with_both_schedulers(
@@ -86,6 +86,7 @@ def test_lifespan_starts_and_shuts_down_cleanly_with_both_schedulers(
 
     monkeypatch.setattr("app.main.auto_refresh_loop", fake_auto_refresh_loop)
     monkeypatch.setattr("app.main.backup_loop", fake_backup_loop)
+    monkeypatch.setattr("app.main.worker_loop", AsyncMock())
     monkeypatch.setattr("app.main.dispose_engine", spy_dispose_engine)
 
     app = create_app()
@@ -105,3 +106,23 @@ def test_lifespan_starts_and_shuts_down_cleanly_with_both_schedulers(
     dispose_start = events.index("dispose:start")
     assert events.index("auto_refresh:cancelled") < dispose_start
     assert events.index("backup:cancelled") < dispose_start
+
+
+def test_manual_jobs_have_a_worker_when_scheduling_is_disabled(monkeypatch, tmp_path):
+    events = []
+    async def worker(cache_dir):
+        events.append("worker:start")
+        try:
+            await asyncio.Event().wait()
+        finally:
+            events.append("worker:stop")
+    async def dispose():
+        events.append("dispose")
+    monkeypatch.setenv("TRADE_GRADER_AUTO_REFRESH", "false")
+    monkeypatch.setenv("TRADE_GRADER_BACKUP_ENABLED", "false")
+    monkeypatch.setattr("app.main.init_engine", lambda: None)
+    monkeypatch.setattr("app.main.worker_loop", worker)
+    monkeypatch.setattr("app.main.dispose_engine", dispose)
+    with TestClient(create_app()) as client:
+        assert client.get("/api/health").status_code == 200
+    assert events == ["worker:start", "worker:stop", "dispose"]

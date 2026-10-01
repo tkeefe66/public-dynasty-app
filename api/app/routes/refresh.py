@@ -1,94 +1,62 @@
-from __future__ import annotations
-
-import asyncio
+"""Members submit durable free refreshes; GET only observes saved progress."""
 import json
-import logging
-from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sse_starlette.sse import EventSourceResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import Field
 
 from app.auth.deps import require_league_member
 from app.config import get_settings
+from app.db.models import YahooConnection, YahooLeagueGrant
 from app.db.session import get_db
-from app.deps import get_cache_dir
 from app.ratelimit import limiter
-from app.services.platform_client import YahooCredentialsMissing, connected_client
-from app.services.refresh_service import refresh_league
-from sleeper_dynasty.api.yahoo import YahooRateLimitError
+from app.services.generation.commands import submit_refresh
+from app.services.generation.models import GenerationOperation, stamp
+from app.services.generation.policy import StrictModel
+from app.services.generation.store import Conflict
 
-log = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _cache_dir() -> Path:
-    return get_cache_dir()
+class RefreshRequest(StrictModel):
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+def public_job(job):
+    progress = json.loads(job.progress_json)
+    return {"id": job.id, "state": job.state, "reason": job.reason,
+            "created_at": job.created_at, "updated_at": job.updated_at,
+            "progress": {key: progress[key] for key in ("stage", "message", "done", "total") if key in progress}}
 
 
 @router.get("/api/league/{league_id}/refresh")
+async def legacy_refresh(league_id: str):
+    raise HTTPException(410, "Refresh now uses durable jobs. Reload the app and submit a refresh.")
+
+
+@router.post("/api/league/{league_id}/refresh-jobs", status_code=202)
 @limiter.limit(get_settings().rate_limit_discovery)
-async def refresh(
-    request: Request, league_id: str,
-    user: Annotated[object, Depends(require_league_member)],
-    db: Annotated[object, Depends(get_db)],
-    force: bool = Query(False),
-) -> EventSourceResponse:
+async def submit(request: Request, league_id: str, body: RefreshRequest,
+                 user: Annotated[object, Depends(require_league_member)],
+                 db: Annotated[object, Depends(get_db)]):
+    if ".l." in league_id:
+        connection = await db.get(YahooConnection, user.id)
+        grant = await db.get(YahooLeagueGrant, (user.id, league_id))
+        if not connection or connection.status != "connected":
+            raise HTTPException(409, "Yahoo connection needs verification. Reconnect from Add a league.")
+        if not grant or grant.generation != connection.generation or grant.expires_at <= stamp():
+            from app.services.yahoo_connection import YahooConnectionService
+            await YahooConnectionService(db).ensure_grant(user.id, league_id)
     try:
-        client = await connected_client(league_id, db=db, user_id=user.id)
-    except YahooCredentialsMissing as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        job = await submit_refresh(db, league_id, user.id, idempotency_key=body.idempotency_key)
+    except Conflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return public_job(job)
 
-    async def event_stream():
-        # Live progress: the grader pushes events onto the queue as they happen
-        # and this generator forwards them immediately (no buffering), so the
-        # client's progress modal ticks through stages in real time.
-        queue: asyncio.Queue = asyncio.Queue()
-        _DONE = object()
 
-        async def progress_cb(stage: str, message: str, **extra):
-            await queue.put(
-                {"event": "progress",
-                 "data": json.dumps({"stage": stage, "message": message, **extra})}
-            )
-
-        async def run():
-            try:
-                await refresh_league(
-                    client, league_id, cache_dir=_cache_dir(),
-                    force=force, progress_cb=progress_cb,
-                )
-                await queue.put(
-                    {"event": "done", "data": json.dumps({"stage": "done"})}
-                )
-            except YahooRateLimitError:
-                log.warning("refresh paused by Yahoo request limit for %s", league_id)
-                await queue.put(
-                    {"event": "error", "data": json.dumps(
-                        {"stage": "error", "error_code": "yahoo_rate_limited"}
-                    )}
-                )
-            except Exception as e:  # noqa: BLE001 — surfaced to the client
-                log.exception("refresh failed")
-                await queue.put(
-                    {"event": "error",
-                     "data": json.dumps({"stage": "error", "message": str(e)})}
-                )
-            finally:
-                await queue.put(_DONE)
-
-        task = asyncio.create_task(run())
-        try:
-            while True:
-                event = await queue.get()
-                if event is _DONE:
-                    break
-                yield event
-        finally:
-            if not task.done():
-                task.cancel()
-            await client.close()
-
-    return EventSourceResponse(event_stream())
+@router.get("/api/league/{league_id}/refresh-jobs/{job_id}")
+async def status(league_id: str, job_id: str, db: Annotated[object, Depends(get_db)]):
+    job = await db.get(GenerationOperation, job_id)
+    if not job or job.league_id != league_id or job.kind not in ("refresh", "analyst_refresh"):
+        raise HTTPException(404, "Refresh job not found for this league")
+    return public_job(job)

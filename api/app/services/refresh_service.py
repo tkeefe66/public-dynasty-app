@@ -221,7 +221,8 @@ async def auto_refresh_loop(
         await asyncio.sleep(_initial_delay)
         while True:
             try:
-                await refresh_all_members(cache_dir)
+                from app.services.generation.scheduler import enqueue_members
+                await enqueue_members()
             except Exception:
                 log.exception("auto-refresh cycle failed")
             await asyncio.sleep(interval_seconds)

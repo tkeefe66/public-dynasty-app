@@ -113,8 +113,20 @@ class Worker:
                 row.progress_json = dump({"stage": stage, "message": message, **extra})
                 row.updated_at = stamp()
         try:
-            await refresh_league(client, job.league_id, cache_dir=self.cache_dir,
-                progress_cb=progress, generation_fence=lambda: self.fence(job))
+            if job.kind == "analyst_refresh":
+                from types import SimpleNamespace
+
+                from app.services.analyst import generate_analyst
+                from app.services.generation.planner import collect_analyst
+                await generate_analyst(client, SimpleNamespace(league_id=job.league_id), self.cache_dir,
+                    skip_llm=True, publication_fence=lambda: self.fence(job))
+                async with self.fence(job) as db:
+                    season = await db.get(LeagueSeason, job.league_id)
+                    if season:
+                        await collect_analyst(db, job.league_id, season.series_id, self.cache_dir)
+            else:
+                await refresh_league(client, job.league_id, cache_dir=self.cache_dir,
+                    progress_cb=progress, generation_fence=lambda: self.fence(job))
             async with self.fence(job) as db:
                 from app.services.generation.commands import finish
                 await finish(db, job.id, job.generation)
@@ -131,7 +143,7 @@ class Worker:
             return False
         heartbeat = asyncio.create_task(self.heartbeat(job))
         try:
-            if job.kind == "refresh":
+            if job.kind != "generation":
                 await self.refresh(job)
             else:
                 from app.services.generation.artifacts import save_artifact
@@ -151,6 +163,9 @@ class Worker:
             raise
         except Exception as exc:
             code = exc.code if isinstance(exc, Held) else "execution_failed"
+            from sleeper_dynasty.api.yahoo import YahooRateLimitError
+            if isinstance(exc, YahooRateLimitError):
+                code = "yahoo_rate_limited"
             log.exception("operation stopped id=%s reason=%s", job.id, code)
             try:
                 async with self.maker.begin() as db:

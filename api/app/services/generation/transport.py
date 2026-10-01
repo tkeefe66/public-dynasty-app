@@ -1,4 +1,5 @@
 """The only paid network boundary. HTTP transport has no implicit retries."""
+import asyncio
 import os
 from dataclasses import dataclass
 
@@ -24,7 +25,7 @@ class AnthropicTransport:
         if not key:
             raise Held("provider_key_missing")
         # A dedicated transport makes retry behavior independent of SDK defaults.
-        async with httpx.AsyncClient(timeout=300,
+        async with asyncio.timeout(330), httpx.AsyncClient(timeout=300,
                 transport=httpx.AsyncHTTPTransport(retries=0)) as client:
             response = await client.post("https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": key, "anthropic-version": "2023-06-01",
