@@ -33,6 +33,9 @@ export function problemExplanation(row: GenerationRecord) {
     feature_unsupported: "This feature is not supported for this league. Cancel this work and choose a supported feature.",
     capability_unknown: "The league’s capabilities could not be verified. Refresh its data and verify the league setup before resuming.",
     manual_only: "This feature now requires your approval. Review this work before deciding whether to resume it.",
+    failed_job_requires_replacement_review: "These jobs failed and need a separately reviewed replacement; resuming would repeat the failure or exceed their allowance.",
+    writing_paused: "AI writing is paused. Resolve the pause before resuming.",
+    job_no_longer_stopped: "These jobs changed state and no longer need this action. Reload status.",
     provider_cooldown: "The AI provider is temporarily unavailable or rate limited. Review the provider status before resuming.",
     membership_removed: "The membership that authorized this work was removed. Review league access before approving any replacement.",
   };

@@ -3,7 +3,7 @@ import { generationRequest } from "@/lib/api";
 import { GenerationRecord, GenerationSeries } from "@/lib/generation";
 import { ActionForm, ActionProps, contentName, dateLabel, jobStatus, leagueName, money, problemExplanation, secondary, TechnicalDetails } from "./GenerationShared";
 
-export function GenerationJob({ row, leagues, busy, run, review = false }: ActionProps & { row: GenerationRecord; leagues: GenerationSeries[]; review?: boolean }) {
+export function GenerationJob({ row, leagues, busy, run, review = false, selected, onSelect }: ActionProps & { row: GenerationRecord; leagues: GenerationSeries[]; review?: boolean; selected?: boolean; onSelect?: (checked: boolean) => void }) {
   const [opened, setOpened] = useState(false);
   const [detail, setDetail] = useState<{ job?: GenerationRecord; attempts?: GenerationRecord[] } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -15,7 +15,7 @@ export function GenerationJob({ row, leagues, busy, run, review = false }: Actio
   return <li className="py-4">
     <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
       <div className="min-w-0 text-prose">
-        <p className="font-semibold">{contentName(row)}{row.label ? ` · ${row.label}` : ""}</p>
+        <p className="font-semibold">{onSelect && <input type="checkbox" className="mr-3" disabled={busy} checked={selected} onChange={e => onSelect(e.target.checked)} aria-label={`Select ${contentName(row)} ${row.label || row.id}`} />}{contentName(row)}{row.label ? ` · ${row.label}` : ""}</p>
         <p className="mt-1 text-dim">{leagueName(row, leagues)}</p>
         <p className="mt-1">{stopped ? (row.reason === "execution_failed" ? "Writing stopped before completion" : jobStatus(row)) : jobStatus(row)}</p>
         {!review && <p className="mt-1 text-dim">{dateLabel(row.created_at)}</p>}

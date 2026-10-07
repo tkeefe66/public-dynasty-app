@@ -6,6 +6,7 @@ import { GenerationJob } from "./GenerationJob";
 import { ActionForm, ActionProps, contentName, controlClass, dateLabel, leagueName, money, readable, secondary, TechnicalDetails } from "./GenerationShared";
 
 const availableHold = (hold?: string) => !hold || ["historical_approval_required", "missed_event_approval_required"].includes(hold);
+const available = (row: GenerationRecord) => availableHold(row.hold) && (!row.availability || row.availability === "available");
 const recordKinds = { attempts: "AI requests and costs", artifacts: "Saved content", audit: "Change history", outbox: "Publication delivery" };
 
 export function GenerationRecords({ leagues, busy, run, version, initialKind = "jobs", advanced = false }: ActionProps & {
@@ -35,6 +36,22 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
     return () => { current = false; };
   }, [kind, series, offset, version, supportsLeagueFilter]);
   const blocked = busy || loading || pendingPreview;
+  async function selectAll() {
+    setPendingPreview(true); setError(""); setPreview(null);
+    try {
+      const keys: string[] = [];
+      let next: number | null = 0;
+      while (next !== null) {
+        const result: GenerationPage<GenerationRecord> = await generationRequest(`/records/candidates?limit=100&offset=${next}${series ? `&series_id=${encodeURIComponent(series)}` : ""}`);
+        keys.push(...result.records.filter(available).map(row => row.key!));
+        if (keys.length > 1000) throw new Error("More than 1,000 items are available. Select a league and try again.");
+        next = result.next_offset;
+      }
+      setSelected([...new Set(keys)]);
+      setReason("Approve selected available content across leagues");
+    } catch (err) { setError(err instanceof Error ? err.message : "Selection failed. Try again."); }
+    finally { setPendingPreview(false); }
+  }
   async function makePreview(keys: string[]) {
     setCatchup(false);
     setPendingPreview(true); setError(""); setPreview(null);
@@ -63,6 +80,34 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
       <p className="mt-1 max-w-2xl text-prose text-dim">Gather missing completed-week Analyst roasts, current GM profiles and franchise outlooks, and trade stories from the last seven days. Completed content and work already running or needing repair are skipped.</p>
       <Button className="mt-3 px-4 py-2" disabled={blocked} onClick={previewCatchup}>{series ? "Preview catch-up for this league" : "Preview catch-up across all leagues"}</Button>
     </div>}
+    {kind === "candidates" && <div className="mt-3 flex flex-wrap items-center gap-3">
+      <button className={secondary} disabled={blocked} onClick={selectAll}>Select all available content</button>
+      <button className={secondary} disabled={blocked || !selected.length} onClick={() => { setSelected([]); setPreview(null); }}>Clear selection</button>
+      <span role="status">{selected.length} selected across {series ? "this league" : "all leagues"}</span>
+      <button className={secondary} disabled={blocked || !selected.length} onClick={() => makePreview(selected)}>Preview {selected.length} selected</button>
+      <label className="w-full text-prose">Reason for this approval<input className={controlClass + " mt-1"} value={reason} maxLength={1000} disabled={blocked} onChange={e => { setReason(e.target.value); setPreview(null); }} placeholder="Why should this content be written?" /></label>
+    </div>}
+    {preview && <div className="mt-5 border-t border-rule pt-4 text-prose">
+      <h4 className="font-display text-name font-bold">Review before paying for AI writing</h4>
+      <p className="mt-2">{preview.items.length} content items · At most {preview.max_calls} AI requests.</p>
+      <p className="mt-1 text-dim">This is a request limit, not a dollar quote. Review expires at {new Date(preview.expires_at * 1000).toLocaleTimeString()}.</p>
+      {catchup ? <>
+        <ul className="mt-3 space-y-3">{leagues.map(league => {
+          const items = preview.items.filter(item => league.seasons.some(s => s.league_id === item.league_id));
+          return items.length ? <li key={league.id}><strong>{league.name || "Unnamed league"}</strong><p>{(Object.keys(FEATURE_LABELS) as (keyof typeof FEATURE_LABELS)[]).map(feature => {
+            const count = items.filter(item => item.feature === feature).length;
+            return count ? `${count} ${FEATURE_LABELS[feature].toLowerCase()}` : null;
+          }).filter(Boolean).join(" · ")}</p></li> : null;
+        })}</ul>
+        <details className="mt-3"><summary className="min-h-tap cursor-pointer py-2 text-dim">Review individual items</summary><ul className="space-y-2">{preview.items.map(item => <li key={item.key}>{leagueName(item, leagues)} · {item.label} · {FEATURE_LABELS[item.feature]} · up to {item.max_calls} requests</li>)}</ul></details>
+        {!!preview.skipped && <p className="mt-3 text-dim">Skipped: {Object.entries(preview.skipped).map(([why, count]) => `${count} ${readable(why).toLowerCase()}`).join(" · ") || "none"}.</p>}
+      </> : <details className="mt-3"><summary className="min-h-tap cursor-pointer py-2">Review individual items</summary><ul className="space-y-3">{preview.items.map(item => <li key={item.key}><strong>{item.label} · {FEATURE_LABELS[item.feature]}</strong><p>{leagueName(item, leagues)} · {readable(item.event)}</p><p className="text-dim">{item.model} · up to {item.max_calls} requests</p>{item.blocked_by.length > 0 && <p className="text-neg-strong">Blocked: {item.blocked_by.map(readable).join("; ")}</p>}</li>)}</ul></details>}
+      <Button className="mt-3 px-4 py-2" disabled={blocked || !reason.trim() || preview.items.some(i => i.blocked_by.length > 0)} onClick={async () => {
+        setError("");
+        try { await run(() => generationRequest("/campaigns/apply", { preview_id: preview.id, digest: preview.digest, reason }), "Paid writing approved for the reviewed content."); setPreview(null); }
+        catch (err) { setError(err instanceof Error ? err.message : "Approval failed. Reload and preview again."); }
+      }}>Approve paid writing</Button>
+    </div>}
     {loading && <p role="status" className="mt-3 text-prose">Loading records…</p>}
     {error && <p role="alert" className="mt-3 text-prose text-neg-strong">{error}</p>}
     {!loading && !error && !page.records.length && <p className="mt-3 text-prose text-dim">{kind === "candidates" ? "Content ready for approval will appear here after a league data refresh." : "Records will appear here as work runs for these leagues."}</p>}
@@ -71,13 +116,13 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
         <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
           <div className="min-w-0">
             <label className="flex items-start gap-3 font-semibold">
-              {kind === "candidates" && <input type="checkbox" className="mt-1" checked={selected.includes(row.key!)} disabled={blocked || !availableHold(row.hold)} aria-label={"Select " + row.label} onChange={e => { setPreview(null); setSelected(old => e.target.checked ? [...old, row.key!].slice(0, 100) : old.filter(k => k !== row.key)); }} />}
+              {kind === "candidates" && <input type="checkbox" className="mt-1" checked={selected.includes(row.key!)} disabled={blocked || !available(row)} aria-label={"Select " + row.label} onChange={e => { setPreview(null); setReason(old => old || "Approve selected available content across leagues"); setSelected(old => e.target.checked ? [...old, row.key!].slice(0, 1000) : old.filter(k => k !== row.key)); }} />}
               <span>{row.label || (kind === "audit" ? readable(row.action) : kind === "attempts" ? "AI request" : kind === "outbox" ? "Content publication" : contentName(row))}{row.label && row.feature ? ` · ${FEATURE_LABELS[row.feature]}` : ""}</span>
             </label>
             {supportsLeagueFilter && <p className="mt-1 text-dim">{leagueName(row, leagues)}</p>}
             <p className="mt-1 text-dim">{dateLabel(row.created_at || row.observed_at)}</p>
             {kind === "attempts" && <p className="mt-1">{money(row.cost_microusd)} · {row.model} · {readable(row.state)}</p>}
-            {kind === "candidates" && <p className="mt-1 text-dim">{availableHold(row.hold) ? "Available to preview" : `Blocked: ${readable(row.hold)}`} · {readable(row.event)}</p>}
+            {kind === "candidates" && <p className="mt-1 text-dim">{row.availability && row.availability !== "available" ? readable(row.availability) : availableHold(row.hold) ? "Available to preview" : `Blocked: ${readable(row.hold)}`} · {readable(row.event)}</p>}
             {kind === "outbox" && <p className="mt-1">{row.error ? "Saved content could not be delivered. Retry delivery without buying new writing." : row.delivered ? "Delivered" : "Waiting for delivery"}</p>}
             {kind === "audit" && <p className="mt-1 break-words">{row.reason}</p>}
           </div>
@@ -108,31 +153,7 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
         <TechnicalDetails value={row} />
       </li>)}
     </ul>
-    {kind === "candidates" && <div className="mt-3 border-t border-rule pt-3">
-      <label className="block text-prose">Reason for this approval<input className={controlClass + " mt-1"} value={reason} maxLength={1000} disabled={blocked} onChange={e => { setReason(e.target.value); setPreview(null); }} placeholder="Why should this content be written?" /></label>
-      <button className={secondary + " mt-3"} disabled={blocked || !selected.length || !reason.trim()} onClick={() => makePreview(selected)}>Preview {selected.length} selected</button>
-    </div>}
     {(offset > 0 || page.next_offset !== null) && <div className="mt-3 flex flex-wrap items-center gap-3 text-prose"><button className={secondary} disabled={blocked || offset === 0} onClick={() => setOffset(Math.max(0, offset - 25))}>Previous</button><span>Showing {offset + 1}–{offset + page.records.length}</span><button className={secondary} disabled={blocked || page.next_offset === null} onClick={() => setOffset(page.next_offset!)}>Next</button></div>}
-    {preview && <div className="mt-5 border-t border-rule pt-4 text-prose">
-      <h4 className="font-display text-name font-bold">Review before paying for AI writing</h4>
-      <p className="mt-2">{preview.items.length} content items · At most {preview.max_calls} AI requests.</p>
-      <p className="mt-1 text-dim">This is a request limit, not a dollar quote. Review expires at {new Date(preview.expires_at * 1000).toLocaleTimeString()}.</p>
-      {catchup ? <>
-        <ul className="mt-3 space-y-3">{leagues.map(league => {
-          const items = preview.items.filter(item => league.seasons.some(s => s.league_id === item.league_id));
-          return items.length ? <li key={league.id}><strong>{league.name || "Unnamed league"}</strong><p>{(Object.keys(FEATURE_LABELS) as (keyof typeof FEATURE_LABELS)[]).map(feature => {
-            const count = items.filter(item => item.feature === feature).length;
-            return count ? `${count} ${FEATURE_LABELS[feature].toLowerCase()}` : null;
-          }).filter(Boolean).join(" · ")}</p></li> : null;
-        })}</ul>
-        <details className="mt-3"><summary className="min-h-tap cursor-pointer py-2 text-dim">Review individual items</summary><ul className="space-y-2">{preview.items.map(item => <li key={item.key}>{leagueName(item, leagues)} · {item.label} · {FEATURE_LABELS[item.feature]} · up to {item.max_calls} requests</li>)}</ul></details>
-        {!!preview.skipped && <p className="mt-3 text-dim">Skipped: {Object.entries(preview.skipped).map(([why, count]) => `${count} ${readable(why).toLowerCase()}`).join(" · ") || "none"}.</p>}
-      </> : <ul className="mt-3 space-y-3">{preview.items.map(item => <li key={item.key}><strong>{item.label} · {FEATURE_LABELS[item.feature]}</strong><p>{leagueName(item, leagues)} · {readable(item.event)}</p><p className="text-dim">{item.model} · up to {item.max_calls} requests</p>{item.blocked_by.length > 0 && <p className="text-neg-strong">Blocked: {item.blocked_by.map(readable).join("; ")}</p>}</li>)}</ul>}
-      <Button className="mt-3 px-4 py-2" disabled={blocked || !reason.trim() || preview.items.some(i => i.blocked_by.length > 0)} onClick={async () => {
-        setError("");
-        try { await run(() => generationRequest("/campaigns/apply", { preview_id: preview.id, digest: preview.digest, reason }), "Paid writing approved for the reviewed content."); setPreview(null); }
-        catch (err) { setError(err instanceof Error ? err.message : "Approval failed. Reload and preview again."); }
-      }}>Approve paid writing</Button>
-    </div>}
+
   </div>;
 }

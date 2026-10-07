@@ -54,7 +54,12 @@ class SeriesChange(Reason):
 
 
 class Preview(Reason):
-    candidates: list[str] = Field(min_length=1, max_length=100)
+    candidates: list[str] = Field(min_length=1, max_length=1000)
+
+
+class BatchJobs(Reason):
+    job_ids: list[str] = Field(min_length=1, max_length=1000)
+    action: Literal["resume", "cancel"]
 
 
 class Apply(Reason):
@@ -168,6 +173,11 @@ async def records(kind: Literal["jobs", "attempts", "candidates", "artifacts", "
         item = data(row)
         if kind in ("candidates", "jobs"):
             item["label"] = commands.candidate_label(row)
+        if kind == "candidates":
+            latest = await db.scalar(select(GenerationOperation).where(
+                GenerationOperation.subject == row.subject).order_by(GenerationOperation.created_at.desc()).limit(1))
+            item["availability"] = ("completed" if latest and latest.state == "succeeded" and latest.request_digest == row.digest else
+                latest.state if latest and latest.state in ("queued", "running", "held", "needs_attention") else "available")
         for name in ("payload_json", "facts_json", "request_json", "receipt_json", "policy_json"):
             if name in item:
                 item["has_" + name.removesuffix("_json")] = bool(item.pop(name))
@@ -188,6 +198,18 @@ async def job_detail(job_id: str, db: DB):
 @router.post("/jobs/{job_id}")
 async def job(job_id: str, body: JobAction, db: DB, owner: Owner):
     return await execute(commands.job_action(db, job_id, body, owner.id))
+
+
+@router.post("/jobs/batch/preview")
+async def batch_job_preview(body: BatchJobs, db: DB, owner: Owner):
+    from app.services.generation.bulk_jobs import preview_jobs
+    return await execute(preview_jobs(db, body.job_ids, body.action, owner.id, body.reason))
+
+
+@router.post("/jobs/batch/apply")
+async def batch_job_apply(body: Apply, db: DB, owner: Owner):
+    from app.services.generation.bulk_jobs import apply_jobs
+    return await execute(apply_jobs(db, body.preview_id, body.digest, owner.id, body.reason))
 
 
 @router.post("/attempts/{attempt_id}/resolve")

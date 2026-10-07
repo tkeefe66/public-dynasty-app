@@ -5,7 +5,7 @@ import { generationRequest } from "@/lib/api";
 import { FEATURE_LABELS, GenerationFeature, GenerationOverview, GenerationPage, GenerationRecord, GenerationSeries } from "@/lib/generation";
 import { Panel } from "@/components/furniture/Panel";
 import { GenerationSettings } from "./GenerationSettings";
-import { GenerationJob } from "./GenerationJob";
+import { GenerationBulkReview } from "./GenerationBulkReview";
 import { GenerationRecords } from "./GenerationRecords";
 import { ActionForm, money, readable, RunAction, secondary, summaryClass, TechnicalDetails } from "./GenerationShared";
 
@@ -103,7 +103,7 @@ export function GenerationControl() {
         <h3 id="generation-review-title" className="font-display text-name font-bold">Needs your review</h3>
         <p className="mt-1 text-prose text-dim">{overview.jobs.needs_attention || 0} stopped · {overview.jobs.held || 0} paused. Across all leagues.</p>
         {!reviewRows.length && <p className="mt-3 text-prose">No stopped or paused work to review. Content awaiting approval is below.</p>}
-        <ul className="mt-1 divide-y divide-rule">{reviewRows.map(row => <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} review />)}</ul>
+        <GenerationBulkReview rows={reviewRows} leagues={leagues} busy={blocked} run={run} version={version} />
         {([["needs_attention", stopped, setStopped], ["held", held, setHeld]] as const).map(([state, page, update]) => page.next_offset !== null && <button key={state} className={secondary + " mt-3"} disabled={blocked} onClick={async () => {
           setBusy(true); setError("");
           try { const more = await generationRequest<GenerationPage<GenerationRecord>>(`/records/jobs?limit=25&state=${state}&offset=${page.next_offset}`); update(old => ({ records: [...old.records, ...more.records], next_offset: more.next_offset })); }

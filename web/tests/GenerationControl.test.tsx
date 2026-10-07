@@ -32,6 +32,43 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Generation controls", () => {
+  it("selects all review work across pages and confirms one batch", async () => {
+    const normal = request.getMockImplementation()!;
+    request.mockImplementation((path = "", ...args) => {
+      if (path === "/records/jobs?limit=100&state=held&offset=0") return Promise.resolve({ records: [{ id: "held-one", feature: "analyst", state: "held", generation: 1 }], next_offset: 100 });
+      if (path === "/records/jobs?limit=100&state=held&offset=100") return Promise.resolve({ records: [{ id: "held-two", feature: "analyst", state: "held", generation: 1 }], next_offset: null });
+      if (path === "/jobs/batch/preview") return Promise.resolve({ id: "batch", digest: "exact-batch", action: "resume", items: [{ id: "held-one" }, { id: "held-two" }], skipped: [], remaining_calls: 8 });
+      return normal(path, ...args);
+    });
+    render(<GenerationControl />);
+    fireEvent.click(await screen.findByRole("button", { name: "Select all stopped and paused work" }));
+    await screen.findByText("2 selected");
+    fireEvent.click(screen.getByRole("button", { name: "Preview resume selected" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm resume 2 jobs" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/jobs/batch/apply", {
+      preview_id: "batch", digest: "exact-batch", reason: "Resume selected stopped and paused work",
+    }));
+    await screen.findByText(/Selected work resumed/);
+  });
+
+  it("selects every available candidate across pages and previews above the list", async () => {
+    const normal = request.getMockImplementation()!;
+    request.mockImplementation((path = "", ...args) => {
+      if (path === "/records/candidates?limit=100&offset=0") return Promise.resolve({ records: [
+        { key: "one", label: "One", hold: "" }, { key: "queued", label: "Queued", availability: "queued" },
+      ], next_offset: 100 });
+      if (path === "/records/candidates?limit=100&offset=100") return Promise.resolve({ records: [{ key: "two", label: "Two", hold: "" }], next_offset: null });
+      return normal(path, ...args);
+    });
+    render(<GenerationControl />);
+    fireEvent.click(await screen.findByText("Approve new content", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Select all available content" }));
+    await screen.findByRole("button", { name: "Preview 2 selected" });
+    fireEvent.click(screen.getByRole("button", { name: "Preview 2 selected" }));
+    await screen.findByRole("button", { name: "Approve paid writing" });
+    expect(request).toHaveBeenCalledWith("/campaigns/preview", { candidates: ["one", "two"], reason: "Approve selected available content across leagues" });
+  });
+
   it("sets all four shared modes together without saving before review", async () => {
     render(<GenerationControl />);
     fireEvent.click(await screen.findByText("Settings", { selector: "summary" }));
@@ -137,7 +174,7 @@ describe("Generation controls", () => {
     fireEvent.click(within(review).getByRole("button", { name: "Review problem" }));
     expect(await within(review).findByText(/The exact cause was not recorded/)).toBeVisible();
     expect(request.mock.calls.filter(c => c[1])).toHaveLength(0);
-    expect(within(review).queryByRole("button", { name: /resume/i })).not.toBeInTheDocument();
+    expect(within(review).getByRole("button", { name: "Preview resume selected" })).toBeDisabled();
   });
 
   it("treats the deployment emergency pause as paused even when policy allows writing", async () => {
