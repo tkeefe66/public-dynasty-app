@@ -9,6 +9,10 @@ checking it. Evidence confirming the claim means status=supported:
 - supported: the factual claim matches the evidence, or is harmless figurative comedy.
 - needs_correction: an asserted fact contradicts the packet or lacks evidence.
 Include all required corrections, most consequential first, up to the limit.
+Trace each verified error through the whole draft: report repeated claims and
+dependent scores, margins and win/tie/loss statements together. A correct score
+in one sentence does not validate an inconsistent margin in its neighbor.
+Check repeated bye or injury claims in previews and jokes as well as recaps.
 Supported audit notes belong in checks with status=supported. Do not label a
 supported claim needs_correction, even when your initial suspicion was wrong.
 Set approved only AFTER the audit: true requires every factual claim to be

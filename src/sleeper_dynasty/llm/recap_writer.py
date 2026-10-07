@@ -123,7 +123,7 @@ def load_lore_template() -> str:
     return resources.files(_PROMPTS).joinpath("league_lore_template.md").read_text()
 
 
-def require_matchup_coverage(text: str, facts, outlook) -> None:
+def matchup_coverage_findings(text: str, facts, outlook) -> list[str]:
     """Every result and forecast needs its own matchup heading, as prompted."""
     def rendered_name(value, strip_decorations=True):
         value = sanitize_prose(str(value)).replace("**", "").replace("’", "'").replace("‘", "'")
@@ -148,6 +148,7 @@ def require_matchup_coverage(text: str, facts, outlook) -> None:
         strip_decorations = False
     else:
         strip_decorations = True
+    missing = []
     for kind, packet, left, right in packets:
         for matchup in packet["matchups"]:
             names = [rendered_name(matchup[k], strip_decorations) for k in (left, right)]
@@ -155,8 +156,16 @@ def require_matchup_coverage(text: str, facts, outlook) -> None:
                 name and re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", heading)
                 for name in names)), None)
             if index is None:
-                raise ValueError(f"Analyst missing {kind} matchup: {matchup[left]} / {matchup[right]}; refusing publication")
-            headings.pop(index)
+                missing.append(f"Analyst missing {kind} matchup: {matchup[left]} / {matchup[right]}")
+            else:
+                headings.pop(index)
+    return missing
+
+
+def require_matchup_coverage(text: str, facts, outlook) -> None:
+    missing = matchup_coverage_findings(text, facts, outlook)
+    if missing:
+        raise ValueError("; ".join(missing) + "; refusing publication")
 
 
 class RecapWriter:
@@ -351,8 +360,10 @@ class RecapWriter:
                 raise ValueError(
                     f"Analyst {stage} returned no text; refusing publication"
                 )
-            require_matchup_coverage(text, facts, outlook)
-            violations = self._review(text, facts, outlook, lore)
+            missing = matchup_coverage_findings(text, facts, outlook)
+            if missing and attempt == MAX_REPAIRS:
+                raise ValueError("; ".join(missing) + "; refusing publication")
+            violations = missing or self._review(text, facts, outlook, lore)
             if not violations:
                 return text
             if attempt < MAX_REPAIRS:
@@ -372,6 +383,13 @@ class RecapWriter:
                             "verified errors, and preserve supported content and tone. "
                             "Return minimal before/after replacements, never a full rewrite. "
                             "Each before must match exactly one passage in the current draft above. "
+                            "Scan the WHOLE draft for every repetition and dependent claim of each verified error. "
+                            "Correct all affected passages, including repeated claims in jokes and previews. "
+                            "When changing a score, also verify every related margin and win/tie/loss against matchup_effect. "
+                            "Remove every occurrence of an unsupported bye or injury claim. "
+                            "For missing matchup sections, preserve a unique existing anchor in before and include "
+                            "that anchor plus the missing heading and section in after, using only the supplied packets. "
+                            "Address all missing sections together. This is the only correction allowance. "
                             "Do not edit supported claims, even if a finding calls them errors.\n"
                             "EDITOR FINDINGS:\n" + json.dumps(violations)
                         ),

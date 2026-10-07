@@ -307,7 +307,7 @@ def test_approved_but_incomplete_article_is_not_a_full_roast(writer_factory, mis
         text += "\n\n### Alice 25 — Bob 15\n\nA crushing loss."
     if missing != "preview":
         text += "\n\n### Cam vs. Dee\n\nCam is projected ahead."
-    writer, _ = writer_factory([_message([_text(text)]), _message([_verdict()], stop_reason="tool_use")])
+    writer, _ = writer_factory([_message([_text(text)]), _message([_edits(text, text)], stop_reason="tool_use")])
     with pytest.raises(ValueError, match="missing.*matchup"):
         writer.write(facts, outlook=outlook)
 
@@ -322,7 +322,8 @@ def test_matchup_coverage_uses_rendered_names_and_distinct_preview_headings(writ
     preview = "\n\n### Team KTC vs. Bob\n\nNext week's projections: 30 vs. 20."
     writer, _ = writer_factory([_message([_text(recap + preview)]), _message([_verdict()], stop_reason="tool_use")])
     assert "Team trade value" in writer.write(facts, outlook=outlook)
-    incomplete, _ = writer_factory([_message([_text(recap)]), _message([_verdict()], stop_reason="tool_use")])
+    unchanged = recap.replace("KTC", "trade value")
+    incomplete, _ = writer_factory([_message([_text(recap)]), _message([_edits(unchanged, unchanged)], stop_reason="tool_use")])
     with pytest.raises(ValueError, match="missing preview matchup"):
         incomplete.write(facts, outlook=outlook)
 
@@ -340,6 +341,32 @@ def test_coverage_accepts_typography_and_decorative_emoji_changes():
     facts.matchups = [MatchupRecap("Hawgs 🐖", "Hawgs 🧴", 25, 15, 10, False, False)]
     with pytest.raises(ValueError, match="missing recap matchup"):
         require_matchup_coverage("### Hawgs 🐖 def. Hawgs 🐖", facts, None)
+
+
+@pytest.mark.parametrize("approved", [True, False])
+def test_missing_sections_share_single_repair_and_require_factual_review(writer_factory, approved):
+    from sleeper_dynasty.models.recap import MatchupPreview, MatchupRecap
+    facts = _facts()
+    facts.matchups = [MatchupRecap("Alice", "Bob", 25, 15, 10, False, False)]
+    outlook = OutlookFacts(10, [MatchupPreview("Cam", "Dee", 30, 20, "Cam", 10)], [], [], [])
+    original = "# Week 9\n\nClosing joke."
+    fixed = original + "\n### Alice 25 vs. Bob 15\nAlice won.\n### Cam vs. Dee\nCam is projected ahead."
+    def repair(request):
+        feedback = request["messages"][-1]["content"]
+        assert "missing recap matchup: Alice / Bob" in feedback
+        assert "missing preview matchup: Cam / Dee" in feedback
+        assert "WHOLE draft" in feedback and "every related margin" in feedback
+        return _message([_edits(original, fixed)], stop_reason="tool_use")
+    verdict = {"approved": approved, "checks": [] if approved else [
+        {"quote": "Alice won", "evidence": "Synthetic rejection", "status": "needs_correction"}]}
+    writer, requests = writer_factory([_message([_text(original)]), repair,
+        _message([_verdict(verdict)], stop_reason="tool_use")])
+    if approved:
+        assert writer.write(facts, outlook=outlook) == fixed
+    else:
+        with pytest.raises(ValueError, match="after one correction"):
+            writer.write(facts, outlook=outlook)
+    assert len(requests) == 3
 
 
 def test_write_requires_structured_review_and_returns_sanitized_draft(writer_factory):
