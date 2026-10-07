@@ -1,22 +1,24 @@
 """The franchise-blurb backstops (mirrors test_story_validation)."""
 
 from sleeper_dynasty.llm.franchise_validation import (
-    MAX_WORDS, _VOCABULARY, find_violations,
+    _VOCABULARY,
+    MAX_WORDS,
+    find_violations,
 )
 from sleeper_dynasty.models.franchise_outlook import FranchiseFacts
 
 
 def _facts(**over) -> FranchiseFacts:
-    base = dict(
-        user_id="uA", owner_name="Alice", team_name="Team A",
-        league_format="dynasty", window="Contending", young_core_share=0.62,
-        roster_rank=3, roster_of=12,
-        young_core=["Malik Nabers", "Brock Bowers"],
-        aging_risks=["Mike Evans"],
-        draft_capital_status="pick-rich", draft_capital_net=3.0,
-        top_need="RB (immediate)",
-        signature_trade="received Bijan Robinson (+1400)",
-    )
+    base = {
+        "user_id": "uA", "owner_name": "Alice", "team_name": "Team A",
+        "league_format": "dynasty", "window": "Contending", "young_core_share": 0.62,
+        "roster_rank": 3, "roster_of": 12,
+        "young_core": ["Malik Nabers", "Brock Bowers"],
+        "aging_risks": ["Mike Evans"],
+        "draft_capital_status": "pick-rich", "draft_capital_net": 3.0,
+        "top_need": "RB (immediate)",
+        "signature_trade": "received Bijan Robinson (+1400)",
+    }
     base.update(over)
     return FranchiseFacts(**base)
 
@@ -25,6 +27,11 @@ def test_clean_prose_has_no_violations():
     prose = ("Contending and dangerous: Malik Nabers and Brock Bowers anchor a "
              "young core, with Mike Evans the one asset on the clock.")
     assert find_violations(prose, _facts()) == []
+
+
+def test_position_shorthand_is_not_an_invented_player():
+    assert find_violations("Malik Nabers anchors the roster.", _facts(top_need="WR (immediate)"), lead="Young RB core needs WR help.") == []
+    assert any("not in" in error for error in find_violations("[who]Unknown RB[/who] anchors the roster.", _facts()))
 
 
 # --- word cap --------------------------------------------------------------

@@ -30,7 +30,9 @@ from __future__ import annotations
 import re
 
 from sleeper_dynasty.llm.franchise_marks import (
-    mark_violations, spans_of, strip_marks,
+    mark_violations,
+    spans_of,
+    strip_marks,
 )
 from sleeper_dynasty.models.franchise_outlook import FranchiseFacts
 
@@ -52,7 +54,7 @@ MAX_WORDS = 75
 # noun in it. A violation regenerates the sentence instead.
 _BANNED = re.compile(
     r"\b(?:caps?|capped|cap\s+space|salar(?:y|ies)|contracts?|auctions?|KTC)\b",
-    re.I)
+    re.IGNORECASE)
 
 # A capitalised name token — "Evans", "Bijan", "D'Andre", "Smith-Njigba", "A.J.".
 #
@@ -197,7 +199,7 @@ def find_violations(
     violations.extend(mark_violations(body))
 
     allowed = _packet_tokens(facts) | _VOCABULARY
-    for run in _unknown_name_runs(both, allowed):
+    for run in _unknown_name_runs(both, allowed | {"qb", "rb", "wr", "te", "flex", "idp"}):
         violations.append(f"'{run}' is not in the facts packet")
 
     # A [who] span is the model asserting "these words name a person", so every

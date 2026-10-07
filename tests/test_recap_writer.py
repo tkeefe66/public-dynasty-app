@@ -327,6 +327,21 @@ def test_matchup_coverage_uses_rendered_names_and_distinct_preview_headings(writ
         incomplete.write(facts, outlook=outlook)
 
 
+def test_coverage_accepts_typography_and_decorative_emoji_changes():
+    from sleeper_dynasty.llm.recap_writer import require_matchup_coverage
+    from sleeper_dynasty.models.recap import MatchupRecap
+    facts = _facts()
+    facts.matchups = [MatchupRecap("Yorkin’ It", "Hawgs 🐖🧴", 25, 15, 10, False, False)]
+    require_matchup_coverage("### Yorkin' It def. Hawgs 🐖🧤", facts, None)
+    with pytest.raises(ValueError, match="missing recap matchup"):
+        require_matchup_coverage("### Yorkin' It def. Hogs", facts, None)
+
+    # Teams distinguished only by emoji must retain their separate identities.
+    facts.matchups = [MatchupRecap("Hawgs 🐖", "Hawgs 🧴", 25, 15, 10, False, False)]
+    with pytest.raises(ValueError, match="missing recap matchup"):
+        require_matchup_coverage("### Hawgs 🐖 def. Hawgs 🐖", facts, None)
+
+
 def test_write_requires_structured_review_and_returns_sanitized_draft(writer_factory):
     # Mutation: request unstructured JSON text, or parse review text instead of tool input.
     def review_response(request):

@@ -24,6 +24,19 @@ async def prepare(maker):
         row.request_digest = digest(json.loads(row.payload_json))
 
 
+def test_gm_feedback_identifies_the_overlong_highlight():
+    from app.services.generation.features import validate
+
+    from sleeper_dynasty.models.gm_rating_blurb import OwnerRatingFacts
+    facts = OwnerRatingFacts(user_id="u", owner_name="Owner", team_name=None,
+        scope_label="career", rank=1, rating=80, pillars={"results": {}})
+    raw = {"content": [{"type": "text", "text": json.dumps({"blurb": "Profile",
+        "highlights": {"Results": " ".join(["word"] * 17)}})}]}
+    errors = validate("gm_rating_blurb", {"blurb": "Profile"}, facts, raw)
+    assert len(errors) == 1
+    assert "Results highlight has 17 words" in errors[0]
+
+
 @pytest.mark.asyncio
 async def test_changed_content_cannot_reuse_validation(maker):
     from app.services.generation.artifacts import save_artifact

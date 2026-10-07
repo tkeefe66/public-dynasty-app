@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from importlib import resources
 from itertools import pairwise
 
@@ -124,16 +125,34 @@ def load_lore_template() -> str:
 
 def require_matchup_coverage(text: str, facts, outlook) -> None:
     """Every result and forecast needs its own matchup heading, as prompted."""
-    headings = [h.replace("**", "").strip().casefold() for h in
+    def rendered_name(value, strip_decorations=True):
+        value = sanitize_prose(str(value)).replace("**", "").replace("’", "'").replace("‘", "'")
+        # Decorative emoji do not change the readable team identity.
+        if strip_decorations:
+            value = "".join(c for c in value if not unicodedata.category(c).startswith(("S", "M")))
+        return " ".join(value.casefold().split())
+
+    headings = [rendered_name(h) for h in
                 re.findall(r"^#{2,4}\s+(.+)$", text, flags=re.MULTILINE)]
     packets = [("recap", facts.to_dict(), "winner", "loser")]
     if outlook is not None:
         packets.append(("preview", outlook.to_dict(), "home", "away"))
+    identities = {}
+    for _, packet, left, right in packets:
+        for matchup in packet["matchups"]:
+            for key in (left, right):
+                identities.setdefault(rendered_name(matchup[key]), set()).add(rendered_name(matchup[key], False))
+    if any(len(values) > 1 for values in identities.values()):
+        # Emoji can distinguish two actual teams; never merge those identities.
+        headings = [rendered_name(h, False) for h in re.findall(r"^#{2,4}\s+(.+)$", text, flags=re.MULTILINE)]
+        strip_decorations = False
+    else:
+        strip_decorations = True
     for kind, packet, left, right in packets:
         for matchup in packet["matchups"]:
-            names = [sanitize_prose(str(matchup[k])).replace("**", "").strip().casefold() for k in (left, right)]
+            names = [rendered_name(matchup[k], strip_decorations) for k in (left, right)]
             index = next((i for i, heading in enumerate(headings) if all(
-                re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", heading)
+                name and re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", heading)
                 for name in names)), None)
             if index is None:
                 raise ValueError(f"Analyst missing {kind} matchup: {matchup[left]} / {matchup[right]}; refusing publication")

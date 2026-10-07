@@ -35,11 +35,18 @@ def validate(feature, result, facts, raw=None):
             return ["Return an object with text in every required field"]
         if feature == "gm_rating_blurb":
             highlights = structured.get("highlights", {})
-            if not isinstance(highlights, dict) or any(
-                k.lower() not in pillars or not isinstance(v, str) or len(v.split()) > 16
-                for k, v in highlights.items()
-            ):
-                return ["Use only supported pillar highlights of at most 16 words"]
+            if not isinstance(highlights, dict):
+                return ["Highlights must be an object"]
+            errors = []
+            for label, value in highlights.items():
+                if label.lower() not in pillars:
+                    errors.append(f"Unsupported pillar {label!r}; use only {', '.join(sorted(pillars))}")
+                elif not isinstance(value, str):
+                    errors.append(f"{label} highlight must be text")
+                elif len(value.split()) > 16:
+                    errors.append(f"{label} highlight has {len(value.split())} words; shorten it to at most 16 words, preferably 12")
+            if errors:
+                return errors
     if feature == "trade_story":
         from sleeper_dynasty.llm.story_validation import find_violations
         prose = "\n".join([result.get("lede", ""), *(result.get("beats") or [])]).strip()
