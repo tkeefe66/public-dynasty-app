@@ -83,6 +83,23 @@ class AnalystStore:
                 editions.append(original)
         return editions
 
+    def published_editions(self, league_id: str) -> list[dict]:
+        """Reader archive contains AI roasts only; results are private job inputs.
+
+        Keep legacy packets and their revisions intact for managed generation,
+        but never expose a results fallback through archive or public sharing.
+        """
+        published = []
+        for edition in self.editions(league_id):
+            if edition["edition_type"] != "roast":
+                continue
+            original = AnalystEdition.model_validate_json(self.edition_path(
+                league_id, edition["season"], edition["week"]).read_text())
+            if original.edition_type != "roast":
+                edition = {**edition, "original_markdown": None}
+            published.append(edition)
+        return published
+
     @contextmanager
     def claim(self, league_id: str):
         folder = self.league_dir(league_id)

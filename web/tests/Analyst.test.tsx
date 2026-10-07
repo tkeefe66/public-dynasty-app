@@ -10,10 +10,11 @@ const editions = [
 ];
 
 describe("The Analyst", () => {
-  it("labels results editions without claiming AI authorship", () => {
-    // Mutation: show the AI-written label for deterministic fallback content.
+  it("keeps results packets out of the reader archive", () => {
+    // Mutation: expose private results as a published Analyst edition.
     render(<AnalystArchive leagueId="123" editions={[{ ...editions[0], edition_type: "results" }]} />);
-    expect(screen.getByText(/Results edition from verified league scores/)).toBeInTheDocument();
+    expect(screen.getByText("The first edition is on its way.")).toBeInTheDocument();
+    expect(screen.queryByText("Alice")).not.toBeInTheDocument();
     expect(screen.queryByText(/AI-written from league results/)).not.toBeInTheDocument();
   });
   it("labels a correction and preserves readable original text", () => {

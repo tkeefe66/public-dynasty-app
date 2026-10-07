@@ -1,4 +1,4 @@
-"""Automatic weekly Analyst generation; results can gain a reviewed roast revision."""
+"""Prepare durable weekly facts; only reviewed AI roasts reach readers."""
 from __future__ import annotations
 
 import asyncio
@@ -74,7 +74,7 @@ No historic-season bulk generation. The first current-season refresh catches up
 completed weeks. Budget checks run per edition; page reads never invoke an LLM.
 """
     league_id = entry.league_id
-    # Production refreshes only collect evidence and publish deterministic results.
+    # Production refreshes prepare private facts for managed AI generation.
     # Explicitly injected writers remain usable for pure tests.
     skip_llm = skip_llm or writer is None
     # Analyst archives currently support Sleeper leagues only.
@@ -238,7 +238,7 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                     except Exception:
                         if correction_week is not None:
                             raise
-                        log.warning("Analyst roast failed league=%s season=%s week=%s; publishing verified results",
+                        log.warning("Analyst roast failed league=%s season=%s week=%s; staging private facts for retry",
                                     league_id, league.season, week, exc_info=True)
                 if edition_type == "results":
                     markdown = render_results_recap(facts.to_dict(), outlook.to_dict() if outlook else None)
@@ -257,6 +257,8 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                         store.save_correction(league_id, edition, correction_reason, claimed=True)
                     else:
                         store.save(league_id, edition)
-                log.info("Saved Analyst league=%s season=%s week=%s type=%s", league_id, league.season, week, edition_type)
+                log.info("%s Analyst league=%s season=%s week=%s type=%s",
+                         "Published" if edition_type == "roast" else "Staged private facts for",
+                         league_id, league.season, week, edition_type)
     except Exception:
         log.exception("Analyst generation failed for %s; saved editions preserved; retry on next refresh", league_id)

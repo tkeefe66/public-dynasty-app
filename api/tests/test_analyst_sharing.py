@@ -17,7 +17,7 @@ def seed(edition_type="roast"):
     return data
 
 
-@pytest.mark.parametrize("edition_type", ["roast", "results"])
+@pytest.mark.parametrize("edition_type", ["roast"])
 def test_public_link_is_limited_revocable_and_tracks_corrections(client, edition_type):
     # Mutation: leak the full archive, keep revoked links alive, or pin stale prose.
     data = seed(edition_type)

@@ -39,6 +39,7 @@ export function Article({ markdown }: { markdown: string }) {
 export function AnalystArchive({ leagueId, editions, selected }: {
   leagueId: string; editions: AnalystEdition[]; selected?: string;
 }) {
+  editions = editions.filter((item) => item.edition_type !== "results");
   const edition = selected
     ? editions.find((item) => `${item.season}-${item.week}` === selected)
     : editions[0];
@@ -71,7 +72,7 @@ export function AnalystArchive({ leagueId, editions, selected }: {
             <header className="mb-7 border-b border-rule pb-6">
               <h2 className="font-display text-title font-bold">Week {edition.week} · {edition.season}</h2>
               <p className="mt-2 text-body">{edition.league_name}</p>
-              <p className="mt-3 text-sm text-dim">Published {new Date(edition.generated_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })} · {edition.edition_type === "results" ? "Results edition from verified league scores" : "AI-written from league results"}</p>
+              <p className="mt-3 text-sm text-dim">Published {new Date(edition.generated_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })} · AI-written from league results</p>
               {edition.correction_note && <p className="mt-3 text-sm text-body"><strong>Corrected edition:</strong> {edition.correction_note}</p>}
               <AnalystShare key={`${edition.season}-${edition.week}`} leagueId={leagueId} season={edition.season} week={edition.week} />
             </header>
@@ -84,7 +85,7 @@ export function AnalystArchive({ leagueId, editions, selected }: {
           </> : <>
             <h2 className="font-display text-title font-bold">{selected ? "That edition is not available yet." : "The first edition is on its way."}</h2>
             <p className="mt-4 text-prose leading-relaxed text-body">The Analyst checks for completed weeks every 15 minutes, including overnight after Monday games. Each published edition stays here for the season and beyond.</p>
-            <p className="mt-3 text-sm text-dim">Publication waits for complete Sleeper results. If the roast is unavailable or fails factual review, a results edition is saved automatically.</p>
+            <p className="mt-3 text-sm text-dim">The Analyst publishes AI-written roasts after complete Sleeper results and factual review. If AI generation is unavailable or review fails, the edition waits for a verified roast.</p>
           </>}
         </article>
       </Panel>

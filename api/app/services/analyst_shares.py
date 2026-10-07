@@ -54,7 +54,7 @@ class AnalystShares:
         return json.loads(path.read_text()) if path.exists() else {"token": None}
 
     def edition(self, league_id, season, week):
-        return next((e for e in self.archive.editions(league_id)
+        return next((e for e in self.archive.published_editions(league_id)
                      if e["season"] == season and e["week"] == week), None)
 
     def create(self, league_id, season, week):
