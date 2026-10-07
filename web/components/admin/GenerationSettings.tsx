@@ -56,6 +56,16 @@ export function GenerationSettings({ leagues, busy, run, version }: ActionProps 
       catch (err) { setError(err instanceof Error ? err.message : "Settings were not saved. Reload and try again."); }
     }}>
       <fieldset disabled={blocked}>
+        {scope === "app" && <div className="mb-4 rounded-lg border border-rule p-4">
+          <h4 className="font-display text-name font-bold">Automatic writing across leagues</h4>
+          <p className="mt-1 text-prose text-dim">Set all four content types together. New eligible events will run automatically after you save. Existing league overrides and safety pauses still apply.</p>
+          <button type="button" className={secondary + " mt-3"} onClick={() => {
+            setDraft(old => ({ ...old, features: Object.fromEntries((Object.keys(FEATURE_LABELS) as GenerationFeature[]).map(feature => [feature, {
+              ...((old.features as Partial<Record<GenerationFeature, Partial<FeatureSettings>>>)?.[feature] || {}), mode: "automatic",
+            }])) }));
+            setReason("Enable automatic writing for all four content types across leagues");
+          }}>Set all four to Automatic</button>
+        </div>}
         {(Object.keys(FEATURE_LABELS) as GenerationFeature[]).map(feature => {
           const current = policy.effective.policy.features[feature], edited = overrides(feature);
           const saved = (policy.value.features as Partial<Record<GenerationFeature, Partial<FeatureSettings>>>)?.[feature];

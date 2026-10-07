@@ -1,5 +1,6 @@
 """Audited owner commands with optimistic revisions and exact campaign approval."""
 import json
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
@@ -147,6 +148,13 @@ async def preview(db, candidates, actor, reason):
 def candidate_label(row):
     payload = json.loads(row.payload_json)
     facts = payload.get("facts", {})
+    if facts.get("trade_id"):
+        owners = [side["owner_name"] for side in facts.get("sides", []) if side.get("owner_name")]
+        if owners:
+            label = " ↔ ".join(dict.fromkeys(owners))
+            if payload.get("event_at"):
+                label += " · " + datetime.fromtimestamp(payload["event_at"], UTC).strftime("%b %-d, %Y")
+            return label
     return str(facts.get("owner_name") or facts.get("trade_id") or
         (f'Week {payload.get("week")}, {payload.get("season")}' if payload.get("week") else row.subject))
 

@@ -22,6 +22,7 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
   const [preview, setPreview] = useState<CampaignPreview | null>(null);
   const [pendingPreview, setPendingPreview] = useState(false);
   const [action, setAction] = useState<{ row: GenerationRecord; name: string } | null>(null);
+  const [catchup, setCatchup] = useState(false);
   const supportsLeagueFilter = ["jobs", "candidates", "artifacts"].includes(kind);
   useEffect(() => {
     let current = true;
@@ -35,9 +36,17 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
   }, [kind, series, offset, version, supportsLeagueFilter]);
   const blocked = busy || loading || pendingPreview;
   async function makePreview(keys: string[]) {
+    setCatchup(false);
     setPendingPreview(true); setError(""); setPreview(null);
     try { setPreview(await generationRequest<CampaignPreview>("/campaigns/preview", { candidates: keys, reason: reason.trim() })); }
     catch (err) { setError(err instanceof Error ? err.message : "Preview could not load. Try again."); }
+    finally { setPendingPreview(false); }
+  }
+  async function previewCatchup() {
+    const explanation = "One-time catch-up of missing current content across leagues";
+    setPendingPreview(true); setError(""); setPreview(null); setReason(explanation); setCatchup(true);
+    try { setPreview(await generationRequest<CampaignPreview>("/campaigns/catch-up/preview", { series_id: series, reason: explanation })); }
+    catch (err) { setError(err instanceof Error ? err.message : "Catch-up preview failed. Reload and try again."); }
     finally { setPendingPreview(false); }
   }
   return <div className="mt-3">
@@ -49,6 +58,11 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
     </div>
     {!supportsLeagueFilter && <p className="mt-2 text-prose text-dim">Records across all leagues.</p>}
     {kind === "candidates" && <p className="mt-3 max-w-2xl text-prose text-dim">Select content, review its request allowance, then approve paid writing. Selection and preview do not call the AI provider. Already completed or otherwise ineligible items will be rejected by the preview.</p>}
+    {kind === "candidates" && <div className="mt-4 rounded-lg border border-rule p-4">
+      <h4 className="font-display text-name font-bold">One-time catch-up</h4>
+      <p className="mt-1 max-w-2xl text-prose text-dim">Gather missing completed-week Analyst roasts, current GM profiles and franchise outlooks, and trade stories from the last seven days. Completed content and work already running or needing repair are skipped.</p>
+      <Button className="mt-3 px-4 py-2" disabled={blocked} onClick={previewCatchup}>{series ? "Preview catch-up for this league" : "Preview catch-up across all leagues"}</Button>
+    </div>}
     {loading && <p role="status" className="mt-3 text-prose">Loading records…</p>}
     {error && <p role="alert" className="mt-3 text-prose text-neg-strong">{error}</p>}
     {!loading && !error && !page.records.length && <p className="mt-3 text-prose text-dim">{kind === "candidates" ? "Content ready for approval will appear here after a league data refresh." : "Records will appear here as work runs for these leagues."}</p>}
@@ -103,7 +117,17 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
       <h4 className="font-display text-name font-bold">Review before paying for AI writing</h4>
       <p className="mt-2">{preview.items.length} content items · At most {preview.max_calls} AI requests.</p>
       <p className="mt-1 text-dim">This is a request limit, not a dollar quote. Review expires at {new Date(preview.expires_at * 1000).toLocaleTimeString()}.</p>
-      <ul className="mt-3 space-y-3">{preview.items.map(item => <li key={item.key}><strong>{item.label} · {FEATURE_LABELS[item.feature]}</strong><p>{leagueName(item, leagues)} · {readable(item.event)}</p><p className="text-dim">{item.model} · up to {item.max_calls} requests</p>{item.blocked_by.length > 0 && <p className="text-neg-strong">Blocked: {item.blocked_by.map(readable).join("; ")}</p>}</li>)}</ul>
+      {catchup ? <>
+        <ul className="mt-3 space-y-3">{leagues.map(league => {
+          const items = preview.items.filter(item => league.seasons.some(s => s.league_id === item.league_id));
+          return items.length ? <li key={league.id}><strong>{league.name || "Unnamed league"}</strong><p>{(Object.keys(FEATURE_LABELS) as (keyof typeof FEATURE_LABELS)[]).map(feature => {
+            const count = items.filter(item => item.feature === feature).length;
+            return count ? `${count} ${FEATURE_LABELS[feature].toLowerCase()}` : null;
+          }).filter(Boolean).join(" · ")}</p></li> : null;
+        })}</ul>
+        <details className="mt-3"><summary className="min-h-tap cursor-pointer py-2 text-dim">Review individual items</summary><ul className="space-y-2">{preview.items.map(item => <li key={item.key}>{leagueName(item, leagues)} · {item.label} · {FEATURE_LABELS[item.feature]} · up to {item.max_calls} requests</li>)}</ul></details>
+        {!!preview.skipped && <p className="mt-3 text-dim">Skipped: {Object.entries(preview.skipped).map(([why, count]) => `${count} ${readable(why).toLowerCase()}`).join(" · ") || "none"}.</p>}
+      </> : <ul className="mt-3 space-y-3">{preview.items.map(item => <li key={item.key}><strong>{item.label} · {FEATURE_LABELS[item.feature]}</strong><p>{leagueName(item, leagues)} · {readable(item.event)}</p><p className="text-dim">{item.model} · up to {item.max_calls} requests</p>{item.blocked_by.length > 0 && <p className="text-neg-strong">Blocked: {item.blocked_by.map(readable).join("; ")}</p>}</li>)}</ul>}
       <Button className="mt-3 px-4 py-2" disabled={blocked || !reason.trim() || preview.items.some(i => i.blocked_by.length > 0)} onClick={async () => {
         setError("");
         try { await run(() => generationRequest("/campaigns/apply", { preview_id: preview.id, digest: preview.digest, reason }), "Paid writing approved for the reviewed content."); setPreview(null); }

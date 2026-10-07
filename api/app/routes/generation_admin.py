@@ -62,6 +62,10 @@ class Apply(Reason):
     digest: str
 
 
+class CatchUp(Reason):
+    series_id: str = ""
+
+
 class JobAction(Reason):
     expected_generation: int
     expected_state: str
@@ -194,6 +198,12 @@ async def attempt(attempt_id: str, body: AttemptAction, db: DB, owner: Owner):
 @router.post("/campaigns/preview")
 async def preview(body: Preview, db: DB, owner: Owner):
     return await execute(commands.preview(db, body.candidates, owner.id, body.reason))
+
+
+@router.post("/campaigns/catch-up/preview")
+async def catchup_preview(body: CatchUp, db: DB, owner: Owner):
+    from app.services.generation.catchup import preview_catchup
+    return await execute(preview_catchup(db, owner.id, body.reason, body.series_id))
 
 
 @router.post("/outbox/{ident}/retry")

@@ -61,6 +61,7 @@ export interface GenerationRecord {
 }
 export interface GenerationPage<T> { records: T[]; next_offset: number | null }
 export interface CampaignPreview {
+  skipped?: Record<string, number>;
   id: string; digest: string; max_calls: number; expires_at: number;
   items: { key: string; label: string; league_id: string; feature: GenerationFeature; event: string;
     max_calls: number; max_tokens_per_call: number; model: string; hold: string; blocked_by: string[] }[];

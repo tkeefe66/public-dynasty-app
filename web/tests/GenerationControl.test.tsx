@@ -32,6 +32,37 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Generation controls", () => {
+  it("sets all four shared modes together without saving before review", async () => {
+    render(<GenerationControl />);
+    fireEvent.click(await screen.findByText("Settings", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Set all four to Automatic" }));
+    for (const label of Object.values(FEATURE_LABELS)) {
+      expect(screen.getByLabelText(label + " mode")).toHaveValue("automatic");
+    }
+    expect(request.mock.calls.some(c => c[2] === "PUT")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/policy/app", {
+      expected_revision: 7, reason: "Enable automatic writing for all four content types across leagues",
+      value: { paused: false, features: Object.fromEntries(Object.keys(FEATURE_LABELS).map(k => [k, { mode: "automatic" }])) },
+    }, "PUT"));
+    await screen.findByText(/Configuration saved/);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set all four to Automatic" })).toBeEnabled());
+  });
+
+  it("previews catch-up across all leagues without selecting individual rows", async () => {
+    const normal = request.getMockImplementation()!;
+    request.mockImplementation((path, ...args) => path === "/campaigns/catch-up/preview"
+      ? normal("/campaigns/preview", ...args) : normal(path, ...args));
+    render(<GenerationControl />);
+    fireEvent.click(await screen.findByText("Approve new content", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preview catch-up across all leagues" }));
+    await screen.findByRole("button", { name: "Approve paid writing" });
+    expect(request).toHaveBeenCalledWith("/campaigns/catch-up/preview", {
+      series_id: "", reason: "One-time catch-up of missing current content across leagues",
+    });
+    expect(request.mock.calls.some(c => c[0] === "/campaigns/apply")).toBe(false);
+  });
+
   it("offers recovery of a settled unknown outcome using the original job", async () => {
     const normal = request.getMockImplementation()!;
     request.mockImplementation((path = "", ...args) => path.startsWith("/records/jobs")
