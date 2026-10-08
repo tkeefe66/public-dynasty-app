@@ -24,6 +24,26 @@ async def prepare(maker):
         row.request_digest = digest(json.loads(row.payload_json))
 
 
+def test_trade_prose_contract_keeps_semantic_validation():
+    from app.services.generation.features import validate
+
+    from sleeper_dynasty.llm.trade_story_writer import parse_story
+    from sleeper_dynasty.models.trade_story import TradeStoryFacts
+
+    facts = TradeStoryFacts(trade_id="synthetic", season=2026, is_offseason=False,
+        winner_user_id=None, lopsidedness=0, margins={}, owners={},
+        sides=[{"owner_name": "Alice", "given_summary": "Mike Evans (WR)",
+                "received_summary": "Malik Nabers (WR)"}])
+    for text, valid in [
+        ("Alice buys youth\n\nAlice acquired Malik Nabers.\n- Mike Evans heads out.", True),
+        ("Alice buys youth\n\nAlice acquired Mike Evans.", False),
+        ("Alice buys youth", False),
+    ]:
+        raw = {"content": [{"type": "text", "text": text}]}
+        errors = validate("trade_story", parse_story(text), facts, raw)
+        assert (not errors) == valid, errors
+
+
 def test_gm_feedback_identifies_the_overlong_highlight():
     from app.services.generation.features import validate
 

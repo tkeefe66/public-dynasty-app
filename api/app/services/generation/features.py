@@ -23,7 +23,9 @@ def validate(feature, result, facts, raw=None):
         # Read both without rewriting saved facts or changing their generation hashes.
         pillars = (set(facts.pillars) if isinstance(facts.pillars, dict) else
             {item["label"].lower() for item in facts.pillars})
-    if raw is not None:
+    # TradeStoryWriter's contract is a headline followed by prose/bullets.
+    # Its parsed fields still pass all semantic checks below.
+    if raw is not None and feature != "trade_story":
         text = "".join(block.get("text", "") for block in raw.get("content", []) if block.get("type") == "text")
         try:
             structured = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip()).strip())

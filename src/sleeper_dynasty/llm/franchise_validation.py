@@ -199,7 +199,8 @@ def find_violations(
     violations.extend(mark_violations(body))
 
     allowed = _packet_tokens(facts) | _VOCABULARY
-    for run in _unknown_name_runs(both, allowed | {"qb", "rb", "wr", "te", "flex", "idp"}):
+    positions = {"qb", "rb", "wr", "te", "flex", "idp"}
+    for run in _unknown_name_runs(both, allowed | positions | {p + "s" for p in positions}):
         violations.append(f"'{run}' is not in the facts packet")
 
     # A [who] span is the model asserting "these words name a person", so every

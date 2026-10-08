@@ -36,6 +36,12 @@ def test_position_shorthand_is_not_an_invented_player():
 
 # --- word cap --------------------------------------------------------------
 
+def test_plural_positions_do_not_hide_unknown_player_names():
+    facts = _facts(aging_risks=["Jared Goff", "Daniel Jones"])
+    assert find_violations("Aging QBs [who]Jared Goff[/who] and [who]Daniel Jones[/who] provide depth.", facts) == []
+    assert find_violations("Aging QBs [who]George Pickels[/who] provide depth.", facts)
+    assert find_violations("[who]QBs[/who] provide depth.", facts)
+
 def test_over_long_prose_is_a_violation():
     prose = " ".join(["word"] * (MAX_WORDS + 1))
     v = find_violations(prose, _facts())
