@@ -78,18 +78,38 @@ describe("HeadlineMoves — offseason (default) phase: trade of the week", () =>
 });
 
 describe("HeadlineMoves — regular-season phase", () => {
+  it.each([
+    { highId: "same-owner", tradedId: "same-owner", highName: "Alice", tradedName: "Updated name", combined: true },
+    { highId: "first-owner", tradedId: "second-owner", highName: "Alex", tradedName: "Alex", combined: false },
+  ])("connects trade points to the high score by identity: $combined", ({ highId, tradedId, highName, tradedName, combined }) => {
+    // Mutation: join the two leaders by display name instead of source user ID.
+    render(<HeadlineMoves leagueId="L1" data={data({
+      phase: "regular", phase_week: 5,
+      week_recap: {
+        season: "2026", week: 4,
+        high_score: { user_id: highId, owner: owner(highName), points: 189.2 },
+        blowout: { winner_user_id: "third-owner", winner: owner("Charlie"), loser_user_id: "fourth-owner", loser: owner("Dana"), margin: 55.1 },
+        traded_points: { user_id: tradedId, owner: owner(tradedName), points: 95.3 },
+      },
+    })} />);
+    if (combined) {
+      expect(screen.getByText(/of those points, the most in the league/)).toHaveTextContent("95.3");
+      expect(screen.queryByText(/led the trade returns/)).not.toBeInTheDocument();
+    } else {
+      expect(screen.getByText(/Alex led the trade returns/)).toHaveTextContent("95.3");
+      expect(screen.queryByText(/of those points/)).not.toBeInTheDocument();
+    }
+  });
+
   it("keeps a visible placeholder when no recap has landed yet", () => {
     // No week_recap: the week isn't final (or the cache predates the field).
     render(<HeadlineMoves data={data({ phase: "regular", phase_week: 4 })} leagueId="L1" />);
     expect(screen.getByText("Week 4 recap")).toBeInTheDocument();
-    expect(screen.getByText("In season")).toBeInTheDocument();
+    expect(screen.getByText("Awaiting final scores")).toBeInTheDocument();
     expect(screen.getByText(/once the week is final/)).toBeInTheDocument();
-    // Figure rows are visible placeholders (em dashes), not fabricated numbers.
-    // The strip renders once, so exactly three placeholder cells — not >= 3,
-    // which would still pass if the desktop/mobile duplication ever crept
-    // back in (the exact regression this task removed).
-    expect(screen.getAllByText("High").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("—")).toHaveLength(3);
+    expect(screen.queryByText(/set the bar/)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Browse The Analyst" }))
+      .toHaveAttribute("href", "/league/L1/analyst");
   });
 
   it("prints the recap figures once the week is final", () => {
@@ -116,13 +136,12 @@ describe("HeadlineMoves — regular-season phase", () => {
     );
     // The recap week is the completed week (4), not the current week (5).
     expect(screen.getByText("Week 4 recap")).toBeInTheDocument();
-    expect(screen.getByText("Alice put up 140.0.")).toBeInTheDocument();
-    expect(screen.getByText(/Alice beat Bob by 50.0/)).toBeInTheDocument();
-    expect(screen.getByText(/Bob led with 21.5 points from trade-acquired starters/))
+    expect(screen.getByText("Alice set the bar.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Biggest margin: Alice beat Bob by 50.0 points")).toBeInTheDocument();
+    expect(screen.getByText(/Bob led the trade returns:/))
       .toBeInTheDocument();
-    // Figures reconcile with the body, and appear once in the strip. The
-    // blowout cell signs its margin ("+50.0") since the strip is the only
-    // place that figure stands alone rather than inside a "by X.X" sentence.
+    // Preserve the score, winning margin, and a different owner's trade points
+    // as distinct figures in the story.
     expect(screen.getAllByText("140.0").length).toBeGreaterThan(0);
     expect(screen.getAllByText("+50.0").length).toBeGreaterThan(0);
     expect(screen.getAllByText("21.5").length).toBeGreaterThan(0);
@@ -152,7 +171,7 @@ describe("HeadlineMoves — regular-season phase", () => {
     );
     expect(screen.queryByText(/Nobody started a trade-acquired player for points/))
       .not.toBeInTheDocument();
-    expect(screen.getByText(/Alice beat Bob by 3.5/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Biggest margin: Alice beat Bob by 3.5 points")).toBeInTheDocument();
   });
 });
 
@@ -418,7 +437,7 @@ describe("HeadlineMoves — the figure strip", () => {
     expect(screen.getByLabelText("Since: Oct 1, 2024")).toBeInTheDocument();
   });
 
-  it("sets owner names in Archivo, not the figure face", () => {
+  it("keeps the high score readable alongside its owner", () => {
     render(
       <HeadlineMoves
         data={data({
@@ -436,10 +455,8 @@ describe("HeadlineMoves — the figure strip", () => {
         leagueId="L1"
       />,
     );
-    // DESIGN.md § Type gives franchise names to Archivo; the figure beside it
-    // stays Geist Mono.
-    expect(screen.getByText("TheCommish").className).toMatch(/font-display/);
-    expect(screen.getByText("140.0").className).not.toMatch(/font-display/);
+    expect(screen.getByRole("heading", { name: "TheCommish set the bar." })).toBeInTheDocument();
+    expect(screen.getByLabelText("High score: TheCommish, 140.0 points")).toBeInTheDocument();
   });
 
   it("shows an em dash rather than 0.0 vs 0.0 when neither side has scored", () => {
@@ -448,7 +465,7 @@ describe("HeadlineMoves — the figure strip", () => {
     expect(screen.getByTestId("lead-points").textContent).toBe("—");
   });
 
-  it("keeps the strip on the week-recap source too", () => {
+  it("opens the completed week rather than the current week", () => {
     render(
       <HeadlineMoves
         data={data({
@@ -466,9 +483,8 @@ describe("HeadlineMoves — the figure strip", () => {
         leagueId="L1"
       />,
     );
-    expect(screen.getAllByText("High")).toHaveLength(1);
-    expect(screen.getAllByText("Blowout")).toHaveLength(1);
-    expect(screen.getAllByText("Traded")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Read the Week 4 roast" }))
+      .toHaveAttribute("href", "/league/L1/analyst?edition=2026-4");
   });
 
   it("uses the short date form in the SINCE cell — the full month name clips at 106px", () => {
@@ -479,7 +495,7 @@ describe("HeadlineMoves — the figure strip", () => {
     expect(screen.getByText(/traded October 1, 2024/)).toBeInTheDocument();
   });
 
-  it("clips a long owner name in a named-figure cell without ever touching its figure", () => {
+  it("preserves a long owner name and its full score", () => {
     render(
       <HeadlineMoves
         data={data({
@@ -497,11 +513,7 @@ describe("HeadlineMoves — the figure strip", () => {
         leagueId="L1"
       />,
     );
-    const name = screen.getByText("TheCommish2020");
-    expect(name.className).toMatch(/truncate/);
-    expect(name).toHaveAttribute("title", "TheCommish2020");
-    const figure = screen.getByText("140.0");
-    expect(figure.className).toMatch(/whitespace-nowrap/);
-    expect(figure.className).not.toMatch(/truncate/);
+    expect(screen.getByRole("heading", { name: "TheCommish2020 set the bar." })).toBeInTheDocument();
+    expect(screen.getByLabelText("High score: TheCommish2020, 140.0 points")).toBeInTheDocument();
   });
 });

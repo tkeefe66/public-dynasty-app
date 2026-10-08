@@ -29,7 +29,7 @@ describe("The Analyst", () => {
   it("links the homepage recap to its own league archive", () => {
     // Mutation: omit the link or send it to another league.
     render(<HeadlineMoves data={{ phase: "regular", phase_week: 1 } as DashboardResp} leagueId="123" />);
-    expect(screen.getByRole("link", { name: /Read The Analyst/ })).toHaveAttribute("href", "/league/123/analyst");
+    expect(screen.getByRole("link", { name: /Browse The Analyst/ })).toHaveAttribute("href", "/league/123/analyst");
   });
   it("opens a saved edition and provides permanent week links", () => {
     // Mutation: ignore the selected edition and always render newest.

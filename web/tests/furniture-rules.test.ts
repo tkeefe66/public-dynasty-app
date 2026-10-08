@@ -57,6 +57,8 @@ const SCOPED_FILES: string[] = [
   "web/components/LeagueHeader.tsx",
   "web/components/StandingsTable.tsx",
   "web/components/HeadlineMoves.tsx",
+  "web/components/WeekRecapLead.tsx",
+  "web/components/AnalystMasthead.tsx",
   "web/components/TradeHero.tsx",
   "web/components/TradeStatTable.tsx",
   "web/components/TradeCard.tsx",

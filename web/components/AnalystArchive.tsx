@@ -3,6 +3,7 @@ import { Panel } from "./furniture/Panel";
 import type { AnalystEdition } from "@/lib/api";
 import { AnalystShare } from "./AnalystShare";
 import { AnalystSources } from "./AnalystSources";
+import { AnalystMasthead } from "./AnalystMasthead";
 
 // A small, deliberately text-only Markdown subset. Model output never becomes
 // HTML, executable links, images, or embedded content.
@@ -48,8 +49,7 @@ export function AnalystArchive({ leagueId, editions, selected }: {
       ← League homepage
     </Link>
     <header className="mt-4 mb-8">
-      <h1 className="font-display text-lead font-extrabold tracking-[var(--track-lead)]">The Analyst</h1>
-      <p className="mt-3 text-prose text-body">Your league. Every week. No one gets a pass.</p>
+      <AnalystMasthead />
     </header>
     <div className="grid items-start gap-8 lg:grid-cols-[220px_minmax(0,1fr)]">
       <nav aria-label="Saved editions" className="min-w-0">

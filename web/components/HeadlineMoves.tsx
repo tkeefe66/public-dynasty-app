@@ -5,20 +5,15 @@ import { fmtDate, fmtDateShort } from "@/lib/format-date";
 import { tradeHeadline, pointsReading, type PointsReading } from "@/lib/trade-lead";
 import { Panel } from "./furniture/Panel";
 import { Row } from "./furniture/Row";
+import { WeekRecapLead } from "./WeekRecapLead";
 
 interface Props {
   data: DashboardResp;
   leagueId: string;
 }
 
-/* ---------------------------------------------------------------------------
- * Agate — the lead (design_handoff_agate/DESIGN.md § "Named rules" —
- * "The Lead Is Rules, Not A Box"; README § "League dashboard"; Dynasty Directions.dc.html
- * Fig. 2a.1 + Fig. 2a.4). ONE component, a fixed skeleton — kicker left,
- * phase note right, headline, body, a three-cell ruled figure strip below —
- * and only the *source* changes with the league's calendar phase, so the
- * page never reflows across the season. Never collapsible.
- * ------------------------------------------------------------------------ */
+/** Seasonal dashboard lead. Completed regular-season results get an editorial
+ * recap; the trade, draft, and bracket sources retain their shared figure strip. */
 
 interface LeadContent {
   kicker: string;
@@ -117,81 +112,6 @@ function tradeOfWeekContent(
         label: "Since",
         value: <span className="text-dim">{fmtDateShort(trade.date)}</span>,
         text: fmtDateShort(trade.date),
-      },
-    ],
-  };
-}
-
-/* ---------------------------------------------------------------------------
- * Week recap — the in-season source (A2). `week_recap` carries the most recent
- * COMPLETED regular-season week, so the lead never prints a partial Sunday
- * score. Its absence (outside the regular season, week 1, or a cache written
- * before the field existed) keeps the placeholder skeleton below rather than
- * fabricating figures.
- * ------------------------------------------------------------------------ */
-function weekRecapContent(data: DashboardResp, leagueId: string): LeadContent {
-  const recap = data.week_recap;
-
-  if (!recap) {
-    const week = data.phase_week;
-    return {
-      kicker: week ? `Week ${week} recap` : "Week recap",
-      phaseNote: "In season",
-      headline: "This week's results land once the week is final.",
-      actionHref: `/league/${leagueId}/analyst`,
-      actionLabel: "Read The Analyst",
-      body: "High score, biggest blowout, and points from trade-acquired starters appear here after the last game of the week is scored.",
-      cells: [
-        { label: "High", value: NO_FIGURE, text: NO_FIGURE_TEXT },
-        { label: "Blowout", value: NO_FIGURE, text: NO_FIGURE_TEXT },
-        { label: "Traded", value: NO_FIGURE, text: NO_FIGURE_TEXT },
-      ],
-    };
-  }
-
-  const who = (f: { owner?: { owner_name: string } | null; user_id: string }) =>
-    f.owner?.owner_name ?? f.user_id;
-  const high = who(recap.high_score);
-  const winner = recap.blowout.winner
-    ? recap.blowout.winner.owner_name
-    : recap.blowout.winner_user_id;
-  const loser = recap.blowout.loser
-    ? recap.blowout.loser.owner_name
-    : recap.blowout.loser_user_id;
-  const traded = recap.traded_points;
-
-  return {
-    kicker: `Week ${recap.week} recap`,
-    actionHref: `/league/${leagueId}/analyst?edition=${recap.season}-${recap.week}`,
-    actionLabel: "Read The Analyst",
-    phaseNote: "In season",
-    headline: `${high} put up ${recap.high_score.points.toFixed(1)}.`,
-    body: (
-      <>
-        {winner} beat {loser} by {recap.blowout.margin.toFixed(1)} — the week&rsquo;s
-        widest margin.
-        {traded
-          ? ` ${who(traded)} led with ${traded.points.toFixed(1)} points from trade-acquired starters.`
-          : null}
-      </>
-    ),
-    cells: [
-      {
-        label: "High",
-        value: <NamedFigureCell name={high} figure={recap.high_score.points.toFixed(1)} />,
-        text: `${high} ${recap.high_score.points.toFixed(1)}`,
-      },
-      {
-        label: "Blowout",
-        value: <NamedFigureCell name={winner} figure={fmtSigned(recap.blowout.margin, 1)} />,
-        text: `${winner} ${fmtSigned(recap.blowout.margin, 1)}`,
-      },
-      {
-        label: "Traded",
-        value: traded
-          ? <NamedFigureCell name={who(traded)} figure={traded.points.toFixed(1)} />
-          : NO_FIGURE,
-        text: traded ? `${who(traded)} ${traded.points.toFixed(1)}` : NO_FIGURE_TEXT,
       },
     ],
   };
@@ -435,8 +355,6 @@ function bracketWatchContent(data: DashboardResp): LeadContent {
 function selectLead(data: DashboardResp, leagueId: string): LeadContent {
   const phase = data.phase ?? "offseason";
   switch (phase) {
-    case "regular":
-      return weekRecapContent(data, leagueId);
     case "post":
       return bracketWatchContent(data);
     case "draft":
@@ -545,8 +463,10 @@ function PointsCell({ reading }: { reading: PointsReading }) {
 }
 
 export function HeadlineMoves({ data, leagueId }: Props) {
+  if (data.phase === "regular") {
+    return <WeekRecapLead recap={data.week_recap} leagueId={leagueId} week={data.phase_week} />;
+  }
   const lead = selectLead(data, leagueId);
-  const isWeekRecap = data.phase === "regular";
 
   const headline = lead.href ? (
     <Link href={lead.href} className="hover:underline">{lead.headline}</Link>
@@ -586,7 +506,7 @@ export function HeadlineMoves({ data, leagueId }: Props) {
             <span className="font-mono text-label uppercase tracking-[0.11em] text-dim">{lead.phaseNote}</span>
           </div>
 
-          <div className={isWeekRecap ? "grid items-center gap-x-6 gap-y-3 md:grid-cols-[minmax(0,1fr)_auto]" : undefined}>
+          <div>
             <div className="min-w-0">
               <h2 className="mt-2 max-w-[34ch] font-display text-lead font-extrabold leading-[1.05] tracking-[var(--track-lead)]">
                 {headline}
@@ -597,7 +517,7 @@ export function HeadlineMoves({ data, leagueId }: Props) {
             {exit && (
               <Link
                 href={exit.href}
-                className={`${isWeekRecap ? "w-fit justify-self-end whitespace-nowrap" : "mt-3"} inline-flex min-h-tap items-center gap-1 rounded-pill border border-ink px-3.5 font-mono text-label font-bold uppercase tracking-[0.11em] transition-colors hover:bg-ink hover:text-bg`}
+                className="mt-3 inline-flex min-h-tap items-center gap-1 rounded-pill border border-ink px-3.5 font-mono text-label font-bold uppercase tracking-[0.11em] transition-colors hover:bg-ink hover:text-bg"
               >
                 {exit.label} →
               </Link>
