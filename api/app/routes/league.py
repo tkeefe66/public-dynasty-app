@@ -46,8 +46,21 @@ def league(
     overrides = NameOverrideStore(cache_dir=cache_dir).read(league_id)
     if overrides:
         apply_name_overrides(entry, overrides)
-    if year == "all":
-        year_val: int | Literal["all"] = "all"
+    year_val: int | Literal["all"]
+    if year == "auto":
+        # The dashboard opts into the league's active fantasy season. Use the
+        # same phase as its lead, including January's prior-year season. Other
+        # API callers retain the all-time default; explicit choices always win.
+        phase = entry.league_phase or {}
+        active_season = phase.get("season")
+        seasons = {lg["season"] for lg in entry.chain}
+        year_val = (
+            active_season
+            if phase.get("phase") in {"regular", "post"} and active_season in seasons
+            else "all"
+        )
+    elif year == "all":
+        year_val = "all"
     else:
         try:
             year_val = int(year)

@@ -57,6 +57,12 @@ describe("TopBar", () => {
   // outside-a-league case actually be outside a league.
   beforeEach(() => localStorage.clear());
 
+  it("preserves an explicit All selection in league navigation", () => {
+    // Mutation: strip year=all and let a destination apply its in-season default.
+    render(<TopBar leagueId="L1" year="all" activeNav="dashboard" />);
+    expect(screen.getByRole("link", { name: /^Trades$/i })).toHaveAttribute("href", "/league/L1?year=all&tab=trades");
+  });
+
   it("renders exactly the five league destinations inline", () => {
     render(<TopBar leagueId="L1" activeNav="dashboard" />);
     for (const label of INLINE_LABELS) {

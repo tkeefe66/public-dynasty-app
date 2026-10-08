@@ -1,4 +1,4 @@
-import { Lens, Year } from "./types";
+import { DashboardYear, Lens } from "./types";
 
 export type SortDirection = "asc" | "desc";
 
@@ -8,7 +8,7 @@ export interface SortState {
 }
 
 export interface DashboardState {
-  year: Year;
+  year: DashboardYear;
   lens: Lens;
   sort: SortState;
   filters: Record<string, string[] | [number | null, number | null]>;
@@ -19,7 +19,7 @@ export interface DashboardState {
 // real column (including Franchise Rating) register as an explicit choice that the
 // view-specific default logic must respect. See StandingsTable.effectiveSort.
 const DEFAULTS: DashboardState = {
-  year: "all",
+  year: "auto",
   lens: "ktc",
   sort: { column: "auto", direction: "desc" },
   filters: {},
@@ -65,7 +65,7 @@ export function decodeDashboardState(sp: URLSearchParams): DashboardState {
   });
 
   return {
-    year: year === "all" || year === null ? "all" : Number(year),
+    year: !year || year === "auto" ? "auto" : year === "all" ? "all" : Number(year),
     lens: lens && ["ktc", "production"].includes(lens) ? lens : "ktc",
     sort,
     filters,

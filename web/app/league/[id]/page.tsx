@@ -3,7 +3,7 @@ import { Shell } from "@/components/Shell";
 import { TopBar } from "@/components/TopBar";
 import { DashboardClient, DashboardTab } from "@/components/DashboardClient";
 import { dashboard } from "@/lib/api";
-import { Lens, Year } from "@/lib/types";
+import { DashboardYear, Lens } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -31,10 +31,6 @@ export default function LeaguePage({
   params: { id: string };
   searchParams: { year?: string; lens?: string; tab?: string };
 }) {
-  const year: Year =
-    !searchParams.year || searchParams.year === "all"
-      ? "all"
-      : Number(searchParams.year);
   const lens: Lens =
     (searchParams.lens as Lens) &&
     ["ktc", "production"].includes(searchParams.lens!)
@@ -43,6 +39,10 @@ export default function LeaguePage({
   const tab: DashboardTab = TABS.includes(searchParams.tab as DashboardTab)
     ? (searchParams.tab as DashboardTab)
     : "dashboard";
+  // Keep no selection distinct from an explicit All choice, including in nav.
+  const year: DashboardYear = !searchParams.year || searchParams.year === "auto"
+    ? "auto"
+    : searchParams.year === "all" ? "all" : Number(searchParams.year);
 
   return (
     <Shell>

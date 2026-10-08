@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, dashboard, getMe, getProfiles, refreshStream } from "@/lib/api";
-import { DashboardResp, Lens, ProfilesMap, Year } from "@/lib/types";
+import { DashboardResp, DashboardYear, Lens, ProfilesMap } from "@/lib/types";
 import { ProgressModal } from "./ProgressModal";
 import { DashboardSkeleton } from "./DashboardSkeleton";
 import { LeagueHeader } from "./LeagueHeader";
@@ -21,7 +21,7 @@ export type DashboardTab = "dashboard" | "trades" | "owners" | "gm" | "bets";
 
 interface Props {
   leagueId: string;
-  initialYear: Year;
+  initialYear: DashboardYear;
   initialLens: Lens;
   initialTab: DashboardTab;
 }
@@ -38,13 +38,18 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
   >([]);
   // The signed-in user's Sleeper id, for "your franchise" highlighting.
   const [youUserId, setYouUserId] = useState<string | null>(null);
+  // Only season-filtered ledgers opt into the active-season data default.
+  // Keep initialYear for navigation so a career-wide view's fallback to All
+  // does not become an explicit user choice when returning to the dashboard.
+  const requestedYear = initialYear === "auto" && initialTab !== "dashboard" && initialTab !== "trades"
+    ? "all" : initialYear;
 
   const loadOrRefresh = useCallback(async () => {
     setError(null);
     setYahooReconnect(false);
     setLoading(true);
     try {
-      const d = await dashboard(leagueId, { year: initialYear, lens: initialLens });
+      const d = await dashboard(leagueId, { year: requestedYear, lens: initialLens });
       setData(d);
       setLoading(false);
     } catch (err) {
@@ -67,7 +72,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
           if (ev.stage === "done") {
             try {
               const d = await dashboard(leagueId, {
-                year: initialYear, lens: initialLens,
+                year: requestedYear, lens: initialLens,
               });
               setData(d);
             } catch (e) {
@@ -82,7 +87,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
         setError(err instanceof Error ? err.message : "Couldn't load the dashboard.");
       }
     }
-  }, [leagueId, initialYear, initialLens]);
+  }, [leagueId, requestedYear, initialLens]);
 
   useEffect(() => {
     loadOrRefresh();
@@ -174,7 +179,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
             disclose — absence, not an empty state. */}
         <LeagueNotes notes={data.warnings} />
 
-        <DashboardTabs leagueId={leagueId} active={initialTab} />
+        <DashboardTabs leagueId={leagueId} active={initialTab} year={String(initialYear)} lens={initialLens} />
         {/* The GM board carries its own all-time/per-season toggle. Franchises
             reads as all-time (grades, track record, H2H are career-wide), so the
             season tabs would be inert there. */}

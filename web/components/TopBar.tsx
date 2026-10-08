@@ -64,7 +64,7 @@ function navHref(
   if (!leagueId) return "#";
   if (n.href) return n.href(leagueId);
   const qs = new URLSearchParams();
-  if (year && year !== "all") qs.set("year", year);
+  if (year && year !== "auto") qs.set("year", year);
   if (lens) qs.set("lens", lens);
   if (n.tab) qs.set("tab", n.tab);
   const s = qs.toString();

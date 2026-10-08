@@ -1,5 +1,7 @@
 export type Lens = "ktc" | "production";
 export type Year = number | "all";
+/** Unselected dashboard URLs ask the API to resolve the active fantasy season. */
+export type DashboardYear = Year | "auto";
 
 export interface OwnerRef {
   user_id: string;

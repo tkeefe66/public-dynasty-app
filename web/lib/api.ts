@@ -1,5 +1,5 @@
 import {
-  BetsSummaryResp, DashboardResp, DraftBoardResp, DraftSeasonsResp, LatestTrade, LeaderboardResp,
+  BetsSummaryResp, DashboardResp, DashboardYear, DraftBoardResp, DraftSeasonsResp, LatestTrade, LeaderboardResp,
   Lens, OwnerDetailResp, OwnerNameEntry, OwnerNamesResp, OwnerProfile, ProfilesMap,
   SideBetCreateBody, SideBetListResp, SideBetUpdateBody, SideBetView, TradeDetailResp, Year,
 } from "./types";
@@ -48,7 +48,7 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function dashboard(
   leagueId: string,
-  opts: { year?: Year; lens?: Lens } = {},
+  opts: { year?: DashboardYear; lens?: Lens } = {},
 ): Promise<DashboardResp> {
   const sp = new URLSearchParams();
   if (opts.year !== undefined) sp.set("year", String(opts.year));

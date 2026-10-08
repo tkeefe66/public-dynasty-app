@@ -3,8 +3,9 @@ import { encodeDashboardState, decodeDashboardState } from "../lib/url-state";
 
 describe("dashboard URL state", () => {
   it("decode defaults", () => {
+    // Mutation: collapse an omitted year into an explicit all-time selection.
     const state = decodeDashboardState(new URLSearchParams(""));
-    expect(state.year).toBe("all");
+    expect(state.year).toBe("auto");
     expect(state.lens).toBe("ktc");
     // "auto" sentinel: the view resolves its own default sort (see StandingsTable).
     expect(state.sort).toEqual({ column: "auto", direction: "desc" });
@@ -34,12 +35,20 @@ describe("dashboard URL state", () => {
   });
 
   it("encode strips defaults", () => {
+    // Mutation: serialize auto as a numeric/explicit year instead of omitting it.
     const out = encodeDashboardState({
-      year: "all", lens: "ktc",
+      year: "auto", lens: "ktc",
       sort: { column: "auto", direction: "desc" },
       filters: {},
     });
     expect(out).toBe("");
+  });
+
+  it("preserves explicit All while sorting", () => {
+    // Mutation: strip year=all when a sort updates the URL.
+    const state = decodeDashboardState(new URLSearchParams("year=all"));
+    const out = encodeDashboardState({ ...state, sort: { column: "gm_rating", direction: "asc" } });
+    expect(out).toBe("year=all&sort=gm_rating.asc");
   });
 
   it("encode keeps non-defaults", () => {

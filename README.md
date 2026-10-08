@@ -277,6 +277,8 @@ Open http://localhost:3000.
 
 **Cold-start flow:** the dashboard endpoints return `409 cache cold` until a league chain has been pulled. The frontend kicks off `GET /api/league/{id}/refresh` (Server-Sent Events) which streams progress and persists the result to the `ChainCache`; subsequent reads are served from cache.
 
+**Dashboard season default:** opening Franchises or Trades without a year selection requests `year=auto`. The API selects the cached league phase's season during the regular season or fantasy playoffs, provided that season is in the league's history; otherwise it selects All. The season year comes from league phase data, so January does not advance it to the next calendar year. Explicit years and `year=all` take precedence and survive sorting and desktop/mobile navigation. Owners, GM, and Bets retain their existing all-time data defaults and separate controls.
+
 **Incremental refresh:** a league is built fully once; later refreshes reuse the prior `ChainCacheEntry` rather than re-grading frozen history. When it's the NFL offseason / between weeks and there are no new trades since the last build, the backend copies the prior entry's expensive historical rollups (production series, injury, historical rating signals) and only recomputes the cheap "as-of-today" value layer (Trade Value, outlooks, ratings). New trades, a live scoring week, or a forced refresh trigger a full rebuild. This depends on the API's persistent cache volume so the prior entry survives deploys — without it, every deploy cold-starts every league.
 
 ### Trade stories
@@ -483,7 +485,7 @@ One near-miss worth recording: the first scratch container silently failed to bi
 |---|---|---|
 | `GET`  | `/api/health` | Liveness check. |
 | `POST` | `/api/lookup` | `{ username }` → the user's dynasty leagues. |
-| `GET`  | `/api/league/{league_id}` | Dashboard payload. Query: `year` (`all` or a season int), `lens` (`ktc` \| `production`) — drives the hero-card verdict only. `409` if cache cold. |
+| `GET`  | `/api/league/{league_id}` | Dashboard payload. Query: `year` (`all`, `auto`, or a season int; omitted defaults to `all` for API compatibility), `lens` (`ktc` \| `production`) — drives the hero-card verdict only. `409` if cache cold. |
 | `GET`  | `/api/league/{league_id}/refresh` | **SSE** stream — pulls + grades the chain, emits `progress`/`done`/`error` events, persists to cache. |
 | `GET`  | `/api/league/{league_id}/owner/{user_id}` | Per-owner franchise page (Franchise Rating + pillar highlights, Track Record, head-to-head, trades, outlook). |
 | `GET`  | `/api/league/{league_id}/trade/{trade_id}` | Per-trade detail (direct grade, LLM story, and the "became" grade). |

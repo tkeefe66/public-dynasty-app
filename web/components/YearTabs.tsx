@@ -41,7 +41,8 @@ export function YearTabs({ seasons, current, leagueId, lens, tab, currentSeason,
   const router = useRouter();
   const choose = (y: Year) => {
     const sp = new URLSearchParams();
-    if (y !== "all") sp.set("year", String(y));
+    // Omitting year now means automatic; All must be an explicit choice.
+    sp.set("year", String(y));
     if (lens !== "ktc") sp.set("lens", lens);
     if (tab && tab !== "dashboard") sp.set("tab", tab);
     const qs = sp.toString();

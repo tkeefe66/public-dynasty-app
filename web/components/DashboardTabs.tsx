@@ -44,9 +44,13 @@ const TABS: { key: DashboardTab | "draft" | "scoring"; label: string; href: (id:
 export function DashboardTabs({
   leagueId,
   active,
+  year,
+  lens,
 }: {
   leagueId: string;
   active: DashboardTab | "scoring";
+  year?: string;
+  lens?: string;
 }) {
   return (
     <nav
@@ -55,10 +59,21 @@ export function DashboardTabs({
     >
       {TABS.map((t) => {
         const on = t.key === active;
+        let href = t.href(leagueId);
+        if (t.key !== "draft" && t.key !== "scoring") {
+          // Match desktop navigation: retain explicit selections, including
+          // All, while an omitted year continues to use the automatic default.
+          const [pathname, query] = href.split("?");
+          const sp = new URLSearchParams(query);
+          if (year && year !== "auto") sp.set("year", year);
+          if (lens && lens !== "ktc") sp.set("lens", lens);
+          const qs = sp.toString();
+          href = `${pathname}${qs ? `?${qs}` : ""}`;
+        }
         return (
           <Link
             key={t.key}
-            href={t.href(leagueId)}
+            href={href}
             aria-current={on ? "page" : undefined}
             className={`relative flex min-h-tap flex-1 items-center justify-center whitespace-nowrap font-mono text-label uppercase tracking-[0.06em] no-underline ${
               on ? "font-bold text-ink" : "text-dim"
