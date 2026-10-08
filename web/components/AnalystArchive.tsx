@@ -84,8 +84,8 @@ export function AnalystArchive({ leagueId, editions, selected }: {
             </details>}
           </> : <>
             <h2 className="font-display text-title font-bold">{selected ? "That edition is not available yet." : "The first edition is on its way."}</h2>
-            <p className="mt-4 text-prose leading-relaxed text-body">The Analyst checks for completed weeks every 15 minutes, including overnight after Monday games. Each published edition stays here for the season and beyond.</p>
-            <p className="mt-3 text-sm text-dim">The Analyst publishes AI-written roasts after complete Sleeper results and factual review. If AI generation is unavailable or review fails, the edition waits for a verified roast.</p>
+            <p className="mt-4 text-prose leading-relaxed text-body">Completed weeks become saved editions after the writing and factual review are finished. Each published recap stays here for the season and beyond.</p>
+            <p className="mt-3 text-sm text-dim">If writing is paused or factual review fails, the next recap stays unpublished until it is ready.</p>
           </>}
         </article>
       </Panel>

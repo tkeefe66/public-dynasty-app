@@ -108,7 +108,7 @@ describe("HeadlineMoves — regular-season phase", () => {
     expect(screen.getByText("Awaiting final scores")).toBeInTheDocument();
     expect(screen.getByText(/once the week is final/)).toBeInTheDocument();
     expect(screen.queryByText(/set the bar/)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Browse The Analyst" }))
+    expect(screen.getByRole("link", { name: "Browse weekly recaps" }))
       .toHaveAttribute("href", "/league/L1/analyst");
   });
 
@@ -483,7 +483,7 @@ describe("HeadlineMoves — the figure strip", () => {
         leagueId="L1"
       />,
     );
-    expect(screen.getByRole("link", { name: "Read the Week 4 roast" }))
+    expect(screen.getByRole("link", { name: "Read the Week 4 recap" }))
       .toHaveAttribute("href", "/league/L1/analyst?edition=2026-4");
   });
 

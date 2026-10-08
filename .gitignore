@@ -7,6 +7,7 @@ dist/
 build/
 .DS_Store
 .superpowers/
+.recap-pilot/
 web/next-env.d.ts
 
 # Tool scratch (Claude worktrees, impeccable design skill)

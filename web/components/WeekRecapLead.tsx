@@ -67,13 +67,13 @@ export function WeekRecapLead({ recap, leagueId, week }: {
         ) : (
           <div className="px-5 py-7 sm:px-7">
             <h2 className="max-w-[28ch] font-display text-lead font-extrabold leading-tight tracking-[var(--track-lead)]">This week&rsquo;s story is still being written.</h2>
-            <p className="mt-3 max-w-[65ch] text-prose leading-relaxed text-body">High scores, biggest margins, and trade-acquired starter points land once the week is final. The Analyst keeps each published edition in the archive.</p>
+            <p className="mt-3 max-w-[65ch] text-prose leading-relaxed text-body">High scores, biggest margins, and trade-acquired starter points land once the week is final. Each published recap stays in the archive.</p>
           </div>
         )}
 
         <AnalystMasthead compact>
           <Link href={href} className="inline-flex min-h-tap w-full items-center justify-between gap-4 rounded-sm bg-bg px-4 py-3 font-display text-name font-bold text-ink transition-colors hover:bg-surface sm:w-auto">
-            {recap ? `Read the Week ${recap.week} roast` : "Browse The Analyst"}
+            {recap ? `Read the Week ${recap.week} recap` : "Browse weekly recaps"}
             <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0">
               <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>

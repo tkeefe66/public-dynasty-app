@@ -1,0 +1,18 @@
+{
+  "title": "Weekly recap",
+  "league_name": "Dynasty Bitch",
+  "season": 2026,
+  "week": 4,
+  "host": "Cal Mercer",
+  "duration": 90,
+  "source": "User-supplied Week 4 screenshot. Three supplied facts; not a fresh API verification. Local editorial draft.",
+  "facts": {"high_owner": "Mikey", "high_points": 189.2, "winner": "Parker", "loser": "Keegan", "margin": 55.1, "traded_owner": "Mikey", "traded_points": 95.3},
+  "scenes": [
+    {"start": 0, "end": 10, "kind": "intro", "title": "Somebody had\na good week.", "narration": "Week four in Dynasty Bitch. I’m Cal Mercer. Three numbers tell the story, and Keegan is going to hate one of them."},
+    {"start": 10, "end": 28, "kind": "score", "title": "Mikey set the bar.", "narration": "Mikey put up one hundred eighty-nine point two, the highest score in the league. That’s the kind of week that makes a man believe he’s a genius. Enjoy it, Mikey. Confidence is how you end up explaining next Sunday."},
+    {"start": 28, "end": 45, "kind": "margin", "title": "Parker over Keegan.", "narration": "Parker beat Keegan by fifty-five point one. Widest margin of the week. Keegan, the app lets you turn off notifications. Unfortunately, it lets you keep managing the team. Some features really should require a fucking license."},
+    {"start": 45, "end": 66, "kind": "trades", "title": "The trades delivered.", "narration": "Back to Mikey. Ninety-five point three from guys he traded for. Identified a problem, made some changes. Personally, I’d order another pitcher and explain to the bartender why it was the coach’s fucking fault. He usually agreed. I tipped well."},
+    {"start": 66, "end": 80, "kind": "share", "title": "More than half.\nAll on the board.", "narration": "That’s more than half Mikey’s total coming from acquired starters. The trades showed up on the scoreboard. Everybody else can keep winning the imaginary version of their deals in the group chat."},
+    {"start": 80, "end": 90, "kind": "outro", "title": "Set your\nfucking lineups.", "narration": "Mikey set the pace. Parker delivered the beating. Keegan gets a week to prepare an excuse. I’m Cal Mercer. Set your fucking lineups."}
+  ]
+}

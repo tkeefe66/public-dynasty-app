@@ -28,7 +28,7 @@ export function AnalystShare({ leagueId, season, week }: { leagueId: string; sea
 
   async function send() {
     if (!navigator.share) { await copy(); return; }
-    try { await navigator.share({ title: `The Analyst · Week ${week}`, text: `Read the Week ${week} recap`, url }); }
+    try { await navigator.share({ title: `Weekly recap · Week ${week}`, text: `Read the Week ${week} recap`, url }); }
     catch (error) {
       if (!(error instanceof Error && error.name === "AbortError")) setMessage("Could not open sharing. Use Copy link instead.");
     }

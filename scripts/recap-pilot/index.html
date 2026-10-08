@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weekly recap with Cal Mercer · Dynasty Bitch pilot</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="episode.js"></script>
+  <script defer src="player.js"></script>
+</head>
+<body>
+  <main>
+    <header class="masthead">
+      <div><h1>Weekly recap<span>.</span></h1><p>Dynasty Bitch · Week 4 · With Cal Mercer</p></div>
+      <p class="edition">2026<br><span>Local pilot / 90 seconds</span></p>
+    </header>
+    <div class="workspace">
+      <section aria-label="Episode preview" class="screen-column">
+        <div class="screen"><canvas id="stage" width="1280" height="720" aria-label="Animated weekly recap graphics. The complete script is below."></canvas></div>
+        <div class="caption" id="caption" aria-live="off"></div>
+        <div class="transport">
+          <button id="play" class="primary" type="button">Play graphics preview</button>
+          <label class="seek-label" for="seek">Position</label>
+          <input id="seek" type="range" min="0" max="90" step="0.1" value="0" aria-valuetext="0 seconds of 90">
+          <output id="clock" for="seek">0:00 / 1:30</output>
+        </div>
+        <div class="chapter-list" id="chapters" aria-label="Episode chapters"></div>
+        <div class="export-row"><p id="media-state">Graphics preview. Narration has not been generated.</p><button id="export" type="button">Export graphics preview</button></div>
+        <p id="error" role="alert" hidden></p>
+        <p id="export-status" role="status"></p>
+        <a id="download" hidden>Download video</a>
+        <audio id="audio" preload="metadata"></audio>
+      </section>
+      <aside aria-label="Pilot status">
+        <h2>One league.<br> One episode.</h2>
+        <p class="aside-body">A first look at Cal’s weekly report. Real scores, questionable life choices.</p>
+        <dl id="costs"></dl>
+        <p class="fine">Quotes are estimates. Unknown charges stay unresolved. Playback and graphics export make no provider requests.</p>
+        <details><summary>Source &amp; production notes</summary><p id="source"></p><p>Caption and chapter timings are a draft until the selected narration is checked. No episode is published from this page.</p></details>
+      </aside>
+    </div>
+    <section class="script" aria-labelledby="script-heading">
+      <div class="script-head"><h2 id="script-heading">Cal’s script</h2><p>Original fictional reporter · Explicit language</p></div>
+      <div id="transcript"></div>
+    </section>
+  </main>
+</body>
+</html>
