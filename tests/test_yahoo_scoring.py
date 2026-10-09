@@ -142,12 +142,25 @@ def test_negative_targets_and_duplicate_stat_records_are_rejected():
         scoring_rules(settings(stat(), stat()))
 
 
-def test_duplicate_milestones_and_unverified_zero_thresholds_are_rejected():
-    with pytest.raises(YahooDataError, match="duplicate bonus target 300"):
+def test_repeated_milestone_awards_coalesce_without_losing_points():
+    weights, bonuses = scoring_rules(settings(stat(bonuses=[
+        {"bonus": {"target": "300", "points": "3"}},
+        {"bonus": {"target": 300.0, "points": "5"}},
+    ])))
+    assert len(bonuses) == 1
+    assert bonuses[0].points == 8
+    assert score_week_stats({"pass_yd": 300}, weights, bonuses=bonuses) == 20
+
+
+def test_repeated_milestone_sum_must_remain_finite():
+    with pytest.raises(YahooDataError, match="combined bonus points"):
         scoring_rules(settings(stat(bonuses=[
-            {"bonus": {"target": "300", "points": "3"}},
-            {"bonus": {"target": 300.0, "points": "5"}},
+            {"bonus": {"target": 300, "points": "1e308"}},
+            {"bonus": {"target": 300, "points": "1e308"}},
         ])))
+
+
+def test_unverified_zero_thresholds_are_rejected():
     with pytest.raises(YahooDataError, match="unsupported zero bonus target"):
         scoring_rules(settings(stat(bonuses={"bonus": {"target": 0, "points": 3}})))
 

@@ -41,6 +41,7 @@ from sleeper_dynasty.engine.trade_grader import (
     grade_trade,
 )
 from sleeper_dynasty.engine.trade_history import build_trade_history
+from sleeper_dynasty.models.scoring import has_threshold_bonuses
 from sleeper_dynasty.models.player import (
     FantasyProsProjection,
     KTCValue,
@@ -442,7 +443,7 @@ async def _run_analysis(args: argparse.Namespace) -> None:
 
         league = _select_league(relevant)
         logger.info("Analyzing league: %s (%s)", league.name, league.league_id)
-        if any(b.points for b in league.scoring_bonuses):
+        if has_threshold_bonuses(league.scoring_settings, league.scoring_bonuses):
             print("Simulation unavailable: projections do not include this league's "
                   "weekly threshold bonuses.")
             return
@@ -967,7 +968,7 @@ async def _run_recap(args: argparse.Namespace) -> None:
         # Weekly projections for bust detection (best-effort).
         # An expected stat total does not give the probability of reaching a
         # threshold. Keep actual results, but omit unsupported comparisons.
-        has_scoring_bonuses = any(b.points for b in league.scoring_bonuses)
+        has_scoring_bonuses = has_threshold_bonuses(league.scoring_settings, league.scoring_bonuses)
         weekly_projections: dict[str, float] = {}
         try:
             raw_proj = ({} if has_scoring_bonuses else

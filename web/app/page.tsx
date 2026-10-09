@@ -8,6 +8,7 @@ import { Panel } from "@/components/furniture/Panel";
 import { Row } from "@/components/furniture/Row";
 import { Name } from "@/components/furniture/Name";
 import { getMe, myLeagues, type MyLeague } from "@/lib/api";
+import { leagueStatus } from "@/lib/league-status";
 
 // Authenticated "My Leagues" home. Middleware guarantees a signed-in user.
 export const dynamic = "force-dynamic";
@@ -75,7 +76,7 @@ export default async function HomePage() {
              pattern), so this stays one tap target. */
           <div className="mt-6">
             <Panel>
-              <Row variant="head" cols="minmax(0,1fr) 84px">
+              <Row variant="head" cols="minmax(0,1fr) 112px">
                 <div>League</div>
                 <div className="text-right">Status</div>
               </Row>
@@ -85,7 +86,7 @@ export default async function HomePage() {
                   href={`/league/${lg.league_id}`}
                   className="block border-t border-rule hover:bg-surface-sunk"
                 >
-                  <Row cols="minmax(0,1fr) 84px">
+                  <Row cols="minmax(0,1fr) 112px">
                     <span className="min-w-0 truncate">
                       {/* The name alone. The season used to trail it, but a
                           dynasty league's chain spans every season it has
@@ -97,7 +98,7 @@ export default async function HomePage() {
                       </Name>
                     </span>
                     <span className="text-right text-label uppercase tracking-[0.1em]">
-                      {lg.warm ? "Ready" : "Warming"}
+                      {leagueStatus(lg)}
                     </span>
                   </Row>
                 </Link>

@@ -23,7 +23,7 @@ import statistics as st
 from collections import defaultdict
 from collections.abc import Sequence
 
-from sleeper_dynasty.models.scoring import ThresholdBonus
+from sleeper_dynasty.models.scoring import ThresholdBonus, split_scoring_rules
 
 # Upper bounds, inclusive. CONTINUOUS — ECR is fractional (8.7, 12.5, 18.2), and
 # integer ranges with gaps once dumped 32 of 389 players into the bottom cohort,
@@ -158,6 +158,7 @@ def build_cohorts(
       against it. A distribution that cannot discriminate must not be used
       to judge.
     """
+    scoring, bonuses = split_scoring_rules(scoring or {}, bonuses)
     if any(v and k not in _PRICED_KEYS and k not in _IGNORABLE
            for k, v in (scoring or {}).items()):
         return {}

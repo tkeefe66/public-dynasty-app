@@ -40,9 +40,10 @@ def setup_league():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("rule_format", ["typed", "legacy"])
 @pytest.mark.parametrize("bonus_points, expected_busts", [(None, 1), (0, 1), (3, 0), (-2, 0)])
 async def test_bonus_leagues_keep_actual_results_without_base_only_bust_comparisons(
-    tmp_path, monkeypatch, bonus_points, expected_busts,
+    tmp_path, monkeypatch, bonus_points, expected_busts, rule_format,
 ):
     from app.services.analyst import generate_analyst
     from app.services.analyst_store import AnalystStore
@@ -51,7 +52,10 @@ async def test_bonus_leagues_keep_actual_results_without_base_only_bust_comparis
     league, _ = await client.get_league("123")
     league.scoring_settings = {"pass_td": 4}
     if bonus_points is not None:
-        league.scoring_bonuses = [ThresholdBonus(("pass_yd",), 300, bonus_points)]
+        if rule_format == "legacy":
+            league.scoring_settings["bonus_gte:pass_yd:300"] = bonus_points
+        else:
+            league.scoring_bonuses = [ThresholdBonus(("pass_yd",), 300, bonus_points)]
     # Player Two would be called a bust against this base-only projection.
     client.get_projections.return_value = {"p1": {"pass_td": 10}, "p2": {"pass_td": 20}}
     monkeypatch.setattr("app.services.analyst.upcoming_outlook", AsyncMock(return_value=None))

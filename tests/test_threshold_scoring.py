@@ -11,7 +11,9 @@ from sleeper_dynasty.engine.nfl_actuals import score_week
 from sleeper_dynasty.engine.scoring import score_week_stats
 from sleeper_dynasty.engine.scoring_leaders import build_scoring_rows
 from sleeper_dynasty.models.league import League
-from sleeper_dynasty.models.scoring import ThresholdBonus
+from sleeper_dynasty.models.scoring import (
+    ThresholdBonus, has_threshold_bonuses, split_scoring_rules, weekly_scoring_stats,
+)
 
 
 @pytest.mark.parametrize("yards, expected", [(299.99, "12.00"), (300, "15.00"),
@@ -107,3 +109,72 @@ def test_actuals_and_scoring_leaders_score_each_week_before_summing():
     # Aggregate projection normalization stays linear. Awarding one bonus on
     # 910 projected season yards would neither count nor estimate bonus weeks.
     assert normalize_projection({"pass_yd": 910}, {"pass_yd": .04}) == 36.4
+
+
+@pytest.mark.parametrize("typed", [
+    [],
+    [ThresholdBonus(("pr_yd", "kr_yd"), 100, 5)],
+    [ThresholdBonus(("kr_yd", "pr_yd"), 100, 2),
+     ThresholdBonus(("pr_yd", "kr_yd"), 100, 3)],
+])
+def test_persisted_and_typed_rules_are_equivalent_and_never_double_count(typed):
+    scoring = {"kr_yd": .1, "pr_yd": .1, "bonus_gte:kr_yd+pr_yd:100": 5}
+    stats = {"gp": 1, "kr_yd": 60, "pr_yd": 40,
+             "bonus_gte:kr_yd+pr_yd:100": 17}
+    before = deepcopy((scoring, stats, typed))
+    assert has_threshold_bonuses(scoring, typed)
+    assert score_week_stats(stats, scoring, bonuses=typed) == Decimal("15.00")
+    linear, rules = split_scoring_rules(scoring, typed)
+    assert linear == {"kr_yd": .1, "pr_yd": .1}
+    assert rules == (ThresholdBonus(("kr_yd", "pr_yd"), 100, 5),)
+    assert (scoring, stats, typed) == before
+
+
+def test_conflicting_typed_and_legacy_rules_fail_explicitly():
+    scoring = {"bonus_gte:rush_yd:100": 5}
+    typed = [ThresholdBonus(("rush_yd",), 100, 3)]
+    with pytest.raises(ValueError, match="Conflicting"):
+        score_week_stats({"rush_yd": 100}, scoring, bonuses=typed)
+    with pytest.raises(ValueError, match="Conflicting"):
+        has_threshold_bonuses(scoring, typed)
+
+
+def test_equal_legacy_aliases_award_once_and_conflicting_aliases_fail():
+    scoring = {"bonus_gte:kr_yd+pr_yd:100": 3,
+               "bonus_gte:pr_yd+kr_yd:1e2": 3}
+    stats = {"kr_yd": 60, "pr_yd": 40}
+    assert score_week_stats(stats, scoring) == 3
+    derived = weekly_scoring_stats(stats, scoring)
+    assert sum(derived[key] * value for key, value in scoring.items()) == 3
+    scoring["bonus_gte:pr_yd+kr_yd:1e2"] = 5
+    with pytest.raises(ValueError, match="Conflicting"):
+        split_scoring_rules(scoring)
+
+
+def test_legacy_and_typed_decimal_thresholds_have_the_same_boundary():
+    scoring = {"bonus_gte:a+b:0.3": -.125}
+    assert score_week_stats({"a": .1, "b": .2}, scoring,
+                            bonuses=[ThresholdBonus(("b", "a"), .3, -.125)]) == Decimal("-.13")
+
+
+@pytest.mark.parametrize("value", [0, 3, -2])
+def test_bonus_detection_reads_legacy_only_cache_and_ignores_disabled_rules(value):
+    assert has_threshold_bonuses({"bonus_gte:rec_yd:100": value}) is bool(value)
+
+
+@pytest.mark.parametrize("key", [
+    "bonus_gte:rec_yd:0", "bonus_gte:rec_yd:-1", "bonus_gte:rec_yd:NaN",
+    "bonus_gte:rec_yd:Infinity", "bonus_gte:rec_yd", "bonus_gte:rec+rec:100",
+])
+def test_malformed_legacy_rules_cannot_hide_in_saved_scoring(key):
+    with pytest.raises(ValueError):
+        score_week_stats({"rec_yd": 100}, {key: 3})
+    with pytest.raises(ValueError):
+        has_threshold_bonuses({key: 0})
+
+
+def test_legacy_rule_does_not_award_inactive_week_from_stale_stats():
+    scoring = {"bonus_gte:rush_yd:100": 3}
+    stats = {"gp": 0, "rush_yd": 100, "bonus_gte:rush_yd:100": 1}
+    assert score_week_stats(stats, scoring) == 0
+    assert weekly_scoring_stats(stats, scoring)["bonus_gte:rush_yd:100"] == 0

@@ -14,7 +14,7 @@ export function leagueName(row: GenerationRecord, leagues: GenerationSeries[]) {
   return leagues.find(l => l.id === row.series_id || l.seasons.some(s => s.league_id === row.league_id))?.name || "League name unavailable";
 }
 export function contentName(row: GenerationRecord) {
-  return row.feature && FEATURE_LABELS[row.feature] || (row.kind === "refresh" ? "League data refresh" : row.kind === "analyst_refresh" ? "Weekly data refresh" : "Background work");
+  return row.feature && FEATURE_LABELS[row.feature] || (row.kind === "refresh" ? "League data refresh" : row.kind === "analyst_refresh" ? "Weekly Analyst data refresh" : "Background work");
 }
 export function isDataRefresh(row: GenerationRecord) {
   return row.kind === "refresh" || row.kind === "analyst_refresh";
@@ -23,7 +23,9 @@ export function jobStatus(row: GenerationRecord) {
   return ({ needs_attention: "Stopped — review required", held: "Paused — review required", queued: "Waiting to start", running: "In progress", succeeded: "Completed", cancelled: "Cancelled" } as Record<string, string>)[row.state || ""] || readable(row.state);
 }
 export function problemExplanation(row: GenerationRecord) {
-  if (isDataRefresh(row) && row.reason === "execution_failed") return "The data refresh stopped before completion. Review the server logs and fix the cause, then retry this job. This retry does not approve paid writing.";
+  if (isDataRefresh(row) && row.reason === "execution_failed") {
+    return "The data refresh stopped before completion. After fixing the import problem, resume this saved refresh. Its original member's league access and connection will be checked again. This action does not approve paid writing.";
+  }
   if (row.reason === "provider_outcome_unknown") return "We could not confirm whether the AI provider completed this request. Check the saved receipts before resuming; its cost may still be unknown.";
   const reasons: Record<string, string> = {
     restore_reapproval_required: "This work was restored from a backup and cannot resume. Cancel it, check provider activity, then preview and approve a replacement separately.",
@@ -38,6 +40,7 @@ export function problemExplanation(row: GenerationRecord) {
     capability_unknown: "The league’s capabilities could not be verified. Refresh its data and verify the league setup before resuming.",
     manual_only: "This feature now requires your approval. Review this work before deciding whether to resume it.",
     failed_job_requires_replacement_review: "These jobs failed and need a separately reviewed replacement; resuming would repeat the failure or exceed their allowance.",
+    free_refresh_requires_individual_review: "Review this failed data refresh individually. After fixing the import problem, resume it from Review problem.",
     writing_paused: "AI writing is paused. Resolve the pause before resuming.",
     job_no_longer_stopped: "These jobs changed state and no longer need this action. Reload status.",
     provider_cooldown: "The AI provider is temporarily unavailable or rate limited. Review the provider status before resuming.",

@@ -50,9 +50,10 @@ async def test_washington_alias_and_unknown_teams_are_not_byes(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("rule_format", ["typed", "legacy"])
 @pytest.mark.parametrize("bonus_points, preview_available", [(None, True), (0, True), (3, False), (-2, False)])
 async def test_threshold_bonus_forecasts_are_omitted_without_inventing_base_only_totals(
-    monkeypatch, bonus_points, preview_available,
+    monkeypatch, bonus_points, preview_available, rule_format,
 ):
     from app.services.analyst_outlook import upcoming_outlook
 
@@ -60,7 +61,10 @@ async def test_threshold_bonus_forecasts_are_omitted_without_inventing_base_only
     league, _ = await client.get_league("123")
     league.scoring_settings = {"pass_td": 4}
     if bonus_points is not None:
-        league.scoring_bonuses = [ThresholdBonus(("pass_yd",), 300, bonus_points)]
+        if rule_format == "legacy":
+            league.scoring_settings["bonus_gte:pass_yd:300"] = bonus_points
+        else:
+            league.scoring_bonuses = [ThresholdBonus(("pass_yd",), 300, bonus_points)]
     rosters = await client.get_rosters("123")
     players = build_players(await client.get_players())
     client.get_projections.return_value = {"p1": {"pass_td": 3}, "p2": {"pass_td": 2}}

@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.services.generation.commands import (
+    FREE_REFRESH_KINDS,
     UNRESOLVED,
     authorize_candidate,
     cancel,
@@ -217,28 +218,30 @@ async def job_action(db, job_id, body, actor):
     data_retry = failed_data_refresh(job)
     if job.state != "held" and not (settled_recovery or data_retry):
         raise Held("Only held jobs can resume; failed jobs require a separate reviewed authorization")
-    if data_retry:
-        # Free collection has no AI request allowance to renew. Keep its saved
-        # identity, active key and idempotency records; only an owner action can
-        # requeue it, and the next claim receives a fresh worker generation.
-        if job.calls or job.max_calls or await db.scalar(select(ProviderAttempt.id).where(
-                ProviderAttempt.operation_id == job_id).limit(1)):
-            raise Held("data_refresh_has_provider_activity")
-        await require_actor(db, job)
     if job.reason == "restore_reapproval_required" and job.kind == "generation":
         raise Held("Cancel restored work, reconcile provider activity, then preview a separate authorization")
     if await db.scalar(select(ProviderAttempt.id).where(
             ProviderAttempt.operation_id == job_id, ProviderAttempt.state.in_(UNRESOLVED)).limit(1)):
         raise Held("provider_outcome_unknown")
+    if job.kind in FREE_REFRESH_KINDS:
+        # Free collection cannot acquire or renew a paid request allowance.
+        # Even settled receipts require separate recovery, not this data action.
+        if job.calls or job.max_calls or await db.scalar(select(ProviderAttempt.id).where(
+                ProviderAttempt.operation_id == job_id).limit(1)):
+            raise Held("data_refresh_has_provider_activity")
+        # Keep the original actor and connection generation. This is a local
+        # permission check only; the worker renews an expired Yahoo grant through
+        # connected_client after this transaction releases the global lock.
+        await require_actor(db, job)
     if job.kind == "generation" and (settled_recovery or job.calls >= job.max_calls):
         saved = (await db.scalars(select(ProviderAttempt).where(ProviderAttempt.operation_id == job_id))).all()
         if len(saved) != job.calls or any(a.state != "received" or a.usage_state != "known" or a.error_code for a in saved):
             raise Held("provider_outcome_unknown" if settled_recovery else "attempt_allowance_exhausted")
     before = {"state": job.state, "reason": job.reason, "calls": job.calls}
     job.state, job.reason = "queued", ""
-    if data_retry:
-        job.progress_json = "{}"
-        job.updated_at = stamp()
+    job.updated_at = stamp()
+    if job.kind in FREE_REFRESH_KINDS:
+        job.progress_json = dump({"stage": "queued", "message": "Refresh queued after review."})
     audit(db, actor, "job_resumed", job_id, body.reason, before, {"state": job.state, "calls": job.calls})
     return data(job)
 

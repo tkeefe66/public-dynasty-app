@@ -1,4 +1,5 @@
 """Free collection recovery stays explicit and cannot renew paid authorization."""
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -59,7 +60,8 @@ async def test_failed_refresh_waits_for_review_then_runs_one_new_attempt_without
         joined = await submit_refresh(db, "synthetic", "owner", idempotency_key="new-browser-request")
         assert joined.id == stopped.id and joined.state == "needs_attention"
         result = await job_action(db, stopped.id, body, "owner")
-        assert result["state"] == "queued" and result["progress_json"] == "{}"
+        assert result["state"] == "queued"
+        assert json.loads(result["progress_json"])["stage"] == "queued"
         assert result["actor_id"] == "owner" and result["max_calls"] == 0
     async with maker.begin() as db:
         with pytest.raises(Conflict, match="Job state changed"):
@@ -82,19 +84,20 @@ async def test_failed_refresh_waits_for_review_then_runs_one_new_attempt_without
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["refresh", "analyst_refresh"])
-async def test_explicit_batch_review_can_include_free_refresh_failure(maker, kind):
+async def test_failed_free_refresh_requires_individual_review_before_resume(maker, kind):
     await seed_refresh(maker, kind=kind)
     async with maker.begin() as db:
         job = await db.get(GenerationOperation, "job")
         control = await db.get(GenerationControl, "global")
-        assert await blocked_reason(db, job, control) == ""
+        assert await blocked_reason(db, job, control) == "free_refresh_requires_individual_review"
         assert (await job_action(db, job.id, retry_body(job), "owner"))["state"] == "queued"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("activity", ["allowance", "calls", "receipt"])
-async def test_free_refresh_retry_never_reclassifies_paid_activity(maker, activity):
-    await seed_refresh(maker)
+@pytest.mark.parametrize("state", ["held", "needs_attention"])
+async def test_free_refresh_retry_never_reclassifies_paid_activity(maker, activity, state):
+    await seed_refresh(maker, state=state)
     async with maker.begin() as db:
         job = await db.get(GenerationOperation, "job")
         if activity == "allowance":
@@ -106,26 +109,30 @@ async def test_free_refresh_retry_never_reclassifies_paid_activity(maker, activi
                 request_digest="saved", request_json="{}", model="saved", state="received"))
         await db.flush()
         control = await db.get(GenerationControl, "global")
-        assert await blocked_reason(db, job, control) == "data_refresh_has_provider_activity"
+        assert await blocked_reason(db, job, control) == (
+            "free_refresh_requires_individual_review" if state == "needs_attention"
+            else "data_refresh_has_provider_activity")
         with pytest.raises(Held, match="data_refresh_has_provider_activity"):
             await job_action(db, job.id, retry_body(job), "owner")
-        assert job.state == "needs_attention"
+        assert job.state == state
 
 
 @pytest.mark.asyncio
-async def test_retry_rechecks_original_member_instead_of_using_the_admins_access(maker):
-    await seed_refresh(maker)
+@pytest.mark.parametrize("state", ["held", "needs_attention"])
+async def test_retry_rechecks_original_member_instead_of_using_the_admins_access(maker, state):
+    await seed_refresh(maker, state=state)
     async with maker.begin() as db:
         await db.execute(delete(LeagueMembership))
         job = await db.get(GenerationOperation, "job")
         with pytest.raises(Held, match="membership_removed"):
             await job_action(db, job.id, retry_body(job), "different-admin")
-        assert job.state == "needs_attention" and job.actor_id == "owner"
+        assert job.state == state and job.actor_id == "owner"
 
 
 @pytest.mark.asyncio
-async def test_yahoo_retry_cannot_switch_to_a_new_connection_generation(maker):
-    await seed_refresh(maker)
+@pytest.mark.parametrize("state", ["held", "needs_attention"])
+async def test_yahoo_retry_cannot_switch_to_a_new_connection_generation(maker, state):
+    await seed_refresh(maker, state=state)
     league_id = "999.l.100000001"
     async with maker.begin() as db:
         job = await db.get(GenerationOperation, "job")
@@ -139,4 +146,4 @@ async def test_yahoo_retry_cannot_switch_to_a_new_connection_generation(maker):
         await db.flush()
         with pytest.raises(Held, match="provider_grant_changed"):
             await job_action(db, job.id, retry_body(job), "owner")
-        assert job.state == "needs_attention" and job.connection_generation == "original-connection"
+        assert job.state == state and job.connection_generation == "original-connection"

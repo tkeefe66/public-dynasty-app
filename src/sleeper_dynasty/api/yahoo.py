@@ -16,7 +16,7 @@ import httpx
 
 from sleeper_dynasty.api.yahoo_json import collection, merge_fragments, unwrap
 from sleeper_dynasty.models.league import League, Roster
-from sleeper_dynasty.models.scoring import ThresholdBonus
+from sleeper_dynasty.models.scoring import ThresholdBonus, threshold_bonus_key
 from sleeper_dynasty.util.name_match import normalize_player_name
 
 log = logging.getLogger(__name__)
@@ -287,9 +287,8 @@ def scoring_rules(settings: dict) -> tuple[dict[str, float], list[ThresholdBonus
         if stat_id in seen:
             raise YahooDataError(f"Yahoo returned duplicate scoring stat {stat_id}.")
         seen.add(stat_id)
-        value = _scoring_number(stat.get("value"), f"value for scoring stat {stat_id}")
-        raw_bonuses = []
-        targets = set()
+        value = _scoring_number(stat.get("value"), f"multiplier value for scoring stat {stat_id}")
+        raw_bonuses: dict[float, Decimal] = {}
         for bonus in _bonus_records(stat.get("bonuses"), stat_id):
             if set(bonus) != {"target", "points"}:
                 raise YahooDataError(
@@ -306,13 +305,10 @@ def scoring_rules(settings: dict) -> tuple[dict[str, float], list[ThresholdBonus
                     "player eligibility at a zero threshold requires explicit evidence."
                 )
             if points:
-                if target in targets:
-                    raise YahooDataError(
-                        f"Yahoo scoring stat {stat_id} has duplicate bonus target {target:g}; "
-                        "refusing to award the same milestone twice."
-                    )
-                targets.add(target)
-                raw_bonuses.append((target, points))
+                # Yahoo awards are cumulative, including repeated slots at
+                # the same target. Coalesce them into one combined award, so
+                # equivalent spellings such as 100 and 1e2 are priced once.
+                raw_bonuses[target] = raw_bonuses.get(target, Decimal(0)) + Decimal(str(points))
         keys = _SCORING.get(stat_id)
         if not keys and (value or raw_bonuses):
             name = re.sub(r"\s+", " ", str(names.get(str(stat_id)) or "")).strip()[:80]
@@ -323,8 +319,14 @@ def scoring_rules(settings: dict) -> tuple[dict[str, float], list[ThresholdBonus
                 "No scoring rules were discarded."
             )
         for key in keys or ():
-            result[key] = result.get(key, 0.0) + value
-        for target, points in raw_bonuses:
+            result[key] = _scoring_number(
+                str(Decimal(str(result.get(key, 0.0))) + Decimal(str(value))),
+                f"combined multiplier for scoring stat {stat_id}",
+            )
+        for target, summed_points in raw_bonuses.items():
+            points = _scoring_number(str(summed_points), f"combined bonus points for scoring stat {stat_id}")
+            if not points:
+                continue
             try:
                 bonuses.append(ThresholdBonus(stat_keys=keys, target=target, points=points))
             except (TypeError, ValueError) as exc:
@@ -334,6 +336,23 @@ def scoring_rules(settings: dict) -> tuple[dict[str, float], list[ThresholdBonus
             "Yahoo returned no scoring settings; refusing an empty scoring model."
         )
     return result, bonuses
+
+
+def scoring_settings(settings: dict) -> dict[str, float]:
+    """Compatibility for callers using the former encoded scoring dictionary.
+
+    ``YahooAdapter.get_league`` uses ``scoring_rules`` and persists typed rules.
+    Keeping this public entrypoint lets older callers score saved rules during
+    migration without making encoded keys the fresh ingestion contract.
+    """
+    result, bonuses = scoring_rules(settings)
+    for bonus in bonuses:
+        key = threshold_bonus_key(bonus.stat_keys, bonus.target)
+        result[key] = _scoring_number(
+            str(Decimal(str(result.get(key, 0.0))) + Decimal(str(bonus.points))),
+            "combined bonus points",
+        )
+    return result
 
 
 class YahooAdapter:

@@ -9,7 +9,7 @@ from app.services.adp_snapshot_store import AdpSnapshotStore
 from app.services.grader import GraderService
 from sleeper_dynasty.engine.draft_class import build_draft_classes, build_draft_picks
 from sleeper_dynasty.engine.draft_results import build_drafted_pick_results
-from sleeper_dynasty.models.scoring import ThresholdBonus
+from sleeper_dynasty.models.scoring import ThresholdBonus, threshold_bonus_key
 
 
 @pytest.fixture(autouse=True)
@@ -525,6 +525,7 @@ async def test_seasons_held_and_verdict_survive_the_grader_seam(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("rule_format", ["typed", "legacy"])
 @pytest.mark.parametrize("current_award, prior_award, expected_projection", [
     (None, None, 150.0),
     (0, None, 150.0),
@@ -533,7 +534,7 @@ async def test_seasons_held_and_verdict_survive_the_grader_seam(tmp_path):
     (None, 3, 150.0),
 ])
 async def test_bonus_rules_gate_standard_projection_baseline_through_grader(
-    tmp_path, current_award, prior_award, expected_projection,
+    tmp_path, current_award, prior_award, expected_projection, rule_format,
 ):
     """Bonus-inclusive actuals cannot be graded against standard season points.
 
@@ -546,6 +547,11 @@ async def test_bonus_rules_gate_standard_projection_baseline_through_grader(
                              [ThresholdBonus(("rec_yd",), 100, prior_award)])
     current.scoring_bonuses = ([] if current_award is None else
                                [ThresholdBonus(("rec_yd",), 100, current_award)])
+    if rule_format == "legacy":
+        for league in (older, current):
+            for bonus in league.scoring_bonuses:
+                league.scoring_settings[threshold_bonus_key(bonus.stat_keys, bonus.target)] = bonus.points
+            del league.scoring_bonuses  # A persisted pre-typed league has no field.
     client = _FakeDraftClient(
         [older, current], {"L2025": [], "L2026": [_draft_dict("d1", "L2026", 2026)]},
         {"d1": [_pick_dict("p1")]}, {"p1": {"adp_ppr": 5, "pts_ppr": 150}},
@@ -572,6 +578,7 @@ async def test_bonus_rules_gate_standard_projection_baseline_through_grader(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("rule_format", ["typed", "legacy"])
 @pytest.mark.parametrize("bonuses, expected_verdict", [
     ([], "hit"),
     ([ThresholdBonus(("rec_yd",), 100, 3)], ""),
@@ -580,7 +587,7 @@ async def test_bonus_rules_gate_standard_projection_baseline_through_grader(
     ([ThresholdBonus(("def_kr_yd", "def_pr_yd"), 100, 3)], "hit"),
 ])
 async def test_bonus_rules_gate_rookie_cohort_verdict_through_grader(
-    tmp_path, bonuses, expected_verdict,
+    tmp_path, bonuses, expected_verdict, rule_format,
 ):
     """A real ECR baseline proves an absent verdict is caused by the bonus gate.
 
@@ -591,7 +598,10 @@ async def test_bonus_rules_gate_rookie_cohort_verdict_through_grader(
     from app.services.rookie_board_store import RookieBoardStore
 
     league = _league("L1", 2026, fmt="dynasty")
-    league.scoring_bonuses = bonuses
+    if rule_format == "legacy":
+        league.scoring_settings.update({threshold_bonus_key(b.stat_keys, b.target): b.points for b in bonuses})
+    else:
+        league.scoring_bonuses = bonuses
     rookie = _draft_dict("d1", "L1", 2026)
     rookie["settings"]["player_type"] = 1
     client = _FakeDraftClient([league], {"L1": [rookie]}, {"d1": [_pick_dict("p1")]}, {})

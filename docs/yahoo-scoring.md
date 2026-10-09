@@ -38,6 +38,13 @@ For example, with 0.04 points per passing yard, 3 points at 300 yards, and 2 mor
 
 Targets can be arbitrary positive finite numbers, and awards can be fractional or negative finite numbers. A supported category with a zero base multiplier can still have active bonuses. A zero-point award has no scoring effect. Numeric support does not imply that every combination is configurable through Yahoo's UI.
 
+If source bonus slots repeat a target, their declared point awards are combined
+and that combined award is paid once when the target is reached. For example,
+two configured awards of 2 and 3 points at 100 yards contribute 5 points. This
+preserves the initial release's cumulative contract. The duplicate-target test
+is synthetic; it is not a captured Yahoo configuration proving that the UI
+accepts such a setup.
+
 ### Compound categories award once
 
 Some Yahoo categories combine several source counters. Individual return yards, ID 14, are `kr_yd + pr_yd`; team defense return yards, ID 48, are `def_kr_yd + def_pr_yd`. The scorer sums those components before comparing the threshold.
@@ -199,7 +206,7 @@ The adapter raises an actionable `YahooDataError` for:
 
 - An active category without a verified mapping, including a category whose base value is zero but whose bonus is nonzero. The error includes the Yahoo stat ID, category name when supplied, base value, and active bonus count.
 - Missing target or points, unknown bonus keys or envelopes, or a collection count inconsistent with its records.
-- Invalid, boolean, nonnumeric, or nonfinite values; invalid stat IDs; negative targets; duplicate source stat records; or repeated active targets within one category.
+- Invalid, boolean, nonnumeric, or nonfinite values; invalid stat IDs; negative targets; duplicate source stat records; or a nonfinite combined award.
 - An active zero-target Yahoo bonus. At zero, a missing counter could appear to qualify every player, so the source must establish applicability before this rule can be supported.
 - An import that produces no mapped scoring settings.
 
@@ -237,7 +244,17 @@ Existing rookie component-coverage checks still apply independently. A zero-poin
 
 ## Persistence and cache behavior
 
-`League.scoring_bonuses` defaults to an empty list. Serialization preserves each rule's stat keys, target, and points; loading an older league without that field preserves its original linear scoring behavior.
+`League.scoring_bonuses` defaults to an empty list. Serialization preserves each
+rule's stat keys, target, and points. The initial bonus release stored rules
+inside `scoring_settings`, using keys such as `bonus_gte:pass_yd:300` and
+`bonus_gte:kr_yd+pr_yd:100`. Compatibility decoding preserves these saved rules
+in weekly scoring and in every projection/cohort gate. A missing typed field
+therefore does not mean the league has no bonuses.
+
+Fresh Yahoo imports write typed bonuses. The compatibility helpers remain for
+older callers and saved payloads. An identical award present in both formats
+is evaluated once; conflicting definitions fail explicitly. Pre-derived
+indicators never replace the underlying actual weekly components.
 
 Raw weekly statistics are cached by **normalized provider namespace**, season, and week:
 
@@ -247,13 +264,26 @@ nfl_stats_{source_namespace}_{season}_{week}.json
 
 For example, Yahoo-normalized and Sleeper-normalized stats have separate files because their defensive-yardage boundary conventions differ. Old unnamespaced raw files are not reused: their originating provider cannot be proved. Within one namespace, leagues may share raw statistics, but each league applies its own multipliers and bonuses after reading the cache. Derived bonus flags or league-specific point totals are not written into that shared raw record. Live weeks are not persisted as completed historical snapshots.
 
-There is **no global `ChainCache` schema-version bump** for this change. Before this fix, the Yahoo adapter rejected active bonus rules, so a successfully imported pre-change Yahoo cache cannot be a bonus league whose rules were silently omitted by that importer. Successfully cached leagues without the new field can safely default to no bonuses. A failed bonus import needs an explicit retry after deployment; invalidating every successful league cache would not repair that failed job.
+There is **no global `ChainCache` schema-version bump** for this change. Caches
+from before any bonus support remain valid, and encoded rules from the initial
+bonus release remain readable. Some entries from that initial release can
+already contain standard season projections next to bonus-inclusive actuals.
+On read, `ChainCache` clears only `drafted_picks[*].projected_points` when the
+latest season has active thresholds. It preserves actual production, standings,
+ADP, trade/owner production verdicts, and saved prose without rewriting the
+stored file. The next normal refresh uses the corrected projection gates.
+Malformed saved rules produce a cache miss so they can be rebuilt.
+
+The initial encoded-key implementation already refused incompatible rookie
+cohorts, so this compatibility read does not remove unrelated verdicts. A
+failed import still requires explicit admin recovery; invalidating every
+successful league cache would not repair its stopped job.
 
 ## Retrying a failed free data refresh
 
 After correcting a scoring-mapping failure, an administrator can resume the existing stopped data-refresh job. The recovery applies specifically to `refresh` or `analyst_refresh` operations in `needs_attention` with reason `execution_failed`. A repeated member refresh request joins the stopped operation; it does not automatically replay a permanent failure.
 
-The [administrative command](../api/app/services/generation/administration.py) checks the expected state and worker generation before requeueing. It preserves the same operation ID, original actor, active key, and idempotency records; clears stale progress; records the administrator's reason; and lets the next worker claim receive a fresh generation. Batch recovery uses the same command contract after validating its preview.
+The [administrative command](../api/app/services/generation/administration.py) checks the expected state and worker generation before requeueing. It preserves the same operation ID, original actor, active key, and idempotency records; clears stale progress; records the administrator's reason; and lets the next worker claim receive a fresh generation. Use **Resume data refresh** for each failed free job. Bulk resume retains the requirement for individual review of these failures.
 
 Retry rechecks the saved actor and league membership. For a Yahoo league, the original actor's connection must remain connected and the league grant must match both the current connection generation and the generation stored on the job. An administrator's own access cannot substitute for the original actor's access. The administrative endpoint retains its existing admin authorization.
 

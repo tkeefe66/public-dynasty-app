@@ -23,6 +23,7 @@ from app.services.name_override_store import NameOverrideStore
 # The grader engine + aggregator from the existing package.
 from sleeper_dynasty.engine.trade_grader import grade_trade
 from sleeper_dynasty.engine.trade_history import build_trade_history
+from sleeper_dynasty.models.scoring import has_threshold_bonuses
 
 log = logging.getLogger(__name__)
 
@@ -964,7 +965,7 @@ class GraderService:
             # weekly milestones. Comparing them with bonus-inclusive actuals
             # would invent a projection baseline for this league.
             if (any(c.axis == "production" for c in draft_classes)
-                    and not any(b.points for b in scoring_bonuses)):
+                    and not has_threshold_bonuses(scoring, scoring_bonuses)):
                 projected_by_player = parse_projected_points(
                     raw_proj, field=points_field_for(rec_points=rec_points))
         except Exception:

@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.services.generation.administration import candidate_label, job_action
-from app.services.generation.commands import UNRESOLVED, failed_data_refresh, require_actor
+from app.services.generation.commands import FREE_REFRESH_KINDS, UNRESOLVED, failed_data_refresh, require_actor
 from app.services.generation.models import (
     GenerationAudit,
     GenerationOperation,
@@ -28,8 +28,9 @@ from app.services.generation.store import (
 async def blocked_reason(db, job, control):
     if job.state not in ("held", "needs_attention"):
         return "job_no_longer_stopped"
-    data_retry = failed_data_refresh(job)
-    if job.state == "needs_attention" and job.reason != "provider_outcome_unknown" and not data_retry:
+    if job.state == "needs_attention" and job.reason != "provider_outcome_unknown":
+        if failed_data_refresh(job):
+            return "free_refresh_requires_individual_review"
         return "failed_job_requires_replacement_review"
     if job.reason == "restore_reapproval_required":
         return "restore_reapproval_required"
@@ -42,15 +43,15 @@ async def blocked_reason(db, job, control):
     if policy["blocked_by"] or feature.get("paused") or feature.get("mode") == "disabled":
         return "feature_paused"
     attempts = (await db.scalars(select(ProviderAttempt).where(ProviderAttempt.operation_id == job.id))).all()
-    if data_retry:
+    if any(a.state in UNRESOLVED for a in attempts):
+        return "provider_outcome_unknown"
+    if job.kind in FREE_REFRESH_KINDS:
         if job.calls or job.max_calls or attempts:
             return "data_refresh_has_provider_activity"
         try:
             await require_actor(db, job)
         except Held as exc:
             return exc.code
-    if any(a.state in UNRESOLVED for a in attempts):
-        return "provider_outcome_unknown"
     if (job.state == "needs_attention" or job.calls >= job.max_calls) and (
         len(attempts) != job.calls or any(a.state != "received" or a.usage_state != "known" or a.error_code for a in attempts)
     ):

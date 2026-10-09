@@ -53,17 +53,23 @@ it("shows a stopped data job without inviting repeated cold-cache submissions", 
   vi.mocked(fetch).mockImplementation(async (input, init) => {
     const path = new URL(String(input), "http://localhost").pathname;
     if (path === "/api/league/L1") return new Response(JSON.stringify({ detail: "cache cold" }), { status: 409 });
-    if (path === "/api/league/L1/refresh-jobs") return new Response(JSON.stringify({
+    if (path === "/api/me/leagues") return new Response(JSON.stringify([{
+      league_id: "L1", warm: false,
+      refresh_job: { id: "stopped-job", state: "needs_attention", reason: "execution_failed" },
+    }]));
+    if (path === "/api/league/L1/refresh-jobs/stopped-job") return new Response(JSON.stringify({
       id: "stopped-job", state: "needs_attention", reason: "execution_failed", progress: {},
-    }), { status: 202 });
+    }));
     return normal(input, init);
   });
   openPage();
   await screen.findByText(/The refresh needs attention/);
   expect(screen.queryByRole("button", { name: /Try again/i })).not.toBeInTheDocument();
   expect(screen.queryByRole("dialog", { name: "Building your league" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  await screen.findByRole("button", { name: "Check status" });
   expect(vi.mocked(fetch).mock.calls.filter(([url, init]) =>
-    String(url).endsWith("/refresh-jobs") && init?.method === "POST")).toHaveLength(1);
+    String(url).endsWith("/refresh-jobs") && init?.method === "POST")).toHaveLength(0);
 });
 
 it("keeps Owners all-time without turning its default into an explicit All choice on return", async () => {

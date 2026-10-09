@@ -1,4 +1,5 @@
 import asyncio
+import pytest
 from app.services.grader_io import fetch_nfl_points
 from sleeper_dynasty.models.scoring import ThresholdBonus
 
@@ -67,14 +68,21 @@ def test_live_week_refetched_not_frozen(tmp_path):
     assert final.calls == [(2024, 11)]
 
 
-def test_cached_raw_stats_are_rescored_for_each_leagues_thresholds(tmp_path):
+@pytest.mark.parametrize("rule_format", ["typed", "legacy", "mixed"])
+def test_cached_raw_stats_are_rescored_for_each_leagues_thresholds(tmp_path, rule_format):
     from sleeper_dynasty.cache import FileCache
 
     cache, first, second = FileCache(tmp_path), FakeClient(), FakeClient()
-    first_result = asyncio.run(fetch_nfl_points(first, [(2024, 9)], {"rec": 1}, cache,
-        bonuses=[ThresholdBonus(("rec",), 5, 3)]))
-    second_result = asyncio.run(fetch_nfl_points(second, [(2024, 9)], {"rec": 2}, cache,
-        bonuses=[ThresholdBonus(("rec",), 6, 7)]))
+    first_scoring, second_scoring = {"rec": 1}, {"rec": 2}
+    if rule_format != "typed":
+        first_scoring["bonus_gte:rec:5"] = 3
+        second_scoring["bonus_gte:rec:6"] = 7
+    first_bonuses = [] if rule_format == "legacy" else [ThresholdBonus(("rec",), 5, 3)]
+    second_bonuses = [] if rule_format == "legacy" else [ThresholdBonus(("rec",), 6, 7)]
+    first_result = asyncio.run(fetch_nfl_points(first, [(2024, 9)], first_scoring, cache,
+                                               bonuses=first_bonuses))
+    second_result = asyncio.run(fetch_nfl_points(second, [(2024, 9)], second_scoring, cache,
+                                                bonuses=second_bonuses))
     assert first_result[(2024, 9)]["p1"] == 8
     assert second_result[(2024, 9)]["p1"] == 10
     assert second.calls == []

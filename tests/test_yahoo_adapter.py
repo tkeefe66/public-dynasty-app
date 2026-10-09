@@ -118,6 +118,39 @@ async def test_captured_settings_keep_custom_scoring_and_metadata_renew():
 
 
 @pytest.mark.asyncio
+async def test_bonus_settings_import_without_adjusting_authoritative_yahoo_points():
+    from sleeper_dynasty.api.yahoo import child
+    from sleeper_dynasty.engine.nfl_actuals import score_week
+
+    raw = fixture("league_settings")
+    meta = merge_fragments(raw["fantasy_content"]["league"])
+    settings = merge_fragments(meta["settings"])
+    # Add a synthetic bonus to the captured response; the original fixture has
+    # none. Both the import and NFL-wide scoring must understand the new rule.
+    stats = collection(child(settings["stat_modifiers"], "stats"))
+    passing = next(
+        item for item in stats
+        if str(merge_fragments(item["stat"])["stat_id"]) == "4"
+    )
+    passing["stat"] = {**merge_fragments(passing["stat"]), "bonuses": [
+        {"bonus": {"target": "300", "points": "3"}},
+        {"bonus": {"target": "400", "points": "5"}},
+    ]}
+    a = Replay({f"/league/{LK}/settings": raw})
+    try:
+        league, _ = await a.get_league(LK)
+        assert score_week({"qb": {"pass_yd": 400}}, league.scoring_settings,
+                          bonuses=league.scoring_bonuses) == {"qb": 24}
+        rows = await a.get_raw_matchups(LK, 1)
+        for row in rows:
+            assert sum(
+                row["players_points"][pid] for pid in row["starters"]
+            ) == pytest.approx(row["points"], abs=.02)
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
 async def test_captured_current_rosters_have_players_and_distinct_owners():
     # Mutation: leaving players empty destroys current-value and tenure scoring.
     a = Replay()

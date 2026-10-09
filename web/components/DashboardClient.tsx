@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ApiError, dashboard, getMe, getProfiles, refreshStream } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, dashboard, getMe, getProfiles, myLeagues, refreshStream } from "@/lib/api";
 import { DashboardResp, DashboardYear, Lens, ProfilesMap } from "@/lib/types";
 import { ProgressModal } from "./ProgressModal";
 import { DashboardSkeleton } from "./DashboardSkeleton";
@@ -16,6 +16,7 @@ import { OwnersTab } from "./OwnersTab";
 import { Leaderboard } from "./Leaderboard";
 import { BetsTab } from "@/components/bets/BetsTab";
 import { Button } from "./furniture/Button";
+import { StateMessage } from "./furniture/StateMessage";
 
 export type DashboardTab = "dashboard" | "trades" | "owners" | "gm" | "bets";
 
@@ -33,7 +34,11 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [yahooReconnect, setYahooReconnect] = useState(false);
-  const [refreshNeedsReview, setRefreshNeedsReview] = useState(false);
+  const [refreshProblem, setRefreshProblem] = useState(false);
+  const [retryStopped, setRetryStopped] = useState(false);
+  const loadVersion = useRef(0);
+  const refreshWatcher = useRef<ReturnType<typeof refreshStream> | null>(null);
+  const coldStartKeys = useRef(new Map<string, string>());
   const [events, setEvents] = useState<
     { stage: string; message?: string; done?: number; total?: number }[]
   >([]);
@@ -45,45 +50,82 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
   const requestedYear = initialYear === "auto" && initialTab !== "dashboard" && initialTab !== "trades"
     ? "all" : initialYear;
 
-  const loadOrRefresh = useCallback(async () => {
+  const loadOrRefresh = useCallback(async (startNewAttempt = false) => {
+    const version = ++loadVersion.current;
+    const isCurrent = () => version === loadVersion.current;
+    refreshWatcher.current?.close();
+    refreshWatcher.current = null;
+    setRefreshing(false);
     setError(null);
+    setRefreshProblem(false);
+    setRetryStopped(false);
     setYahooReconnect(false);
-    setRefreshNeedsReview(false);
     setLoading(true);
     try {
       const d = await dashboard(leagueId, { year: requestedYear, lens: initialLens });
+      if (!isCurrent()) return;
       setData(d);
       setLoading(false);
     } catch (err) {
+      if (!isCurrent()) return;
       if (leagueId.includes(".l.") && err instanceof ApiError && [403, 409].includes(err.status) && /yahoo|not a member/i.test(err.message)) {
         setLoading(false);
         setYahooReconnect(true);
         setError(err.message);
       } else if (err instanceof ApiError && err.status === 409) {
-        // Submit once, then observe the durable job that builds the chain.
+        // Cold does not mean running. Reopen the saved job first, so a failed
+        // first build never becomes a POST loop on reload or filter changes.
         setLoading(false);
+        setRefreshProblem(true);
+        let league;
+        try {
+          league = (await myLeagues()).find((item) => item.league_id === leagueId);
+        } catch {
+          if (isCurrent()) setError("We couldn't check the refresh status. Check again in a moment.");
+          return;
+        }
+        if (!isCurrent()) return;
+        if (!league) {
+          setError("This league needs its first refresh. A league member can start it.");
+          return;
+        }
+        const job = league.refresh_job;
+        const stopped = job && ["cancelled", "superseded"].includes(job.state);
+        setRetryStopped(Boolean(stopped && !startNewAttempt));
+        const observeJob = job && job.state !== "succeeded" && !(startNewAttempt && stopped);
+        if (startNewAttempt && stopped) coldStartKeys.current.delete(leagueId);
+        if (!coldStartKeys.current.has(leagueId)) {
+          coldStartKeys.current.set(leagueId, crypto.randomUUID());
+        }
         setRefreshing(true);
         setEvents([]);
-        refreshStream(leagueId, async (ev) => {
+        refreshWatcher.current = refreshStream(leagueId, async (ev) => {
+          if (!isCurrent()) return;
           setEvents((cur) => [...cur, ev]);
           if (ev.stage === "error") {
             setRefreshing(false);
-            setRefreshNeedsReview(ev.retryable === false);
             setError(ev.message || "The refresh stopped before it finished. Try again.");
             return;
           }
           if (ev.stage === "done") {
+            coldStartKeys.current.delete(leagueId);
             try {
               const d = await dashboard(leagueId, {
                 year: requestedYear, lens: initialLens,
               });
-              setData(d);
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "Couldn't load the dashboard.");
+              if (isCurrent()) {
+                setData(d);
+                setRefreshProblem(false);
+              }
+            } catch {
+              if (isCurrent()) setError("The refresh finished, but the dashboard couldn't load. Check its status again.");
             } finally {
-              setRefreshing(false);
+              if (isCurrent()) setRefreshing(false);
             }
           }
+        }, {
+          jobId: observeJob ? job.id : undefined,
+          idempotencyKey: coldStartKeys.current.get(leagueId),
         });
       } else {
         setLoading(false);
@@ -93,7 +135,12 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
   }, [leagueId, requestedYear, initialLens]);
 
   useEffect(() => {
-    loadOrRefresh();
+    void loadOrRefresh();
+    return () => {
+      ++loadVersion.current;
+      refreshWatcher.current?.close();
+      refreshWatcher.current = null;
+    };
   }, [loadOrRefresh]);
 
   // The league "voice" data. Independent of year/lens and never 409s (returns
@@ -120,7 +167,12 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
         <Button as="link" href="/leagues/add?provider=yahoo" className="mt-5 px-4 py-2">Connect Yahoo</Button>
       </section>
     );
-    return <ErrorState message={error} onRetry={refreshNeedsReview ? undefined : loadOrRefresh} />;
+    return <ErrorState
+      message={error}
+      refreshProblem={refreshProblem}
+      checkStatus={refreshProblem && !retryStopped}
+      onRetry={() => void loadOrRefresh(retryStopped)}
+    />;
   }
 
   // First load (or post-cold-start reload) before any data: skeleton, not blank.
@@ -160,13 +212,13 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
       {error && (
         <div role="alert" className="mb-4 flex items-center justify-between gap-3 border border-ink px-3 py-2">
           <span className="font-mono text-figure text-neg-strong">{error}</span>
-          {!refreshNeedsReview && <button
+          <button
             type="button"
-            onClick={loadOrRefresh}
+            onClick={() => void loadOrRefresh(retryStopped)}
             className="shrink-0 font-mono text-label font-bold uppercase tracking-[0.1em] text-dim hover:text-ink"
           >
-            Retry
-          </button>}
+            {refreshProblem && !retryStopped ? "Check status" : "Try again"}
+          </button>
         </div>
       )}
 
@@ -249,25 +301,26 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
   );
 }
 
-/* ---------------------------------------------------------------------------
- * Agate — Failure Is A Headline (design_handoff_agate/DESIGN.md § "Named
- * rules"; `Agate System.dc.html` §07 Fig. 7.3). A mono kicker naming the
- * condition, an Archivo headline in plain words, one line of body, one ink
- * button. No illustration, no centered card.
- * ------------------------------------------------------------------------ */
-function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+function ErrorState({ message, onRetry, refreshProblem, checkStatus }: {
+  message: string;
+  onRetry: () => void;
+  refreshProblem: boolean;
+  checkStatus: boolean;
+}) {
   return (
-    <div className="mt-16 max-w-md">
-      <div className="font-mono text-label uppercase tracking-[0.14em] text-dim">
-        Couldn&apos;t load
-      </div>
-      <h2 className="mt-2 font-display text-lead font-extrabold leading-[1.05] tracking-[-0.035em] text-ink">
-        Something broke on the way in.
-      </h2>
-      <p className="mt-2 text-figure leading-relaxed text-body">{message}</p>
-      {onRetry && <Button onClick={onRetry} className="mt-4 px-4 py-2">
-        ↻ Try again
-      </Button>}
+    <div role="alert">
+      <StateMessage
+        className="mt-16 max-w-md"
+        tone="negative"
+        kicker={refreshProblem ? "Refresh status" : "Couldn't load"}
+        headline={refreshProblem ? "Your league is saved. Its data isn't ready yet." : "The dashboard couldn't load."}
+        body={message}
+        action={
+          <Button onClick={onRetry} className="px-4 py-2">
+            {checkStatus ? "Check status" : "Try again"}
+          </Button>
+        }
+      />
     </div>
   );
 }

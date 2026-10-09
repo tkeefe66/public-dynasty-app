@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
-from sleeper_dynasty.models.scoring import ThresholdBonus
+from sleeper_dynasty.models.scoring import ThresholdBonus, split_scoring_rules
 
 
 def _number(value) -> Decimal:
@@ -36,6 +36,7 @@ def score_week_stats(
     needs an observed component: participation alone does not prove that a
     rule for another position applies to this player.
     """
+    scoring, bonuses = split_scoring_rules(scoring, bonuses)
     values = dict(stats)
     # A position premium may be omitted by the source. Preserve an explicit
     # source counter so the same receptions are never credited twice.

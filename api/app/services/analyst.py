@@ -22,6 +22,7 @@ from sleeper_dynasty.engine.recap_race import build_race_context
 from sleeper_dynasty.engine.recap import build_recap_facts
 from sleeper_dynasty.engine.recap_results import render_results_recap
 from sleeper_dynasty.api.projections import normalize_projection
+from sleeper_dynasty.models.scoring import has_threshold_bonuses
 from sleeper_dynasty.llm.cost_store import LlmCostStore
 from sleeper_dynasty.llm.recap_packet import ArchivedPacket
 from sleeper_dynasty.llm.recap_writer import RecapWriter
@@ -174,7 +175,7 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                     # Weekly projected averages do not give the probability
                     # of crossing a bonus threshold. Base-only expectations
                     # cannot fairly label bonus-inclusive actuals as busts.
-                    if not any(bonus.points for bonus in getattr(league, "scoring_bonuses", ())):
+                    if not has_threshold_bonuses(league.scoring_settings, getattr(league, "scoring_bonuses", ())):
                         raw = await client.get_projections(league.season, week)
                         projections = {pid: normalize_projection(stats, league.scoring_settings)
                                        for pid, stats in raw.items() if isinstance(stats, dict)}

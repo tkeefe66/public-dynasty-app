@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from sleeper_dynasty.models.scoring import ThresholdBonus, has_threshold_bonuses
 from sleeper_dynasty.util.atomic import write_json_atomic
 
 DEFAULT_TTL = 24 * 3600
@@ -219,6 +220,27 @@ class ChainCache:
         # cold-start flow re-pulls and re-grades them.
         if "owners" not in raw:
             return None
+        # The initial Yahoo bonus release saved standard/PPR projections next
+        # to bonus-inclusive actuals. Decoding its legacy rules fixes future
+        # scoring, but does not repair those already-materialized comparisons.
+        # Omit only that unsupported baseline on read; keep actual results and
+        # saved prose, and never rewrite the stored blob just to serve a page.
+        if raw.get("chain"):
+            try:
+                latest = max(raw["chain"], key=lambda league: int(league.get("season", 0)))
+                scoring = latest.get("scoring_settings") or {}
+                if not isinstance(scoring, dict):
+                    return None
+                bonuses = [ThresholdBonus(**rule)
+                           for rule in (latest.get("scoring_bonuses") or ())]
+                if has_threshold_bonuses(scoring, bonuses=bonuses):
+                    raw["drafted_picks"] = [
+                        {**pick, "projected_points": None}
+                        for pick in (raw.get("drafted_picks") or ())
+                    ]
+            except (TypeError, ValueError, OverflowError):
+                # Corrupt rules cannot justify either scores or comparisons.
+                return None
         # roster_to_user_by_league keys come back as strings from JSON; coerce.
         rmap = raw.get("roster_to_user_by_league") or {}
         coerced = {

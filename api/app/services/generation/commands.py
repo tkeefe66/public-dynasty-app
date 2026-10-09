@@ -27,11 +27,12 @@ from app.services.generation.store import (
 
 LEASE_SECONDS = 600
 UNRESOLVED = ("dispatching", "unknown")
+FREE_REFRESH_KINDS = ("refresh", "analyst_refresh")
 
 
 def failed_data_refresh(job: GenerationOperation) -> bool:
     """A stopped free data collection can be retried after an explicit review."""
-    return (job.kind in ("refresh", "analyst_refresh")
+    return (job.kind in FREE_REFRESH_KINDS
             and job.state == "needs_attention" and job.reason == "execution_failed")
 
 
@@ -67,7 +68,7 @@ async def require_actor(db, job: GenerationOperation):
 
 async def submit_refresh(db, league_id: str, actor_id: str, *,
                          actor_kind="member", idempotency_key: str | None = None, kind="refresh", cache_missing=False):
-    if kind not in ("refresh", "analyst_refresh"):
+    if kind not in FREE_REFRESH_KINDS:
         raise ValueError("Unregistered free refresh kind")
     await lock_control(db)
     request_hash = digest({"league_id": league_id, "actor_kind": actor_kind, "kind": kind})
@@ -99,7 +100,13 @@ async def submit_refresh(db, league_id: str, actor_id: str, *,
         season = await db.get(LeagueSeason, league_id)
         config = await resolve_policy(db, season.series_id if season else "")
         interval = config["policy"]["refresh_interval_seconds"]
-    if last and last.created_at > stamp() - interval and not (cache_missing and last.state == "succeeded"):
+    # A new explicit request may replace cancelled free work immediately. The
+    # original idempotency key still resolves to the cancelled job above, and
+    # scheduler requests retain their cooldown instead of undoing cancellation.
+    replace_cancelled = (last and last.state in ("cancelled", "superseded")
+                         and actor_kind in ("member", "admin"))
+    if (last and last.created_at > stamp() - interval
+            and not (cache_missing and last.state == "succeeded") and not replace_cancelled):
         return await remember(last)
     connection = await db.get(YahooConnection, actor_id) if ".l." in league_id else None
     row = GenerationOperation(kind=kind, league_id=league_id,

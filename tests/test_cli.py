@@ -8,8 +8,9 @@ from sleeper_dynasty.cli import parse_args
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("rule_format", ["typed", "legacy"])
 @pytest.mark.parametrize("bonus_points", [None, 3, -2, 0])
-async def test_run_recap_builds_and_delivers(tmp_path, monkeypatch, bonus_points):
+async def test_run_recap_builds_and_delivers(tmp_path, monkeypatch, bonus_points, rule_format):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
 
     # Stub the Sleeper client.
@@ -24,7 +25,10 @@ async def test_run_recap_builds_and_delivers(tmp_path, monkeypatch, bonus_points
     )
     if bonus_points is not None:
         from sleeper_dynasty.models.scoring import ThresholdBonus
-        league.scoring_bonuses = [ThresholdBonus(("pass_yd",), 300, bonus_points)]
+        if rule_format == "legacy":
+            league.scoring_settings["bonus_gte:pass_yd:300"] = bonus_points
+        else:
+            league.scoring_bonuses = [ThresholdBonus(("pass_yd",), 300, bonus_points)]
     rosters = [
         Roster(1, "u1", "Team A", ["p1"], 1, 0, 0, 45.0, 0.0),
         Roster(2, "u2", "Team B", ["p2"], 0, 1, 0, 30.0, 0.0),
@@ -76,13 +80,17 @@ async def test_run_recap_builds_and_delivers(tmp_path, monkeypatch, bonus_points
 
 
 @pytest.mark.asyncio
-async def test_analysis_refuses_simulation_without_bonus_projection_evidence(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("rule_format", ["typed", "legacy"])
+async def test_analysis_refuses_simulation_without_bonus_projection_evidence(tmp_path, monkeypatch, capsys, rule_format):
     from sleeper_dynasty.cache import FileCache
     from sleeper_dynasty.models.league import League
     from sleeper_dynasty.models.scoring import ThresholdBonus
 
     league = League("LID", "Bros", 2025, 2, ["QB"], {"pass_yd": .04}, 15, 2,
                     "in_season", scoring_bonuses=[ThresholdBonus(("pass_yd",), 300, 3)])
+    if rule_format == "legacy":
+        league.scoring_settings["bonus_gte:pass_yd:300"] = 3
+        league.scoring_bonuses = []
     fake = MagicMock()
     fake.get_user_id = AsyncMock(return_value="uid")
     fake.get_leagues = AsyncMock(return_value=[league])
