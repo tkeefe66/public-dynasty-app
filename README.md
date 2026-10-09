@@ -303,7 +303,34 @@ For each received player the refresh computes **games missed, split by season ph
 
 ### Auto-refresh (Liveness)
 
-The backend runs an in-process scheduler that periodically re-runs the refresh for every league it has already cached (the `chain_*.json` files), so caches stay warm and current. Page loads stay instant (they read the cache) and new trades appear automatically within the schedule interval, with no one having to trigger a manual refresh. It is incremental (a cycle that finds no new trades is nearly free) and best-effort (a league that fails is logged and skipped). Controlled by `TRADE_GRADER_AUTO_REFRESH` (default on) and `TRADE_GRADER_REFRESH_INTERVAL_SECONDS` (default 3 hours). The manual `GET /api/league/{id}/refresh` SSE endpoint still works for an immediate or forced refresh.
+The backend runs an in-process scheduler that periodically re-runs the refresh for every league it has already cached (the `chain_*.json` files), so caches stay warm and current. Page loads stay instant (they read the cache) and new trades appear automatically within the schedule interval, with no one having to trigger a manual refresh. It is incremental (a cycle that finds no new trades is nearly free) and best-effort (a league that fails is logged and skipped). Controlled by `TRADE_GRADER_AUTO_REFRESH` (default on) and `TRADE_GRADER_REFRESH_INTERVAL_SECONDS` (default 3 hours). Manual data refreshes use durable jobs, as described below.
+
+### Import status and recovery
+
+My Leagues reports cache availability separately from the latest data-refresh
+job. A newly added league with no job is **Not built**; **Queued** and **Building**
+mean actual work exists. A failed first build shows **Needs attention**, while
+previously saved results remain available after a failed update. Reopening a
+failed or paused build observes the same job instead of repeatedly submitting
+refresh requests.
+
+The browser submits `POST /api/league/{id}/refresh-jobs` and observes
+`GET /api/league/{id}/refresh-jobs/{job_id}`. The worker continues after the
+browser closes; the legacy GET/SSE refresh endpoint returns 410.
+
+After fixing an import error, an administrator can open the failed data refresh
+under **Needs your review** and choose **Resume data refresh**, with a review
+reason. This requeues the saved job using its original account and rechecks
+current access; it does not authorize paid generation. Cancelled refreshes can
+also be replaced by a new explicit request without waiting for the scheduler's
+cooldown. Replaying the old request still returns the old job.
+
+Yahoo scoring bonuses are normalized as cumulative per-week thresholds: every
+reached target adds its configured points. Calculated weekly actuals use those
+rules, while Yahoo's own roster and matchup totals remain authoritative. Bonus
+rules that cannot be interpreted safely fail explicitly. Seasonal totals cannot
+reconstruct weekly bonus counts, so incompatible rookie-cohort comparisons stay
+unavailable; projected points retain their existing linear approximation.
 
 ### Franchise Rating + the Franchise Ratings leaderboard
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 from datetime import UTC, datetime
 
@@ -15,6 +16,7 @@ import httpx
 
 from sleeper_dynasty.api.yahoo_json import collection, merge_fragments, unwrap
 from sleeper_dynasty.models.league import League, Roster
+from sleeper_dynasty.models.scoring import threshold_bonus_key
 from sleeper_dynasty.util.name_match import normalize_player_name
 
 log = logging.getLogger(__name__)
@@ -183,21 +185,89 @@ def normalize_yardage_stats(players):
     return result
 
 
+def _scoring_number(value, description: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise YahooDataError(f"Yahoo returned an invalid {description}.")
+    try:
+        number = float(value)
+    except (ValueError, OverflowError):
+        raise YahooDataError(f"Yahoo returned an invalid {description}.") from None
+    if not math.isfinite(number):
+        raise YahooDataError(f"Yahoo returned an invalid {description}.")
+    return number
+
+
+def _scoring_bonuses(raw, stat_id: int) -> list[tuple[float, float]]:
+    """Read explicit threshold/points pairs without discarding unfamiliar rules."""
+    error = f"Yahoo scoring stat {stat_id} has unsupported or invalid bonus rules."
+    if raw is None or raw == [] or raw == {}:
+        return []
+    if isinstance(raw, list):
+        entries = raw
+    elif isinstance(raw, dict) and set(raw) == {"bonus"}:
+        entries = [raw]
+    elif isinstance(raw, dict) and all(str(k).isdigit() or k == "count" for k in raw):
+        entries = collection(raw)
+        if "count" in raw:
+            count = _scoring_number(raw["count"], "bonus count")
+            if count != len(entries):
+                raise YahooDataError(error)
+    else:
+        raise YahooDataError(error)
+    bonuses = []
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {"bonus"}:
+            raise YahooDataError(error)
+        raw_bonus = entry["bonus"]
+        if isinstance(raw_bonus, list):
+            if any(not isinstance(part, dict) for part in raw_bonus):
+                raise YahooDataError(error)
+            bonus = merge_fragments(raw_bonus)
+            if sum(len(part) for part in raw_bonus) != len(bonus):
+                raise YahooDataError(error)
+        elif isinstance(raw_bonus, dict):
+            bonus = raw_bonus
+        else:
+            raise YahooDataError(error)
+        if set(bonus) != {"target", "points"}:
+            raise YahooDataError(error)
+        target = _scoring_number(bonus["target"], "bonus threshold")
+        points = _scoring_number(bonus["points"], "bonus points")
+        if target <= 0:
+            raise YahooDataError(error)
+        bonuses.append((target, points))
+    return bonuses
+
+
 def scoring_settings(settings: dict) -> dict[str, float]:
     result = {}
+    seen = set()
     for item in collection(child(settings.get("stat_modifiers"), "stats")):
-        stat = merge_fragments(item.get("stat"))
-        stat_id = int(stat["stat_id"])
-        value = float(stat["value"])
+        stat = merge_fragments(item.get("stat")) if isinstance(item, dict) else {}
+        raw_id = stat.get("stat_id")
+        if type(raw_id) not in (str, int) or not re.fullmatch(r"[1-9]\d*", str(raw_id)):
+            raise YahooDataError("Yahoo returned an invalid scoring stat.")
+        stat_id = int(raw_id)
+        if stat_id in seen:
+            raise YahooDataError(f"Yahoo returned duplicate scoring stat {stat_id}.")
+        seen.add(stat_id)
+        value = _scoring_number(stat.get("value"), "scoring multiplier")
         keys = _SCORING.get(stat_id)
-        if not keys and value:
+        bonuses = _scoring_bonuses(stat.get("bonuses"), stat_id)
+        if not keys and (value or any(points for _, points in bonuses)):
             raise YahooDataError(f"Yahoo scoring stat {stat_id} is not supported yet.")
-        if stat.get("bonuses"):
-            raise YahooDataError(
-                "Yahoo scoring bonuses require explicit mapping before grading."
-            )
         for key in keys or ():
             result[key] = value
+        # Yahoo bonuses stack at every reached target. They are not Sleeper's
+        # mutually exclusive 100–199 / 200+ yardage bonus bands:
+        # https://help.yahoo.com/kb/fantasy-football/sln6442.html
+        for target, points in bonuses:
+            if not points:
+                continue
+            key = threshold_bonus_key(keys, target)
+            result[key] = result.get(key, 0.0) + points
+            if not math.isfinite(result[key]):
+                raise YahooDataError("Yahoo returned invalid cumulative bonus points.")
     if not result:
         raise YahooDataError(
             "Yahoo returned no scoring settings; refusing an empty scoring model."

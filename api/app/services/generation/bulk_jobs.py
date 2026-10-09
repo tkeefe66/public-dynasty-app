@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.services.generation.administration import candidate_label, job_action
-from app.services.generation.commands import UNRESOLVED
+from app.services.generation.commands import FREE_REFRESH_KINDS, UNRESOLVED
 from app.services.generation.models import (
     GenerationAudit,
     GenerationOperation,
@@ -28,6 +28,8 @@ async def blocked_reason(db, job, control):
     if job.state not in ("held", "needs_attention"):
         return "job_no_longer_stopped"
     if job.state == "needs_attention" and job.reason != "provider_outcome_unknown":
+        if job.kind in FREE_REFRESH_KINDS and job.reason == "execution_failed":
+            return "free_refresh_requires_individual_review"
         return "failed_job_requires_replacement_review"
     if job.reason == "restore_reapproval_required":
         return "restore_reapproval_required"

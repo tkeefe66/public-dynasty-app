@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
 
+from sleeper_dynasty.models.scoring import weekly_scoring_stats
+
 
 def completed_week(season: int, state: dict | None) -> int:
     """Conservative cutoff: never label the current NFL week completed."""
@@ -29,7 +31,7 @@ def completed_week(season: int, state: dict | None) -> int:
 
 
 def score_player_week(stats: dict, scoring: dict, position: str) -> Decimal:
-    values = dict(stats)
+    values = weekly_scoring_stats(stats, scoring)
     # Sleeper's raw feed may omit position premiums even though league matchups
     # award them. Derive only the applicable premium, without double counting.
     if position in {"RB", "WR", "TE"}:
