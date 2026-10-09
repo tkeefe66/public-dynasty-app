@@ -34,5 +34,8 @@ const nextConfig = {
 // inert at runtime unless the *_SENTRY_DSN envs are set.
 export default withSentryConfig(nextConfig, {
   silent: true,
+  // Build verification must not send bundler telemetry. Runtime monitoring is
+  // still controlled independently by the existing SENTRY_DSN configuration.
+  telemetry: false,
   sourcemaps: { disable: true },
 });

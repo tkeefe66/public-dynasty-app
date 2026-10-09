@@ -118,6 +118,34 @@ describe("Generation controls", () => {
     }));
   });
 
+  it.each(["refresh", "analyst_refresh"])("resumes a reviewed failed %s using its saved version without approving paid writing", async kind => {
+    const normal = request.getMockImplementation()!;
+    const job = { id: "free-job", kind, state: "needs_attention", reason: "execution_failed",
+      generation: 3, league_id: "synthetic", calls: 0, max_calls: 0 };
+    request.mockImplementation((path = "", ...args) => {
+      if (path.includes("state=needs_attention")) return Promise.resolve({ records: [job], next_offset: null });
+      if (path === "/jobs/free-job") return Promise.resolve({ job, attempts: [] });
+      return normal(path, ...args);
+    });
+    render(<GenerationControl />);
+    const review = await screen.findByRole("region", { name: "Needs your review" });
+    expect(await within(review).findByText("Data refresh stopped before completion")).toBeVisible();
+    fireEvent.click(within(review).getByRole("button", { name: "Review problem" }));
+    fireEvent.click(await within(review).findByRole("button", { name: "Resume data refresh" }));
+    expect(within(review).queryByText("AI requests used")).not.toBeInTheDocument();
+    expect(request.mock.calls.filter(c => c[1])).toHaveLength(0);
+    fireEvent.change(within(review).getByLabelText("Reason for this action"), {
+      target: { value: "Yahoo scoring import repaired" },
+    });
+    fireEvent.click(within(review).getByRole("button", { name: "Confirm resume" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/jobs/free-job", {
+      action: "resume", expected_generation: 3, expected_state: "needs_attention",
+      reason: "Yahoo scoring import repaired",
+    }));
+    expect(request.mock.calls.some(c => c[0]?.startsWith("/campaigns"))).toBe(false);
+    await screen.findByText("Data refresh queued.");
+  });
+
   it("saves only explicit overrides with the observed revision and reason", async () => {
     render(<GenerationControl />);
     // Mutation: save the resolved policy instead of only explicit overrides.
@@ -173,6 +201,7 @@ describe("Generation controls", () => {
     expect(within(review).getByText(/Writing stopped before completion/)).toBeVisible();
     fireEvent.click(within(review).getByRole("button", { name: "Review problem" }));
     expect(await within(review).findByText(/The exact cause was not recorded/)).toBeVisible();
+    expect(within(review).queryByRole("button", { name: /Resume (data refresh|remaining work|after receipt review)/ })).not.toBeInTheDocument();
     expect(request.mock.calls.filter(c => c[1])).toHaveLength(0);
     expect(within(review).getByRole("button", { name: "Preview resume selected" })).toBeDisabled();
   });

@@ -4,6 +4,7 @@ dropped player's production over a rolling post-drop window. Pure — no I/O."""
 from __future__ import annotations
 
 from sleeper_dynasty.api.projections import normalize_projection
+from sleeper_dynasty.models.scoring import weekly_scoring_stats
 
 
 def score_week(
@@ -18,7 +19,7 @@ def score_week(
     for pid, stats in (raw_stats or {}).items():
         if not pid or not stats:
             continue
-        out[pid] = normalize_projection(stats, scoring)
+        out[pid] = normalize_projection(weekly_scoring_stats(stats, scoring), scoring)
     return out
 
 

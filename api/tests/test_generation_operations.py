@@ -67,3 +67,27 @@ async def test_cancel_revokes_ownership_but_retains_attempt(maker):
     async with maker.begin() as db:
         with pytest.raises(OwnershipLost):
             await finish(db, job.id, generation, now=101)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["refresh", "analyst_refresh"])
+async def test_explicit_new_request_replaces_cancelled_free_refresh_without_waiting(maker, kind):
+    async with maker.begin() as db:
+        first = await submit_refresh(db, "synthetic-league", "user", kind=kind, idempotency_key="original")
+        await cancel(db, first.id, "owner", "Cancel failed import")
+    async with maker.begin() as db:
+        # Replaying an old request is still idempotent, even after cancellation.
+        same = await submit_refresh(db, "synthetic-league", "user", kind=kind, idempotency_key="original")
+        assert same.id == first.id and same.state == "cancelled"
+        replacement = await submit_refresh(db, "synthetic-league", "user", kind=kind, idempotency_key="explicit-retry")
+        assert replacement.id != first.id and replacement.state == "queued"
+
+
+@pytest.mark.asyncio
+async def test_scheduler_does_not_bypass_recent_cancellation(maker):
+    async with maker.begin() as db:
+        first = await submit_refresh(db, "synthetic-league", "user")
+        await cancel(db, first.id, "owner", "Stop this refresh")
+    async with maker.begin() as db:
+        job = await submit_refresh(db, "synthetic-league", "user", actor_kind="scheduler")
+        assert job.id == first.id and job.state == "cancelled"

@@ -5,13 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.auth.deps import get_current_user
-from app.db.base import Base
 from app.db.models import User
 from app.db.session import get_db
 from app.main import app as fastapi_app
+from app.ratelimit import limiter
+from app.services.generation.models import GenerationOperation
 
 
 def test_me_requires_auth():
@@ -40,19 +40,12 @@ class _FakeSleeper:
 
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
+def client(tmp_path, monkeypatch, maker):
+    # Test clients share the process limiter; each isolated DB gets a new budget.
+    limiter.reset()
     # Isolate the chain-cache lookups to a temp dir (cold → warm=False).
     monkeypatch.setattr("app.routes.me._cache_dir", lambda: tmp_path)
     monkeypatch.setattr("app.routes.me.SleeperClient", lambda: _FakeSleeper())
-
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'me.db'}")
-
-    async def _create():
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
-    asyncio.run(_create())
-    maker = async_sessionmaker(engine, expire_on_commit=False)
 
     async def _seed_user():
         async with maker() as db:
@@ -81,7 +74,7 @@ def client(tmp_path, monkeypatch):
         yield TestClient(fastapi_app)
     finally:
         fastapi_app.dependency_overrides.clear()
-        asyncio.run(engine.dispose())
+        limiter.reset()
 
 
 def test_add_list_delete_cycle(client):
@@ -92,6 +85,7 @@ def test_add_list_delete_cycle(client):
     body = r.json()
     assert body["league_id"] == "L1"
     assert body["warm"] is False  # cold cache
+    assert body["refresh_job"] is None  # saved is not the same as running
 
     leagues = client.get("/api/me/leagues").json()
     assert [m["league_id"] for m in leagues] == ["L1"]
@@ -102,6 +96,70 @@ def test_add_list_delete_cycle(client):
 
     assert client.delete("/api/me/leagues/L1").status_code == 204
     assert client.get("/api/me/leagues").json() == []
+
+
+@pytest.mark.parametrize("state", ["queued", "running", "needs_attention", "held", "succeeded", "cancelled"])
+def test_league_reports_actual_refresh_state_without_job_payload(client, maker, state):
+    assert client.post("/api/me/leagues", json={"league_id": "L1", "name": "My league"}).status_code == 201
+
+    async def seed():
+        async with maker.begin() as db:
+            db.add_all([
+                GenerationOperation(id="old", kind="refresh", league_id="L1", state="succeeded", created_at=1),
+                GenerationOperation(id="current", kind="refresh", league_id="L1", state=state,
+                                    reason="execution_failed" if state == "needs_attention" else "",
+                                    created_at=2, payload_json='{"private": "not public"}'),
+                # Neither a newer prose job nor another league's job describes
+                # this membership's first data build.
+                GenerationOperation(id="prose", kind="generation", league_id="L1", state="running", created_at=3),
+                GenerationOperation(id="analyst", kind="analyst_refresh", league_id="L1", state="running", created_at=4),
+                GenerationOperation(id="private", kind="refresh", league_id="L2", state="running", created_at=5),
+            ])
+
+    asyncio.run(seed())
+    leagues = client.get("/api/me/leagues").json()
+    assert len(leagues) == 1
+    assert leagues[0]["warm"] is False
+    assert leagues[0]["refresh_job"] == {
+        "id": "current", "state": state,
+        "reason": "execution_failed" if state == "needs_attention" else "",
+    }
+    # An idempotent re-add returns the same truthful status.
+    added = client.post("/api/me/leagues", json={"league_id": "L1", "name": "My league"}).json()
+    assert added["refresh_job"] == leagues[0]["refresh_job"]
+
+
+def test_failed_update_preserves_cache_availability(client, maker, monkeypatch):
+    assert client.post("/api/me/leagues", json={"league_id": "L1", "name": "My league"}).status_code == 201
+    monkeypatch.setattr("app.routes.me.ChainCache.read", lambda *a, **kw: SimpleNamespace(
+        league_name_by_id={"L1": "My league"}, league_season_by_id={"L1": 2026},
+    ))
+
+    async def seed():
+        async with maker.begin() as db:
+            db.add(GenerationOperation(id="failed", kind="refresh", league_id="L1",
+                                       state="needs_attention", reason="execution_failed"))
+
+    asyncio.run(seed())
+    league = client.get("/api/me/leagues").json()[0]
+    assert league["warm"] is True
+    assert league["refresh_job"]["state"] == "needs_attention"
+
+
+def test_replacement_job_wins_when_recovery_timestamps_tie(client, maker):
+    assert client.post("/api/me/leagues", json={"league_id": "L1", "name": "My league"}).status_code == 201
+
+    async def seed():
+        async with maker.begin() as db:
+            db.add_all([
+                GenerationOperation(id="z-old", kind="refresh", league_id="L1", state="cancelled",
+                                    created_at=1, updated_at=1),
+                GenerationOperation(id="a-current", kind="refresh", league_id="L1", state="queued",
+                                    active_key="refresh:L1", created_at=1, updated_at=1),
+            ])
+
+    asyncio.run(seed())
+    assert client.get("/api/me/leagues").json()[0]["refresh_job"]["id"] == "a-current"
 
 
 def test_get_me_profile(client):
