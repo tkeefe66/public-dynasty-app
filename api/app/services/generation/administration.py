@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from app.config import get_settings
+from app.services.generation.candidate_status import REVIEWABLE_HOLDS, classify_candidates, require_available
 from app.services.generation.commands import (
     FREE_REFRESH_KINDS,
     UNRESOLVED,
@@ -128,14 +129,19 @@ async def control_action(db, body, actor):
 async def preview(db, candidates, actor, reason):
     control = await lock_control(db)
     items = []
+    rows = []
     for key in sorted(set(candidates)):
         row = await db.get(GenerationCandidate, key)
         if not row:
             raise Conflict("A candidate disappeared; reload the list")
+        rows.append(row)
+    statuses = await classify_candidates(db, rows, actor_id=actor)
+    for row in rows:
+        require_available(statuses[row.key])
         policy = await resolve_policy(db, row.series_id)
         feature = policy["policy"]["features"][row.feature]
         head = await db.get(ArtifactHead, row.subject)
-        items.append({"key": key, "subject": row.subject, "league_id": row.league_id,
+        items.append({"key": row.key, "subject": row.subject, "league_id": row.league_id,
             "feature": row.feature, "event": row.event, "revision": row.revision,
             "label": candidate_label(row),
             "digest": row.digest, "hold": row.hold, "head": head.artifact_id if head else "",
@@ -181,9 +187,12 @@ async def apply_campaign(db, preview_id, expected_digest, actor, reason):
     if (manifest["expires_at"] < stamp() or manifest["control_revision"] != control.revision
             or manifest["epoch"] != control.epoch):
         raise Conflict("Campaign preview expired or control state changed; preview again")
+    candidates = {row.key: row for row in (await db.scalars(select(GenerationCandidate).where(
+        GenerationCandidate.key.in_([item["key"] for item in manifest["items"]])))).all()}
+    statuses = await classify_candidates(db, list(candidates.values()), actor_id=actor)
     jobs = []
     for item in manifest["items"]:
-        candidate = await db.get(GenerationCandidate, item["key"])
+        candidate = candidates.get(item["key"])
         if not candidate or candidate.revision != item["revision"] or candidate.digest != item["digest"]:
             raise Conflict("Candidate facts changed; preview again")
         policy = await resolve_policy(db, candidate.series_id)
@@ -195,6 +204,7 @@ async def apply_campaign(db, preview_id, expected_digest, actor, reason):
             raise Conflict("Policy or saved content changed; preview again")
         if candidate.hold not in ("", "historical_approval_required", "missed_event_approval_required"):
             raise Held(candidate.hold)
+        require_available(statuses[candidate.key])
         season = await db.get(LeagueSeason, candidate.league_id)
         if not season or not season.verified_at or not supports_feature(
                 paid_capabilities(json.loads(season.capabilities_json)), season.provider, candidate.feature):
@@ -291,8 +301,28 @@ async def propose_correction(db, ident, body, actor):
     if artifact.feature == "analyst":
         saved = {"edition": previous, "facts": previous.get("facts", {}),
                  "season": previous["season"], "week": previous["week"]}
+    elif not saved.get("facts") and artifact.provenance == "legacy_unreviewed":
+        # Legacy prose often has no facts archive. The owner still starts from
+        # its current saved revision; use only a matching refreshed snapshot,
+        # never turn an ordinary completed candidate into implicit rewrite work.
+        candidates = (await db.scalars(select(GenerationCandidate).where(
+            GenerationCandidate.subject == artifact.subject,
+            GenerationCandidate.feature == artifact.feature,
+            GenerationCandidate.league_id == artifact.league_id,
+            GenerationCandidate.series_id == artifact.series_id,
+        ).order_by(GenerationCandidate.observed_at.desc(), GenerationCandidate.key))).all()
+        for candidate in candidates:
+            snapshot = json.loads(candidate.payload_json)
+            if candidate.key.startswith("correction:") or candidate.event.startswith("correction:") or snapshot.get("correction_base"):
+                continue
+            if candidate.hold not in REVIEWABLE_HOLDS:
+                raise Held(candidate.hold)
+            if snapshot.get("facts") and candidate.digest == digest(snapshot):
+                saved = snapshot
+            # Older observations cannot replace missing or invalid current facts.
+            break
     if not saved.get("facts"):
-        raise Held("Legacy facts are unavailable; refresh data and preview the current candidate instead")
+        raise Held("Correction facts are unavailable; refresh this league's data, then request the correction from Saved content again")
     saved = {**saved, "correction_base": ident, "correction_reason": body.reason,
              "previous_content": previous}
     saved.pop("_validation", None)

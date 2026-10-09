@@ -51,9 +51,10 @@ export interface GenerationSeries {
   effective: EffectivePolicy;
 }
 export interface GenerationRecord {
-  id?: string; key?: string; label?: string; league_id?: string; series_id?: string;
+  id?: string; key?: string; label?: string; league_id?: string; league_name?: string; series_id?: string;
   state?: string; feature?: GenerationFeature; subject?: string; event?: string; reason?: string;
-  hold?: string; availability?: string; generation?: number; calls?: number; max_calls?: number; model?: string;
+  hold?: string; availability?: string; review_reason?: string; reviewable?: boolean; blocked_by?: string[];
+  generation?: number; calls?: number; max_calls?: number; model?: string;
   cost_microusd?: number | null; usage_state?: string; action?: string; actor_id?: string;
   target?: string; error?: string; created_at?: number; observed_at?: number;
   kind?: string; delivered?: boolean;
