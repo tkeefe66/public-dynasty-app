@@ -1,7 +1,7 @@
 # Weekly recap video automation
 
 Date: 2026-10-09
-Status: reviewed proposal accepted in conversation; saved specification awaiting review.
+Status: written specification approved on 2026-10-09; implementation plan in review.
 
 ## Purpose and approved decisions
 
