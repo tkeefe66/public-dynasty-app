@@ -16,12 +16,15 @@ export function leagueName(row: GenerationRecord, leagues: GenerationSeries[]) {
 export function contentName(row: GenerationRecord) {
   return row.feature && FEATURE_LABELS[row.feature] || (row.kind === "refresh" ? "League data refresh" : row.kind === "analyst_refresh" ? "Weekly Analyst data refresh" : "Background work");
 }
+export function isDataRefresh(row: GenerationRecord) {
+  return row.kind === "refresh" || row.kind === "analyst_refresh";
+}
 export function jobStatus(row: GenerationRecord) {
   return ({ needs_attention: "Stopped — review required", held: "Paused — review required", queued: "Waiting to start", running: "In progress", succeeded: "Completed", cancelled: "Cancelled" } as Record<string, string>)[row.state || ""] || readable(row.state);
 }
 export function problemExplanation(row: GenerationRecord) {
-  if (["refresh", "analyst_refresh"].includes(row.kind || "") && row.reason === "execution_failed") {
-    return "The data refresh stopped before completion. After fixing the import problem, resume this saved refresh. Its league access and connection will be checked again.";
+  if (isDataRefresh(row) && row.reason === "execution_failed") {
+    return "The data refresh stopped before completion. After fixing the import problem, resume this saved refresh. Its original member's league access and connection will be checked again. This action does not approve paid writing.";
   }
   if (row.reason === "provider_outcome_unknown") return "We could not confirm whether the AI provider completed this request. Check the saved receipts before resuming; its cost may still be unknown.";
   const reasons: Record<string, string> = {
@@ -42,6 +45,7 @@ export function problemExplanation(row: GenerationRecord) {
     job_no_longer_stopped: "These jobs changed state and no longer need this action. Reload status.",
     provider_cooldown: "The AI provider is temporarily unavailable or rate limited. Review the provider status before resuming.",
     membership_removed: "The membership that authorized this work was removed. Review league access before approving any replacement.",
+    data_refresh_has_provider_activity: "This data refresh has AI request activity. Review its saved receipts before approving any recovery.",
   };
   if (row.reason && reasons[row.reason]) return reasons[row.reason];
   if (row.state === "held") return "This work is paused. Review the saved details and current settings before resuming its remaining steps.";

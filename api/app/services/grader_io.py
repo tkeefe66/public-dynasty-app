@@ -15,10 +15,12 @@ from sleeper_dynasty.api.ktc import (
     build_pick_value_table_tiered,
     fetch_ktc_values,
 )
+from sleeper_dynasty.api.platform import PLATFORM_SLEEPER, platform_for_league_id
 from sleeper_dynasty.cache import ONE_DAY, FileCache
 from sleeper_dynasty.engine.nfl_actuals import score_week
 from sleeper_dynasty.engine.playoff_phase import classify_playoff_phases
 from sleeper_dynasty.models.player import KTCValue
+from sleeper_dynasty.models.scoring import ThresholdBonus
 from sleeper_dynasty.util.name_match import normalize_player_name
 
 log = logging.getLogger(__name__)
@@ -69,17 +71,23 @@ async def fetch_nfl_points(
     cache: "FileCache | None",
     *,
     current_sw: tuple[int, int] | None = None,
+    bonuses: list[ThresholdBonus] | tuple[ThresholdBonus, ...] = (),
+    positions: dict[str, str] | None = None,
+    source_namespace: str = PLATFORM_SLEEPER,
 ) -> dict[tuple[int, int], dict[str, float]]:
     """{(season, week): {player_id: league points}} for the given weeks.
 
-    Raw stats cached league-agnostically per week; the current in-progress week
-    uses a short TTL, completed weeks effectively never expire. A failed fetch
-    contributes an empty week (0 for everyone), never raises.
+    Raw stats are shared by leagues using the same normalized provider feed.
+    Provider namespaces keep different interval conventions from contaminating
+    one another. Completed weeks effectively never expire; a failed fetch
+    contributes an empty week (0 for everyone).
     """
     out: dict[tuple[int, int], dict[str, float]] = {}
     for sw in season_weeks:
         season, week = sw
-        key = f"nfl_stats_{season}_{week}.json"
+        # Do not reuse old unnamespaced files: they may have been written by
+        # either provider and therefore cannot prove their stat conventions.
+        key = f"nfl_stats_{source_namespace}_{season}_{week}.json"
         ttl = ONE_DAY if sw == current_sw else _NFL_STATS_TTL_HISTORICAL
         raw = cache.read(key, max_age_seconds=ttl) if cache is not None else None
         if raw is None:
@@ -93,7 +101,9 @@ async def fetch_nfl_points(
             # fresh every refresh until it's no longer the current week.
             if cache is not None and raw and sw != current_sw:
                 cache.write(key, raw)
-        out[sw] = score_week(raw or {}, scoring)
+        # Raw caches are shared across leagues. Apply this league's thresholds
+        # only after the read, and never persist derived bonus counters.
+        out[sw] = score_week(raw or {}, scoring, bonuses=bonuses, positions=positions)
     return out
 
 
@@ -367,6 +377,7 @@ async def pull_supporting_data(
     seasons.discard(0)
     season_weeks = _nfl_weeks_to_fetch(seasons, current_sw)
     scoring = getattr(chain[0], "scoring_settings", {}) if chain else {}
+    bonuses = getattr(chain[0], "scoring_bonuses", ()) if chain else ()
     # Fall back to the configured cache dir, NOT to a re-imported
     # ``DEFAULT_CACHE_DIR``. A ``from … import`` copies the reference at import
     # time, so this module held its own binding that neither the engine-side
@@ -380,7 +391,11 @@ async def pull_supporting_data(
         getattr(league_cache, "cache_dir", None) or get_settings().cache_dir)
     try:
         nfl_points = await fetch_nfl_points(
-            client, season_weeks, scoring, nfl_cache, current_sw=current_sw)
+            client, season_weeks, scoring, nfl_cache, current_sw=current_sw,
+            bonuses=bonuses,
+            source_namespace=platform_for_league_id(chain[0].league_id) if chain else PLATFORM_SLEEPER,
+            positions={pid: player.get("position", "")
+                       for pid, player in raw_players.items() if isinstance(player, dict)})
     except Exception as e:
         log.warning("NFL points unavailable: %s", e)
         nfl_points = {}

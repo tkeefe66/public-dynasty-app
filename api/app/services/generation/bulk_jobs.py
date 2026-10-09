@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.services.generation.administration import candidate_label, job_action
-from app.services.generation.commands import FREE_REFRESH_KINDS, UNRESOLVED
+from app.services.generation.commands import FREE_REFRESH_KINDS, UNRESOLVED, failed_data_refresh, require_actor
 from app.services.generation.models import (
     GenerationAudit,
     GenerationOperation,
@@ -16,6 +16,7 @@ from app.services.generation.models import (
 )
 from app.services.generation.store import (
     Conflict,
+    Held,
     audit,
     digest,
     dump,
@@ -28,7 +29,7 @@ async def blocked_reason(db, job, control):
     if job.state not in ("held", "needs_attention"):
         return "job_no_longer_stopped"
     if job.state == "needs_attention" and job.reason != "provider_outcome_unknown":
-        if job.kind in FREE_REFRESH_KINDS and job.reason == "execution_failed":
+        if failed_data_refresh(job):
             return "free_refresh_requires_individual_review"
         return "failed_job_requires_replacement_review"
     if job.reason == "restore_reapproval_required":
@@ -44,6 +45,13 @@ async def blocked_reason(db, job, control):
     attempts = (await db.scalars(select(ProviderAttempt).where(ProviderAttempt.operation_id == job.id))).all()
     if any(a.state in UNRESOLVED for a in attempts):
         return "provider_outcome_unknown"
+    if job.kind in FREE_REFRESH_KINDS:
+        if job.calls or job.max_calls or attempts:
+            return "data_refresh_has_provider_activity"
+        try:
+            await require_actor(db, job)
+        except Held as exc:
+            return exc.code
     if (job.state == "needs_attention" or job.calls >= job.max_calls) and (
         len(attempts) != job.calls or any(a.state != "received" or a.usage_state != "known" or a.error_code for a in attempts)
     ):

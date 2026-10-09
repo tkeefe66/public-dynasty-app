@@ -7,6 +7,24 @@ Tools for analyzing [Sleeper](https://sleeper.com) fantasy-football leagues — 
 
 Both share one grading engine: the `src/sleeper_dynasty/` Python package.
 
+### Yahoo scoring bonuses
+
+Yahoo league imports support configurable cumulative weekly threshold bonuses
+across the verified offense, kicking, and team-defense scoring categories.
+Each rule preserves its actual threshold and point award; combined categories,
+such as kickoff plus punt return yards, are evaluated as one total. Yahoo's
+recorded player and lineup points remain authoritative. Locally calculated
+weekly production applies the same bonus rules after reading raw statistics.
+
+Projection comparisons and offensive rookie-cohort verdicts are omitted where
+the source data cannot represent weekly bonuses. Unknown active categories or
+malformed rules stop the import with an actionable error. See the complete
+[mapping catalog, source evidence, and coverage limits](docs/yahoo-scoring.md).
+
+After correcting a stopped data refresh, an admin can use **Resume data refresh**
+on its Generation job. This reuses the audited job and rechecks the original
+member's access. It cannot retry paid generation or a job with AI-call receipts.
+
 ### Weekly recap player context
 
 The web app's league refresh collects free player news from Sleeper's
@@ -330,7 +348,9 @@ reached target adds its configured points. Calculated weekly actuals use those
 rules, while Yahoo's own roster and matchup totals remain authoritative. Bonus
 rules that cannot be interpreted safely fail explicitly. Seasonal totals cannot
 reconstruct weekly bonus counts, so incompatible rookie-cohort comparisons stay
-unavailable; projected points retain their existing linear approximation.
+unavailable. Projection comparisons are omitted when their source cannot
+represent the league's weekly threshold awards. Encoded rules saved by the
+initial bonus release remain readable alongside the typed scoring model.
 
 ### Franchise Rating + the Franchise Ratings leaderboard
 

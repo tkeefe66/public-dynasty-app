@@ -214,10 +214,10 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
           <span className="font-mono text-figure text-neg-strong">{error}</span>
           <button
             type="button"
-            onClick={() => void loadOrRefresh()}
+            onClick={() => void loadOrRefresh(retryStopped)}
             className="shrink-0 font-mono text-label font-bold uppercase tracking-[0.1em] text-dim hover:text-ink"
           >
-            Retry
+            {refreshProblem && !retryStopped ? "Check status" : "Try again"}
           </button>
         </div>
       )}

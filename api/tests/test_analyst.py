@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from sleeper_dynasty.models.league import League, MatchupResult, Roster
+from sleeper_dynasty.models.scoring import ThresholdBonus
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +37,41 @@ def setup_league():
     writer = Mock(model="test-model")
     writer.write.return_value = "## Week one\nAlice wins."
     return client, entry, writer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rule_format", ["typed", "legacy"])
+@pytest.mark.parametrize("bonus_points, expected_busts", [(None, 1), (0, 1), (3, 0), (-2, 0)])
+async def test_bonus_leagues_keep_actual_results_without_base_only_bust_comparisons(
+    tmp_path, monkeypatch, bonus_points, expected_busts, rule_format,
+):
+    from app.services.analyst import generate_analyst
+    from app.services.analyst_store import AnalystStore
+
+    client, entry, writer = setup_league()
+    league, _ = await client.get_league("123")
+    league.scoring_settings = {"pass_td": 4}
+    if bonus_points is not None:
+        if rule_format == "legacy":
+            league.scoring_settings["bonus_gte:pass_yd:300"] = bonus_points
+        else:
+            league.scoring_bonuses = [ThresholdBonus(("pass_yd",), 300, bonus_points)]
+    # Player Two would be called a bust against this base-only projection.
+    client.get_projections.return_value = {"p1": {"pass_td": 10}, "p2": {"pass_td": 20}}
+    monkeypatch.setattr("app.services.analyst.upcoming_outlook", AsyncMock(return_value=None))
+    await generate_analyst(client, entry, tmp_path, writer=writer)
+
+    packet = writer.write.call_args.args[0]
+    assert len(packet.busts) == expected_busts
+    assert (packet.matchups[0].winner_points, packet.matchups[0].loser_points) == (25, 15)
+    assert [line.points for line in packet.heroes] == [25, 15]
+    stored = AnalystStore(tmp_path).editions("123")[0]
+    assert len(stored["facts"]["busts"]) == expected_busts
+    assert stored["facts"]["matchups"][0]["winner_points"] == 25
+    if bonus_points:
+        client.get_projections.assert_not_awaited()
+    else:
+        client.get_projections.assert_awaited_once_with(2026, 1)
 
 
 @pytest.mark.asyncio

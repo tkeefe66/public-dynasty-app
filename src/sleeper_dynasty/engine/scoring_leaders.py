@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 from decimal import Decimal, ROUND_HALF_UP
 
-from sleeper_dynasty.models.scoring import weekly_scoring_stats
+from sleeper_dynasty.engine.scoring import score_week_stats
+from sleeper_dynasty.models.scoring import ThresholdBonus
 
 
 def completed_week(season: int, state: dict | None) -> int:
@@ -30,21 +32,16 @@ def completed_week(season: int, state: dict | None) -> int:
         raise ValueError("NFL season state is unavailable. Try again shortly.") from None
 
 
-def score_player_week(stats: dict, scoring: dict, position: str) -> Decimal:
-    values = weekly_scoring_stats(stats, scoring)
-    # Sleeper's raw feed may omit position premiums even though league matchups
-    # award them. Derive only the applicable premium, without double counting.
-    if position in {"RB", "WR", "TE"}:
-        values.setdefault(f"bonus_rec_{position.lower()}", stats.get("rec", 0))
-    total = sum((Decimal(str(values.get(key, 0))) * Decimal(str(weight))
-                 for key, weight in scoring.items() if weight), Decimal(0))
-    if not total.is_finite():
-        raise ValueError("Sleeper returned invalid scoring data. Try again shortly.")
-    return total.quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
+def score_player_week(
+    stats: dict, scoring: dict, position: str,
+    *, bonuses: Sequence[ThresholdBonus] = (),
+) -> Decimal:
+    return score_week_stats(stats, scoring, bonuses=bonuses, position=position)
 
 
 def build_scoring_rows(
     stats_by_week: dict[int, dict], players: dict, scoring: dict, through_week: int,
+    *, bonuses: Sequence[ThresholdBonus] = (),
 ) -> list[dict]:
     totals: dict[str, Decimal] = defaultdict(Decimal)
     games: dict[str, int] = defaultdict(int)
@@ -61,7 +58,7 @@ def build_scoring_rows(
             played = stats.get("gp", 0)
             if not played:
                 continue
-            totals[pid] += score_player_week(stats, scoring, player["position"])
+            totals[pid] += score_player_week(stats, scoring, player["position"], bonuses=bonuses)
             games[pid] += 1
 
     by_position: dict[str, list[dict]] = defaultdict(list)

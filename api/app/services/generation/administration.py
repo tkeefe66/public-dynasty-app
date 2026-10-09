@@ -6,7 +6,12 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.services.generation.commands import (
-    FREE_REFRESH_KINDS, UNRESOLVED, authorize_candidate, cancel, require_actor,
+    FREE_REFRESH_KINDS,
+    UNRESOLVED,
+    authorize_candidate,
+    cancel,
+    failed_data_refresh,
+    require_actor,
 )
 from app.services.generation.models import (
     ArtifactHead,
@@ -210,9 +215,8 @@ async def job_action(db, job_id, body, actor):
     if body.action == "cancel":
         return data(await cancel(db, job_id, actor, body.reason))
     settled_recovery = job.state == "needs_attention" and job.reason == "provider_outcome_unknown"
-    failed_free_refresh = (job.kind in FREE_REFRESH_KINDS and job.state == "needs_attention"
-                           and job.reason == "execution_failed")
-    if job.state != "held" and not settled_recovery and not failed_free_refresh:
+    data_retry = failed_data_refresh(job)
+    if job.state != "held" and not (settled_recovery or data_retry):
         raise Held("Only held jobs can resume; failed jobs require a separate reviewed authorization")
     if job.reason == "restore_reapproval_required" and job.kind == "generation":
         raise Held("Cancel restored work, reconcile provider activity, then preview a separate authorization")
@@ -220,6 +224,11 @@ async def job_action(db, job_id, body, actor):
             ProviderAttempt.operation_id == job_id, ProviderAttempt.state.in_(UNRESOLVED)).limit(1)):
         raise Held("provider_outcome_unknown")
     if job.kind in FREE_REFRESH_KINDS:
+        # Free collection cannot acquire or renew a paid request allowance.
+        # Even settled receipts require separate recovery, not this data action.
+        if job.calls or job.max_calls or await db.scalar(select(ProviderAttempt.id).where(
+                ProviderAttempt.operation_id == job_id).limit(1)):
+            raise Held("data_refresh_has_provider_activity")
         # Keep the original actor and connection generation. This is a local
         # permission check only; the worker renews an expired Yahoo grant through
         # connected_client after this transaction releases the global lock.

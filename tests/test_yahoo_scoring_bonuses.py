@@ -28,6 +28,7 @@ def settings(bonuses=None, *, stat_id="9", value="0.1"):
     [bonus("100", "3")],
     {"0": bonus("100", "3"), "count": 1},
     bonus("100", "3"),
+    [{"target": 100, "points": 3}],
     [{"bonus": [{"target": "100"}, {"points": "3"}]}],
 ])
 def test_bonus_collection_shapes_preserve_scoring_rules(wrapped):
@@ -120,7 +121,6 @@ def test_empty_bonus_collection_keeps_base_scoring(raw):
     "unknown", True, False, 1,
     {"count": 1}, {"0": bonus(100, 3), "count": 2},
     {"rules": [bonus(100, 3)]},
-    [{"target": 100, "points": 3}],
     [{"bonus": {"target": 100}}],
     [{"bonus": {"points": 3}}],
     [{"bonus": {"target": 100, "points": 3, "position": "RB"}}],
@@ -163,9 +163,9 @@ def test_duplicate_scoring_stat_is_not_silently_overwritten():
 @pytest.mark.parametrize("value", ["NaN", "Infinity", None, True, "bad"])
 def test_invalid_weekly_bonus_stat_fails_in_both_consumers(value):
     scoring = scoring_settings(settings([bonus(100, 3)]))
-    with pytest.raises(ValueError, match="threshold scoring"):
+    with pytest.raises(ValueError, match="finite numeric"):
         score_week({"p": {"rush_yd": value}}, scoring)
-    with pytest.raises(ValueError, match="threshold scoring"):
+    with pytest.raises(ValueError, match="finite numeric"):
         score_player_week({"rush_yd": value}, scoring, "RB")
 
 

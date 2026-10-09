@@ -41,6 +41,7 @@ from sleeper_dynasty.engine.trade_grader import (
     grade_trade,
 )
 from sleeper_dynasty.engine.trade_history import build_trade_history
+from sleeper_dynasty.models.scoring import has_threshold_bonuses
 from sleeper_dynasty.models.player import (
     FantasyProsProjection,
     KTCValue,
@@ -442,6 +443,10 @@ async def _run_analysis(args: argparse.Namespace) -> None:
 
         league = _select_league(relevant)
         logger.info("Analyzing league: %s (%s)", league.name, league.league_id)
+        if has_threshold_bonuses(league.scoring_settings, league.scoring_bonuses):
+            print("Simulation unavailable: projections do not include this league's "
+                  "weekly threshold bonuses.")
+            return
 
         # 3. Fetch rosters, traded picks, and weekly matchups.
         rosters = await client.get_rosters(league.league_id)
@@ -961,9 +966,13 @@ async def _run_recap(args: argparse.Namespace) -> None:
         players = _build_players(raw_players)
 
         # Weekly projections for bust detection (best-effort).
+        # An expected stat total does not give the probability of reaching a
+        # threshold. Keep actual results, but omit unsupported comparisons.
+        has_scoring_bonuses = has_threshold_bonuses(league.scoring_settings, league.scoring_bonuses)
         weekly_projections: dict[str, float] = {}
         try:
-            raw_proj = await client.get_projections(args.season, week)
+            raw_proj = ({} if has_scoring_bonuses else
+                        await client.get_projections(args.season, week))
             for pid, stats in raw_proj.items():
                 if isinstance(stats, dict):
                     weekly_projections[pid] = normalize_projection(
@@ -986,6 +995,8 @@ async def _run_recap(args: argparse.Namespace) -> None:
         # --- Outlook (best-effort; any failure -> recap-only) ---
         outlook = None
         try:
+            if has_scoring_bonuses:
+                raise ValueError("projections do not include weekly threshold bonuses")
             next_week = week + 1
             pairings = await client.get_matchup_results(
                 league.league_id, next_week

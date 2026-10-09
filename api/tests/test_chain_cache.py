@@ -275,3 +275,53 @@ def test_draft_needs_round_trips_through_disk(cache):
     assert got.draft_needs["2026"][0]["holes"] == ["QB", "TE"]
     assert got.draft_needs["2026"][0]["drafted_into_count"] == 1
     assert "starters_by_slot" not in got.draft_needs["2026"][0]
+
+
+@pytest.mark.parametrize("representation", ["legacy", "typed", "both"])
+@pytest.mark.parametrize("award", [3, -2, 0])
+def test_bonus_cache_read_omits_only_unsupported_projection_baselines(cache, representation, award):
+    entry = _make_entry()
+    league = {"league_id": "L1", "season": 2026, "scoring_settings": {"rush_yd": .1}}
+    if representation in ("legacy", "both"):
+        league["scoring_settings"]["bonus_gte:rush_yd:100"] = award
+    if representation in ("typed", "both"):
+        league["scoring_bonuses"] = [{"stat_keys": ["rush_yd"], "target": 100, "points": award}]
+    entry.chain = [league]
+    entry.drafted_picks = [{"player_id": "p1", "projected_points": 200,
+                            "production_total": 250, "adp": 12, "adp_delta": 3,
+                            "verdict": ""}]
+    entry.trade_stories = {"t1": {"story": "Previously saved analysis."}}
+    entry.owner_production_verdict = {"u1": {"total": {"verdict": "winning"}}}
+    cache.write("L1", entry)
+    path = cache.cache_dir / "chain_L1.json"
+    before = path.read_bytes()
+    got = cache.read("L1")
+    assert got is not None
+    assert got.drafted_picks == [{**entry.drafted_picks[0], "projected_points": None if award else 200}]
+    assert got.trade_stories == entry.trade_stories
+    assert got.owner_production_verdict == entry.owner_production_verdict
+    assert got.chain == entry.chain
+    assert path.read_bytes() == before
+    assert entry.drafted_picks[0]["projected_points"] == 200
+
+
+def test_cache_projection_gate_uses_latest_season_rules(cache):
+    entry = _make_entry()
+    entry.chain = [
+        {"season": 2025, "scoring_settings": {"bonus_gte:rush_yd:100": 3}},
+        {"season": 2026, "scoring_settings": {"rush_yd": .1}},
+    ]
+    entry.drafted_picks = [{"player_id": "p1", "projected_points": 200}]
+    cache.write("L1", entry)
+    assert cache.read("L1").drafted_picks == entry.drafted_picks
+
+
+@pytest.mark.parametrize("league", [
+    {"season": 2026, "scoring_settings": {"bonus_gte:rush_yd:-1": 3}},
+    {"season": 2026, "scoring_settings": {}, "scoring_bonuses": [{"stat_keys": ["rush_yd"], "points": 3}]},
+])
+def test_malformed_saved_threshold_rules_require_rebuild(cache, league):
+    entry = _make_entry()
+    entry.chain = [league]
+    cache.write("L1", entry)
+    assert cache.read("L1") is None

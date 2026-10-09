@@ -15,8 +15,25 @@ describe("api client", () => {
     }), { status: 202 }));
     const onEvent = vi.fn();
     refreshStream("synthetic-league", onEvent);
-    await vi.waitFor(() => expect(onEvent).toHaveBeenCalledWith({ stage: "error", message: expect.stringMatching(/Yahoo.*wait/i) }));
+    await vi.waitFor(() => expect(onEvent).toHaveBeenCalledWith({ stage: "error", message: expect.stringMatching(/Yahoo.*wait/i), retryable: false }));
     expect(onEvent.mock.calls[0][0].message).not.toContain("private");
+  });
+
+  it("stops after a durable execution failure without another submission or poll", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+        id: "job", state: "needs_attention", reason: "execution_failed", progress: {},
+      }), { status: 202 }));
+      const onEvent = vi.fn();
+      refreshStream("synthetic-league", onEvent);
+      await vi.runAllTimersAsync();
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(onEvent).toHaveBeenCalledOnce();
+      expect(onEvent).toHaveBeenCalledWith({ stage: "error", message: expect.stringMatching(/administrator/), retryable: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps server exceptions private", async () => {
@@ -63,7 +80,7 @@ describe("api client", () => {
     const onEvent = vi.fn();
     refreshStream("synthetic-league", onEvent, { jobId: "failed-job" });
     await vi.waitFor(() => expect(onEvent).toHaveBeenCalledWith({
-      stage: "error", message: expect.stringMatching(/needs attention/),
+      stage: "error", message: expect.stringMatching(/needs attention/), retryable: false,
     }));
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy.mock.calls[0][0]).toMatch(/refresh-jobs\/failed-job$/);

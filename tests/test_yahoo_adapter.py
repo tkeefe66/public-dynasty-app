@@ -139,7 +139,8 @@ async def test_bonus_settings_import_without_adjusting_authoritative_yahoo_point
     a = Replay({f"/league/{LK}/settings": raw})
     try:
         league, _ = await a.get_league(LK)
-        assert score_week({"qb": {"pass_yd": 400}}, league.scoring_settings) == {"qb": 24}
+        assert score_week({"qb": {"pass_yd": 400}}, league.scoring_settings,
+                          bonuses=league.scoring_bonuses) == {"qb": 24}
         rows = await a.get_raw_matchups(LK, 1)
         for row in rows:
             assert sum(

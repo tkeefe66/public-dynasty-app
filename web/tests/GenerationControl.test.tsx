@@ -32,6 +32,25 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Generation controls", () => {
+  it("offers an explicit reviewed retry for failed free data collection", async () => {
+    const normal = request.getMockImplementation()!;
+    request.mockImplementation((path = "", ...args) => path.startsWith("/records/jobs")
+      ? Promise.resolve({ records: [{ id: "data-job", kind: "refresh", state: "needs_attention",
+          reason: "execution_failed", generation: 2, league_id: "synthetic", calls: 0, max_calls: 0 }], next_offset: null })
+      : normal(path, ...args));
+    render(<GenerationControl />);
+    await screen.findByRole("heading", { name: "Needs your review" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Review problem" })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume data refresh" }));
+    expect(screen.getByText(/No paid writing is approved by this action/)).toBeInTheDocument();
+    expect(request.mock.calls.some(([path, body]) => path === "/jobs/data-job" && body)).toBe(false);
+    fireEvent.change(screen.getByLabelText("Reason for this action"), { target: { value: "Yahoo scoring support repaired" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm resume" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/jobs/data-job", {
+      action: "resume", expected_generation: 2, expected_state: "needs_attention", reason: "Yahoo scoring support repaired",
+    }));
+  });
+
   it("selects all review work across pages and confirms one batch", async () => {
     const normal = request.getMockImplementation()!;
     request.mockImplementation((path = "", ...args) => {

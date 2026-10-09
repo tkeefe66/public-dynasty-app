@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { generationRequest } from "@/lib/api";
 import { GenerationRecord, GenerationSeries } from "@/lib/generation";
-import { ActionForm, ActionProps, contentName, dateLabel, jobStatus, leagueName, money, problemExplanation, secondary, TechnicalDetails } from "./GenerationShared";
+import { ActionForm, ActionProps, contentName, dateLabel, isDataRefresh, jobStatus, leagueName, money, problemExplanation, secondary, TechnicalDetails } from "./GenerationShared";
 
 export function GenerationJob({ row, leagues, busy, run, review = false, selected, onSelect }: ActionProps & { row: GenerationRecord; leagues: GenerationSeries[]; review?: boolean; selected?: boolean; onSelect?: (checked: boolean) => void }) {
   const [opened, setOpened] = useState(false);
@@ -10,7 +10,7 @@ export function GenerationJob({ row, leagues, busy, run, review = false, selecte
   const [error, setError] = useState("");
   const [action, setAction] = useState("");
   const stopped = ["needs_attention", "held"].includes(row.state || "");
-  const freeRefresh = ["refresh", "analyst_refresh"].includes(row.kind || "");
+  const freeRefresh = isDataRefresh(row);
   const failedFreeRefresh = freeRefresh && row.state === "needs_attention" && row.reason === "execution_failed";
   const resumable = (row.state === "held" && row.reason !== "restore_reapproval_required") || (row.state === "needs_attention" && row.reason === "provider_outcome_unknown") || failedFreeRefresh;
   const attempts = detail?.attempts || [];
@@ -49,7 +49,7 @@ export function GenerationJob({ row, leagues, busy, run, review = false, selecte
           {!["succeeded", "cancelled"].includes(row.state || "") && <button className={secondary} disabled={busy} onClick={() => setAction("cancel")}>Cancel this work</button>}
         </div>
         {action && <ActionForm key={action} title={action === "cancel" ? "Cancel this work" : freeRefresh ? "Resume data refresh" : "Resume remaining work"}
-          description={freeRefresh ? action === "cancel" ? "Stop this refresh and keep the league and its saved data." : "Rebuild this league's data with the saved account after the import problem has been fixed." : action === "cancel" ? "Stop future steps and keep the saved records. Requests already sent may still incur charges. Cancelling does not approve replacement writing." : "Continue this job within its original request allowance. The server rechecks permissions and provider receipts before continuing."}
+          description={freeRefresh ? action === "cancel" ? "Stop this refresh and keep the league and its saved data." : "Rebuild this league's data with the saved account after the import problem has been fixed. The server rechecks the original member's access and connection. No paid writing is approved by this action." : action === "cancel" ? "Stop future steps and keep the saved records. Requests already sent may still incur charges. Cancelling does not approve replacement writing." : "Continue this job within its original request allowance. The server rechecks permissions and provider receipts before continuing."}
           submitLabel={action === "cancel" ? "Confirm cancellation" : "Confirm resume"} busy={busy} onCancel={() => setAction("")} onSubmit={reason => run(() => generationRequest(`/jobs/${row.id}`, {
             action, expected_generation: row.generation, expected_state: row.state, reason,
           }), action === "cancel" ? "Work cancelled. Saved records are retained." : freeRefresh ? "Data refresh queued." : "Remaining work approved to resume.")} />}

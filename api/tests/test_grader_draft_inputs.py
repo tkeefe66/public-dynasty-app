@@ -3,11 +3,37 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import httpx
 
 from app.services.adp_snapshot_store import AdpSnapshotStore
 from app.services.grader import GraderService
 from sleeper_dynasty.engine.draft_class import build_draft_classes, build_draft_picks
 from sleeper_dynasty.engine.draft_results import build_drafted_pick_results
+from sleeper_dynasty.models.scoring import ThresholdBonus, threshold_bonus_key
+
+
+@pytest.fixture(autouse=True)
+def isolate_grader_draft_external_feeds(monkeypatch):
+    """Draft wiring tests use local snapshots and components, never live feeds."""
+    from sleeper_dynasty.engine import injury_data
+
+    # build_injury_map binds its fetcher as a default argument, so replacing
+    # _fetch_csv_rows alone would leave its original network function reachable.
+    monkeypatch.setattr(injury_data, "_fetch_csv_rows", lambda *_: [])
+    monkeypatch.setattr(injury_data, "build_injury_map", lambda *_, **__: {})
+    attempted = []
+
+    def refuse(self, request, *args, **kwargs):
+        attempted.append(str(request.url))
+        raise AssertionError("Draft-input tests must not make external requests")
+
+    async def refuse_async(self, request, *args, **kwargs):
+        return refuse(self, request, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.Client, "send", refuse)
+    monkeypatch.setattr(httpx.AsyncClient, "send", refuse_async)
+    yield
+    assert attempted == [], f"Unexpected external requests: {attempted}"
 
 
 def _drafts(player_type, season=2026):
@@ -496,3 +522,106 @@ async def test_seasons_held_and_verdict_survive_the_grader_seam(tmp_path):
     # ADP is skipped for a dynasty rookie class), so the honest verdict is
     # "", not a KeyError from a missing stamp.
     assert row["verdict"] == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rule_format", ["typed", "legacy"])
+@pytest.mark.parametrize("current_award, prior_award, expected_projection", [
+    (None, None, 150.0),
+    (0, None, 150.0),
+    (3, None, None),
+    (-2.5, None, None),
+    (None, 3, 150.0),
+])
+async def test_bonus_rules_gate_standard_projection_baseline_through_grader(
+    tmp_path, current_award, prior_award, expected_projection, rule_format,
+):
+    """Bonus-inclusive actuals cannot be graded against standard season points.
+
+    The oldest league is first to prove the gate selects the current season's
+    rules. ADP and authoritative production survive even when projections are
+    omitted; a disabled rule must not hide the ordinary baseline.
+    """
+    older, current = _league("L2025", 2025), _league("L2026", 2026)
+    older.scoring_bonuses = ([] if prior_award is None else
+                             [ThresholdBonus(("rec_yd",), 100, prior_award)])
+    current.scoring_bonuses = ([] if current_award is None else
+                               [ThresholdBonus(("rec_yd",), 100, current_award)])
+    if rule_format == "legacy":
+        for league in (older, current):
+            for bonus in league.scoring_bonuses:
+                league.scoring_settings[threshold_bonus_key(bonus.stat_keys, bonus.target)] = bonus.points
+            del league.scoring_bonuses  # A persisted pre-typed league has no field.
+    client = _FakeDraftClient(
+        [older, current], {"L2025": [], "L2026": [_draft_dict("d1", "L2026", 2026)]},
+        {"d1": [_pick_dict("p1")]}, {"p1": {"adp_ppr": 5, "pts_ppr": 150}},
+    )
+    matchups = {("L2026", 1, 1): {
+        "players": ["p1"], "starters": ["p1"], "players_points": {"p1": 212.5},
+    }}
+
+    async def fake_pull(client, chain, **kwargs):
+        return _supporting_for({"L2025": 2025, "L2026": 2026}, matchups=matchups)
+
+    entry = await GraderService().run(
+        client=client, current_league_id="L2026", progress_cb=AsyncMock(),
+        _build_trade_history=_fake_build_trade_history,
+        _pull_supporting_data=fake_pull, cache_dir=tmp_path, skip_llm=True,
+        _nfl_state={"season_type": "off", "season": 2026, "week": 0},
+    )
+    row = next(r for r in entry.drafted_picks if r["player_id"] == "p1")
+    assert row["projected_points"] == expected_projection
+    assert row["adp"] == 5
+    assert row["adp_delta"] == -4
+    assert row["production_total"] == 212.5
+    assert AdpSnapshotStore(tmp_path).read("d1") == {"p1": 5}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rule_format", ["typed", "legacy"])
+@pytest.mark.parametrize("bonuses, expected_verdict", [
+    ([], "hit"),
+    ([ThresholdBonus(("rec_yd",), 100, 3)], ""),
+    ([ThresholdBonus(("rec_yd",), 100, -2)], ""),
+    ([ThresholdBonus(("rec_yd",), 100, 0)], "hit"),
+    ([ThresholdBonus(("def_kr_yd", "def_pr_yd"), 100, 3)], "hit"),
+])
+async def test_bonus_rules_gate_rookie_cohort_verdict_through_grader(
+    tmp_path, bonuses, expected_verdict, rule_format,
+):
+    """A real ECR baseline proves an absent verdict is caused by the bonus gate.
+
+    The committed component history and production scorer remain real. A
+    bonus-free control yields a Hit; a threshold that the season history
+    cannot count omits only that judgment, retaining rank and actual points.
+    """
+    from app.services.rookie_board_store import RookieBoardStore
+
+    league = _league("L1", 2026, fmt="dynasty")
+    if rule_format == "legacy":
+        league.scoring_settings.update({threshold_bonus_key(b.stat_keys, b.target): b.points for b in bonuses})
+    else:
+        league.scoring_bonuses = bonuses
+    rookie = _draft_dict("d1", "L1", 2026)
+    rookie["settings"]["player_type"] = 1
+    client = _FakeDraftClient([league], {"L1": [rookie]}, {"d1": [_pick_dict("p1")]}, {})
+    RookieBoardStore.rookie(tmp_path).capture_daily({"p1": 2.0}, _TODAY)
+    matchups = {("L1", 1, 1): {
+        "players": ["p1"], "starters": ["p1"], "players_points": {"p1": 1000.0},
+    }}
+
+    async def fake_pull(client, chain, **kwargs):
+        return _supporting_for({"L1": 2026}, matchups=matchups)
+
+    entry = await GraderService().run(
+        client=client, current_league_id="L1", progress_cb=AsyncMock(),
+        _build_trade_history=_fake_build_trade_history,
+        _pull_supporting_data=fake_pull, cache_dir=tmp_path, skip_llm=True,
+        _nfl_state={"season_type": "off", "season": 2026, "week": 0},
+    )
+    row = next(r for r in entry.drafted_picks if r["player_id"] == "p1")
+    assert row["baseline_source"] == "rookie_ecr"
+    assert row["baseline"] == 2
+    assert row["seasons_held"] == 1
+    assert row["production_total"] == 1000
+    assert row["verdict"] == expected_verdict

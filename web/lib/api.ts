@@ -428,9 +428,18 @@ export interface RefreshJob {
   progress: { stage?: string; message?: string; done?: number; total?: number };
 }
 
+export interface RefreshEvent {
+  stage: string;
+  message?: string;
+  done?: number;
+  total?: number;
+  /** A stopped job cannot be retried by resubmitting its saved request. */
+  retryable?: boolean;
+}
+
 export function refreshStream(
   leagueId: string,
-  onEvent: (e: { stage: string; message?: string; done?: number; total?: number }) => void,
+  onEvent: (e: RefreshEvent) => void,
   options: { jobId?: string; idempotencyKey?: string } = {},
 ): { close: () => void } {
   const controller = new AbortController();
@@ -445,7 +454,7 @@ export function refreshStream(
   const error = (reason?: string, state?: string) => {
     if (closed) return;
     const message = refreshErrorMessage(reason, state);
-    onEvent({ stage: "error", message });
+    onEvent({ stage: "error", message, ...(state ? { retryable: false } : {}) });
     close();
   };
   const observe = async (job: RefreshJob): Promise<void> => {

@@ -21,6 +21,9 @@ from __future__ import annotations
 
 import statistics as st
 from collections import defaultdict
+from collections.abc import Sequence
+
+from sleeper_dynasty.models.scoring import ThresholdBonus, split_scoring_rules
 
 # Upper bounds, inclusive. CONTINUOUS — ECR is fractional (8.7, 12.5, 18.2), and
 # integer ranges with gaps once dumped 32 of 389 players into the bottom cohort,
@@ -65,11 +68,12 @@ _KICKER_AND_TEAM_DEFENSE: frozenset[str] = frozenset({
     # never against an individual offensive player.
     "pts_allow", "pts_allow_0", "pts_allow_1_6", "pts_allow_7_13",
     "pts_allow_14_20", "pts_allow_21_27", "pts_allow_28_34", "pts_allow_35p",
-    "yds_allow", "yds_allow_0_100", "yds_allow_100_199", "yds_allow_200_299",
+    "yds_allow", "yds_allow_negative", "yds_allow_0_100", "yds_allow_100_199", "yds_allow_200_299",
     "yds_allow_300_349", "yds_allow_350_399", "yds_allow_400_449",
     "yds_allow_450_499", "yds_allow_500_549", "yds_allow_550p",
     "def_td", "def_2pt", "def_st_td", "def_st_ff", "def_st_fum_rec",
-    "def_pr_td", "def_kr_td", "def_forced_punts", "def_3_and_out",
+    "def_pr_td", "def_kr_td", "def_pr_yd", "def_kr_yd",
+    "def_forced_punts", "def_3_and_out", "def_4_and_stop",
     "sack", "sack_yd", "safe", "int",
 })
 
@@ -130,6 +134,7 @@ def score_season(stats: dict, scoring: dict) -> float:
 
 def build_cohorts(
     history: dict, scoring: dict, *, min_n: int = 8,
+    bonuses: Sequence[ThresholdBonus] = (),
 ) -> dict[str, tuple[float, float, float]]:
     """``{"band|n": (p25, median, p75)}`` over cumulative totals.
 
@@ -153,8 +158,17 @@ def build_cohorts(
       against it. A distribution that cannot discriminate must not be used
       to judge.
     """
+    scoring, bonuses = split_scoring_rules(scoring or {}, bonuses)
     if any(v and k not in _PRICED_KEYS and k not in _IGNORABLE
            for k, v in (scoring or {}).items()):
+        return {}
+    # This extract retains season totals, not the weekly components required
+    # to count threshold awards. A bonus-inclusive outcome must not be judged
+    # against a base-only bar. Only exclusively kicker/team-defense bonuses
+    # cannot reach this offensive rookie population; even an otherwise small
+    # residual stat can carry an arbitrarily large threshold award.
+    if any(bonus.points and any(key not in _KICKER_AND_TEAM_DEFENSE
+                                for key in bonus.stat_keys) for bonus in bonuses):
         return {}
 
     buckets: dict[str, list[float]] = defaultdict(list)
