@@ -22,13 +22,13 @@ export function AnalystShare({ leagueId, season, week }: { leagueId: string; sea
   }
 
   async function copy() {
-    try { await navigator.clipboard.writeText(url); setMessage("Link copied. Anyone with it can read this recap."); }
+    try { await navigator.clipboard.writeText(url); setMessage("Link copied. Anyone with it can open this recap."); }
     catch { setMessage("Select and copy the link below."); }
   }
 
   async function send() {
     if (!navigator.share) { await copy(); return; }
-    try { await navigator.share({ title: `Weekly recap · Week ${week}`, text: `Read the Week ${week} recap`, url }); }
+    try { await navigator.share({ title: `Weekly recap · Week ${week}`, text: `Week ${week} recap`, url }); }
     catch (error) {
       if (!(error instanceof Error && error.name === "AbortError")) setMessage("Could not open sharing. Use Copy link instead.");
     }
@@ -36,7 +36,7 @@ export function AnalystShare({ leagueId, season, week }: { leagueId: string; sea
 
   return <div className="mt-4 space-y-3">
     {!url ? <button type="button" className={button} disabled={busy} onClick={() => manage("POST")}>{busy ? "Preparing link…" : "Share recap"}</button> : <>
-      <p className="text-sm text-dim">Anyone with this link can read this edition, including any bet amounts in the article. No sign-in needed.</p>
+      <p className="text-sm text-dim">Anyone with this link can open this edition and any attached video or audio, including any bet amounts in the article. No sign-in needed. Disabling the link blocks future access; files already downloaded or message previews may remain.</p>
       <div className="flex flex-wrap gap-2">
         <button type="button" className={button} onClick={send}>Send link</button>
         <button type="button" className={button} onClick={copy}>Copy link</button>

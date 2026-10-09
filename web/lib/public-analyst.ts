@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import type { AnalystSource } from "./api";
+import type { RecapMediaInfo } from "./recap-media";
 
 export const publicAnalyst = cache(async (token: string) => {
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
@@ -12,5 +13,6 @@ export const publicAnalyst = cache(async (token: string) => {
     markdown: string; revision: number; correction_note: string | null;
     edition_type?: "roast" | "results";
     sources?: AnalystSource[]; context_note?: string | null;
+    media?: RecapMediaInfo | null;
   }>;
 });

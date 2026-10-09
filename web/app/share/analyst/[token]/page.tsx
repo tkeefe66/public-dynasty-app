@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { Article } from "@/components/AnalystArchive";
 import { AnalystSources } from "@/components/AnalystSources";
 import { publicAnalyst } from "@/lib/public-analyst";
+import { RecapMedia } from "@/components/RecapMedia";
+import { recapMediaBase } from "@/lib/recap-media";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -11,10 +13,12 @@ export async function generateMetadata({ params }: { params: { token: string } }
   let edition;
   try { edition = await publicAnalyst(params.token); } catch { /* Page displays the retry state. */ }
   const title = edition ? `Weekly recap · Week ${edition.week} · ${edition.league_name}` : "Shared recap unavailable";
-  return { title, description: "Read the weekly league recap. No sign-in required.",
+  const description = edition?.media ? "Watch the weekly league recap with Cal Mercer, or read the full article. No sign-in required." : "Read the weekly league recap. No sign-in required.";
+  const images = edition?.media ? [{ url: `${recapMediaBase(params.token, edition.media.id)}/poster.jpg`, alt: title }] : [];
+  return { title, description,
     robots: { index: false, follow: false, nocache: true }, referrer: "no-referrer",
-    openGraph: { title, description: "The saved weekly league recap.", type: "article", images: [] },
-    twitter: { card: "summary", title, images: [] } };
+    openGraph: { title, description, type: "article", images },
+    twitter: { card: edition?.media ? "summary_large_image" : "summary", title, description, images } };
 }
 
 export default async function SharedAnalyst({ params }: { params: { token: string } }) {
@@ -30,6 +34,7 @@ export default async function SharedAnalyst({ params }: { params: { token: strin
       {edition.edition_type === "results" && <p className="mt-3 text-sm text-dim">Results edition from verified league scores</p>}
       {edition.correction_note && <p className="mt-3 text-sm text-body"><strong>Corrected edition.</strong> This page shows the latest corrected article.</p>}
     </header>
+    {edition.media && <RecapMedia token={params.token} media={edition.media} week={edition.week} />}
     <article><Article markdown={edition.markdown} /></article>
     <AnalystSources sources={edition.sources} note={edition.context_note} />
     <footer className="mt-10 border-t border-rule pt-5 text-sm text-dim">Shared from Weekly recap. This link gives access to this recap only.</footer>

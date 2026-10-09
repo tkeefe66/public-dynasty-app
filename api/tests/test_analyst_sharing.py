@@ -35,7 +35,7 @@ def test_public_link_is_limited_revocable_and_tracks_corrections(client, edition
             response = anonymous.get(f"/api/public/analyst/{token}")
             assert response.status_code == 200
             assert "no-store" in response.headers["cache-control"]
-            assert set(response.json()) == {"season", "week", "league_name", "generated_at", "markdown", "revision", "correction_note", "sources", "context_note", "edition_type"}
+            assert set(response.json()) == {"season", "week", "league_name", "generated_at", "markdown", "revision", "correction_note", "sources", "context_note", "edition_type", "media"}
             assert response.json()["edition_type"] == edition_type
             assert response.json()["sources"][0]["url"].startswith("https://www.rotoballer.com/")
             assert response.json()["sources"][1]["url"] is None

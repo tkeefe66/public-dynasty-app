@@ -76,7 +76,7 @@ class AnalystShares:
         with self._lock(path):
             self._write(path, {"token": None})
 
-    def resolve(self, token):
+    def resolve_target(self, token):
         if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
             return None
         digest = hashlib.sha256(token.encode()).hexdigest()
@@ -87,4 +87,8 @@ class AnalystShares:
         state = self.state(**target)
         if not hmac.compare_digest(state.get("token") or "", token):
             return None
-        return self.edition(**target)
+        return target
+
+    def resolve(self, token):
+        target = self.resolve_target(token)
+        return self.edition(**target) if target else None
