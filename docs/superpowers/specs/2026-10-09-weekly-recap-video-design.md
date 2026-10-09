@@ -215,12 +215,17 @@ Defaults accepted for this design:
 
 | Scope | Maximum |
 | --- | ---: |
-| Video generation for one weekly episode, all revisions combined | $1.00 |
-| Video generation for this league per calendar month | $5.00 |
-| Written recap plus video for one weekly episode | $2.00 |
-| Written recap plus video for this league per calendar month | $10.00 |
+| Video generation for one weekly episode, all revisions combined | $3.00 |
+| Video generation for this league per calendar month | $15.00 |
+| Written recap plus video for one weekly episode | $5.00 |
+| Written recap plus video for this league per calendar month | $25.00 |
 
 These are intersecting ceilings, not additive allowances. Use USD integer units.
+The combined ceiling is $5 per episode, including video. Monthly limits accommodate
+five weekly episodes. These launch ceilings provide room for longer episodes and
+bounded repairs; they are not expected spending targets or permission for extra
+attempts. They cover metered generation, with subscriptions, rendering, storage
+and delivery accounted for separately.
 Monthly policy windows use `America/Denver`; keep provider billing-cycle windows
 separate. Existing application caps, when nonzero, also constrain admission.
 Unrelated trade/profile work is outside these new league-recap subcaps, while any
@@ -238,6 +243,14 @@ for video writing/review and $0.10-$0.40 for the existing written recap. These a
 estimates, not invoices. Request/token/chunk limits must make worst-case admission
 enforceable. Unknown pricing prohibits dispatch.
 
+A 4,000-character episode with one full narration replacement and a second
+writing/review pass would cost approximately $0.84-$1.34 for video under these
+assumptions, before voice/account adjustments. This illustrates why the original
+$1 video ceiling was too tight for recovery. Validate actual usage, exact-voice
+API billing and conservative reservations during the first three reviewed
+episodes before treating these estimates as proven. Any subsequent cap increase
+requires an explicit policy decision.
+
 Track provider/account, billing product, native units, rate evidence and immutable
 price version. Separate reserved cost, calculated usage value, provider-reported
 usage, included allowance consumption and confirmed invoice cost. Track credits
@@ -254,9 +267,12 @@ No automatic paid retakes in the initial qualification phase. After qualificatio
 ordinary approved first takes may run under standing policy; ambiguous outcomes
 or additional paid replacement attempts require a concrete bounded decision.
 
-The estimated incremental operating envelope is approximately $9-$15/month if a
+Expected incremental operating spending remains approximately $9-$15/month if a
 $6 Starter subscription is needed and worker idle use stays small. Included usage
-must not be counted twice. This is not an enforced infrastructure cap. Measure
+must not be counted twice. This normal-use estimate is not the maximum allowed
+spending: generation can reach the ceilings above, with infrastructure and any
+subscription charges accounted for separately. This is not an enforced
+infrastructure cap. Measure
 render and idle resources, storage and egress; provider upgrades and auto top-ups
 are not automatically authorized. Do not use a project-wide hard infrastructure
 stop that unexpectedly disables existing playback.
@@ -333,6 +349,30 @@ stay disabled rather than resurrecting access from an older backup.
 
 ## Operator experience
 
+Admin -> AI writing must expose all four spending caps as editable frontend
+settings for the selected league: video per episode ($3), video per month ($15),
+written recap plus video per episode ($5), and combined per month ($25). Show
+saved effective values and their scope. Persist changes through the authenticated
+admin API, enforce them in the backend admission transaction, and reload saved
+values after refresh; browser-only limits or environment-only configuration do
+not meet this requirement.
+
+Beside the caps, show current episode and Denver calendar-month spending,
+outstanding reservations (including uncertain charges), and remaining available
+budget for each applicable limit. Label combined limits as inclusive of video,
+and explain that subscriptions and infrastructure are separate. Surface any
+additional app-wide limit that restricts the effective budget. Give held episodes
+a concrete reason such as "Video needs $0.60; $0.40 remains" and a link to edit
+the relevant setting.
+
+Use explicit Save, validation, success and failure states. Accept positive currency
+amounts; zero must not silently mean unlimited. Warn before saving a limit below
+already-spent or reserved amounts: retain those obligations and block new paid
+admissions. Raising a cap does not itself approve a retake, purchase a plan, or
+resume an ambiguous provider request. Existing policy-qualified budget holds may
+be reconsidered under the saved limit. Audit who changed each cap, its previous
+and new value, and when; protect against concurrent edits and unauthorized writes.
+
 Extend Admin -> AI writing with the episode, exact stage, known/reserved/uncertain
 cost, concrete failure and recommended action. Provide review-and-publish, resume
 free work, restore access, reconcile request, approve bounded replacement, skip
@@ -366,7 +406,9 @@ ties and unfinished multi-week rounds; numeric rounding/thresholds; wrong spoken
 score, missing negation, duplicated chunk and omitted closing sentence; unknown
 provider outcomes and cost reservations across cancellation/month rollover;
 worker capability isolation; article/pause/revoke races; signed-out ranges and
-downloads; and restore after post-snapshot revocation. Three successful episodes
+downloads; persisted frontend cap editing, server-side authorization and enforcement,
+concurrent cap changes, and lowering caps below existing obligations; and restore
+after post-snapshot revocation. Three successful episodes
 are qualification evidence, not proof that future content cannot contain errors.
 
 ## Alternatives and review reconciliation
