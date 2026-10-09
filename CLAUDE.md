@@ -12,6 +12,30 @@ Three-tier monorepo for analyzing Sleeper dynasty leagues:
 
 The engine is shared by the CLI and the backend — changes there affect both.
 
+### Yahoo threshold scoring
+
+`League.scoring_bonuses` stores platform-neutral `ThresholdBonus` rules alongside
+linear `scoring_settings`. Yahoo IDs and payload parsing stay in `api/yahoo.py`;
+`engine/scoring.py::score_week_stats` applies each satisfied weekly threshold
+cumulatively, summing compound components before awarding it once. Yahoo's
+reported player/lineup points remain authoritative. Never score weekly bonuses
+against aggregate season totals or projection means. Unsupported projection
+comparisons and offensive rookie-cohort verdicts are omitted.
+
+Raw NFL caches are namespaced by provider and rescored after every read. The
+initial bonus release encoded thresholds inside `scoring_settings` as
+`bonus_gte:<components>:<target>`; compatibility decoding must preserve those
+rules in saved caches and projection gates, including combined-stat targets.
+An identical rule represented in both formats must not be paid twice. Saved
+chain records are dictionaries; consumers rehydrate typed rules with
+`ThresholdBonus(**record)`. See `docs/yahoo-scoring.md` for verified mappings,
+cache handling, limitations, and public evidence.
+
+The explicit admin **Retry data refresh** action only resumes failed free
+`refresh`/`analyst_refresh` jobs after checking their original actor and Yahoo
+grant. Any paid-call allowance or provider receipt blocks this recovery. Keep
+member resubmission idempotent and the paid-generation authorization separate.
+
 ## Key conventions
 
 - **Five metrics** everywhere, derived per-trade and rolled up per-owner. **Trade Value is a zero-sum swing; the four production metrics are received-only tallies** — points scored by the assets a side *received*, while on that side's roster (no "phantom given" subtraction). Each trade reads as a head-to-head ("104 vs 56"), not a swing.
@@ -24,7 +48,9 @@ The engine is shared by the CLI and the backend — changes there affect both.
   The user-facing **labels** (Trade Value / Total Points / Regular Season Points / Playoff Points / Toilet Bowl Points) are the vocabulary — keep them consistent across engine, API, and UI. **Never show "KTC" in the UI — it is "Trade Value" / "Value".** The `lens` query param (`ktc` | `production`) only drives the hero-card verdicts; it is not the headline-metrics selector. The became-grade uses the same taxonomy (`engine/regrade.py::build_became_grade`).
 - **Trade detail page = per-player stat tables + asset journey.** Each side renders as a player-first stat sheet (`web/components/TradeStatTable.tsx`): metrics as columns, the haul's players as rows, winner-highlighted totals, a `for <given>` exchange footer. Each received asset tells its **journey** inline — kept assets get an on-roster/dropped tag; **flipped** assets expand to a *linked* `traded to <owner> · <date> → became [terminal players + their stats]`. The **TOTAL reflects what each side realized** (kept assets' own line + flipped assets' *became*). Per-asset data: `engine/trade_grader.py::build_asset_breakdown` + lineage flip metadata (`engine/lineage.py`), assembled in `api/app/services/trade_view.py`. This replaced the old separate "Where it went" + "What it became" sections (`TradeLineage`/`TradeBecame` are deleted).
 - **Standings:** `engine/standings.py` reconstructs as-of-week regular-season standings (pure, from each roster-week's `team_points`/`opponent_points`); `api/app/services/standings_snapshot_store.py` persists per-week snapshots per chain (owner-keyed, season-scoped). Self-validates against Sleeper's authoritative `Roster` record. Each trade response carries the side's `at_trade_standing`.
-- **Cold-start contract:** dashboard endpoints return `409 cache cold` until `GET /api/league/{id}/refresh` (SSE) pulls + grades the chain and writes the `ChainCache`. Don't change this without updating the frontend's cold-start flow.
+- **Cold-start contract:** dashboard endpoints return `409 cache cold` until a durable `POST /api/league/{id}/refresh-jobs` job pulls and grades the chain and writes the `ChainCache`. The browser observes `GET /api/league/{id}/refresh-jobs/{job_id}`; closing the page only stops observation. `/api/me/leagues` returns both cache availability (`warm`) and the latest data-refresh summary (`refresh_job`), which are separate facts. A cold cache must never be labelled as a running build without an active job. Reopening a failed or paused first build observes the existing job rather than submitting more work. The legacy GET/SSE refresh route returns 410.
+- **Yahoo scoring bonuses:** use the typed model and compatibility rules described above. Yahoo's authoritative player/matchup totals already contain bonuses and must not receive them twice. Never infer weekly bonus counts or threshold-hit probabilities from season totals or projection means; unsupported comparisons remain unavailable. Malformed bonus rules fail explicitly instead of being ignored.
+- **Generation review contract:** the admin **Needs your review** panel contains stopped/paused operations; optional historical/manual content lives separately in **Manual content and catch-up**. `/records/candidates?view=review` filters actionable manual/historical candidates before pagination and bulk selection. Shared candidate classification checks canonical artifacts and completed semantic events, not just the latest operation's snapshot digest; preview/apply and automatic admission must preserve that completion contract. A completed manual campaign cannot cause a second automatic purchase for the same event. Later weekly summaries and explicit corrections remain distinct. Failed free imports expose **Retry data refresh**, using the freshly fetched job state and the existing owner/access guards. Display names may fall back to membership metadata without creating or verifying a league registry entry.
 - **Trade stories:** the trade detail page leads with an LLM-written verdict + story, following the recap pattern: grounded facts in `engine/trade_story.py` feed `llm/trade_story_writer.py` (`claude-haiku-4-5-20251001`), generated eagerly + incrementally during refresh and cached on the `ChainCacheEntry`. Needs `ANTHROPIC_API_KEY` (refresh still completes and skips stories if unset). Offseason vs in-season labeling lives in `engine/trade_story.py::IN_SEASON_MONTHS` and `web/lib/season-week.ts`. Key wrinkles:
   - **Value-won vs production-won:** the facts packet carries both the trade-Value winner *and* a production head-to-head (`production_winner_user_id` / `production_outcome`, computed in `trade_story.py` over the chain players), so the verdict can name the tension when they diverge ("close on value, blowout on the field").
   - **Point-in-time owner tilt:** per-trade stories get `build_owner_strategy(resolved, …, as_of=trade.traded_at)` — the owner's pattern as it stood *before* that deal, so a story never describes a trade using trades made later. The owner *career* dossiers keep the full-history aggregate (no `as_of`).

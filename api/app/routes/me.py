@@ -14,6 +14,7 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
@@ -24,6 +25,7 @@ from app.deps import get_cache_dir
 from app.ratelimit import limiter
 from app.repositories import memberships, users
 from app.services.chain_cache import ChainCache
+from app.services.generation.models import GenerationOperation
 from sleeper_dynasty.api.sleeper import SleeperClient
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -74,13 +76,57 @@ def _cache_dir() -> Path:
     return get_cache_dir()
 
 
+class MyLeagueRefresh(BaseModel):
+    id: str
+    state: str
+    reason: str
+
+
 class MyLeague(BaseModel):
     league_id: str
     name: str | None = None
     season: int | None = None
     warm: bool
+    refresh_job: MyLeagueRefresh | None = None
     sleeper_roster_id: int | None = None
     added_at: str
+
+
+async def _latest_refresh_jobs(
+    db: AsyncSession, league_ids: list[str],
+) -> dict[str, MyLeagueRefresh]:
+    """Only the latest data refresh for each membership, never paid prose jobs.
+
+    Cache availability and refresh execution are different facts: a failed
+    first build has no cache, while a failed update can retain usable data.
+    Select the small public summary in one query without reading job payloads.
+    """
+    if not league_ids:
+        return {}
+    ranked = select(
+        GenerationOperation.id, GenerationOperation.league_id,
+        GenerationOperation.state, GenerationOperation.reason,
+        func.row_number().over(
+            partition_by=GenerationOperation.league_id,
+            # A replacement can be submitted in the same second as a cancelled
+            # job. The current active key is authoritative even when timestamps tie.
+            order_by=(
+                case((GenerationOperation.active_key.is_not(None), 1), else_=0).desc(),
+                GenerationOperation.created_at.desc(),
+                GenerationOperation.updated_at.desc(), GenerationOperation.id.desc(),
+            ),
+        ).label("position"),
+    ).where(
+        GenerationOperation.league_id.in_(league_ids),
+        GenerationOperation.kind == "refresh",
+    ).subquery()
+    rows = await db.execute(select(
+        ranked.c.league_id, ranked.c.id, ranked.c.state, ranked.c.reason,
+    ).where(ranked.c.position == 1))
+    return {
+        league_id: MyLeagueRefresh(id=job_id, state=state, reason=reason)
+        for league_id, job_id, state, reason in rows
+    }
 
 
 class SleeperLeague(BaseModel):
@@ -166,8 +212,9 @@ async def unlink_sleeper(
 async def my_leagues(
     user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[MyLeague]:
-    """The current user's imported leagues, annotated with cache warmth."""
+    """The current user's leagues, cache availability, and actual refresh state."""
     rows = await memberships.list_for_user(db, user.id)
+    refresh_jobs = await _latest_refresh_jobs(db, [m.league_id for m in rows])
     cache = ChainCache(cache_dir=_cache_dir())
     out: list[MyLeague] = []
     for m in rows:
@@ -198,6 +245,7 @@ async def my_leagues(
                 name=name,
                 season=season,
                 warm=entry is not None,
+                refresh_job=refresh_jobs.get(m.league_id),
                 sleeper_roster_id=m.sleeper_roster_id,
                 added_at=m.added_at.isoformat(),
             )
@@ -250,7 +298,7 @@ async def add_league(
     """Import a league for the current user (idempotent, cap-enforced).
 
     Does no LLM work here: the league's cold-start refresh happens when the
-    user opens it (the existing 409 → SSE refresh flow), so adding an already
+    user opens it (409 → durable refresh job), so adding an already
     cached league costs nothing (first-importer-pays dedup)."""
     rows = await memberships.list_for_user(db, user.id)
     already = next((m for m in rows if m.league_id == body.league_id), None)
@@ -304,12 +352,14 @@ async def add_league(
         except Exception:
             log.exception("roster auto-match failed for league %s", body.league_id)
     entry = ChainCache(cache_dir=_cache_dir()).read(m.league_id)
+    refresh_jobs = await _latest_refresh_jobs(db, [m.league_id])
     return MyLeague(
         league_id=m.league_id,
         name=((entry.league_name_by_id or {}).get(m.league_id) if entry else None)
         or m.league_name,
         season=(entry.league_season_by_id or {}).get(m.league_id) if entry else None,
         warm=entry is not None,
+        refresh_job=refresh_jobs.get(m.league_id),
         sleeper_roster_id=m.sleeper_roster_id,
         added_at=m.added_at.isoformat(),
     )

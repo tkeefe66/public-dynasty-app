@@ -5,7 +5,15 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.services.generation.commands import UNRESOLVED, authorize_candidate, cancel
+from app.services.generation.candidate_status import REVIEWABLE_HOLDS, classify_candidates, require_available
+from app.services.generation.commands import (
+    FREE_REFRESH_KINDS,
+    UNRESOLVED,
+    authorize_candidate,
+    cancel,
+    failed_data_refresh,
+    require_actor,
+)
 from app.services.generation.models import (
     ArtifactHead,
     ContentArtifact,
@@ -121,14 +129,19 @@ async def control_action(db, body, actor):
 async def preview(db, candidates, actor, reason):
     control = await lock_control(db)
     items = []
+    rows = []
     for key in sorted(set(candidates)):
         row = await db.get(GenerationCandidate, key)
         if not row:
             raise Conflict("A candidate disappeared; reload the list")
+        rows.append(row)
+    statuses = await classify_candidates(db, rows, actor_id=actor)
+    for row in rows:
+        require_available(statuses[row.key])
         policy = await resolve_policy(db, row.series_id)
         feature = policy["policy"]["features"][row.feature]
         head = await db.get(ArtifactHead, row.subject)
-        items.append({"key": key, "subject": row.subject, "league_id": row.league_id,
+        items.append({"key": row.key, "subject": row.subject, "league_id": row.league_id,
             "feature": row.feature, "event": row.event, "revision": row.revision,
             "label": candidate_label(row),
             "digest": row.digest, "hold": row.hold, "head": head.artifact_id if head else "",
@@ -174,9 +187,12 @@ async def apply_campaign(db, preview_id, expected_digest, actor, reason):
     if (manifest["expires_at"] < stamp() or manifest["control_revision"] != control.revision
             or manifest["epoch"] != control.epoch):
         raise Conflict("Campaign preview expired or control state changed; preview again")
+    candidates = {row.key: row for row in (await db.scalars(select(GenerationCandidate).where(
+        GenerationCandidate.key.in_([item["key"] for item in manifest["items"]])))).all()}
+    statuses = await classify_candidates(db, list(candidates.values()), actor_id=actor)
     jobs = []
     for item in manifest["items"]:
-        candidate = await db.get(GenerationCandidate, item["key"])
+        candidate = candidates.get(item["key"])
         if not candidate or candidate.revision != item["revision"] or candidate.digest != item["digest"]:
             raise Conflict("Candidate facts changed; preview again")
         policy = await resolve_policy(db, candidate.series_id)
@@ -188,6 +204,7 @@ async def apply_campaign(db, preview_id, expected_digest, actor, reason):
             raise Conflict("Policy or saved content changed; preview again")
         if candidate.hold not in ("", "historical_approval_required", "missed_event_approval_required"):
             raise Held(candidate.hold)
+        require_available(statuses[candidate.key])
         season = await db.get(LeagueSeason, candidate.league_id)
         if not season or not season.verified_at or not supports_feature(
                 paid_capabilities(json.loads(season.capabilities_json)), season.provider, candidate.feature):
@@ -208,19 +225,33 @@ async def job_action(db, job_id, body, actor):
     if body.action == "cancel":
         return data(await cancel(db, job_id, actor, body.reason))
     settled_recovery = job.state == "needs_attention" and job.reason == "provider_outcome_unknown"
-    if job.state != "held" and not settled_recovery:
+    data_retry = failed_data_refresh(job)
+    if job.state != "held" and not (settled_recovery or data_retry):
         raise Held("Only held jobs can resume; failed jobs require a separate reviewed authorization")
     if job.reason == "restore_reapproval_required" and job.kind == "generation":
         raise Held("Cancel restored work, reconcile provider activity, then preview a separate authorization")
     if await db.scalar(select(ProviderAttempt.id).where(
             ProviderAttempt.operation_id == job_id, ProviderAttempt.state.in_(UNRESOLVED)).limit(1)):
         raise Held("provider_outcome_unknown")
+    if job.kind in FREE_REFRESH_KINDS:
+        # Free collection cannot acquire or renew a paid request allowance.
+        # Even settled receipts require separate recovery, not this data action.
+        if job.calls or job.max_calls or await db.scalar(select(ProviderAttempt.id).where(
+                ProviderAttempt.operation_id == job_id).limit(1)):
+            raise Held("data_refresh_has_provider_activity")
+        # Keep the original actor and connection generation. This is a local
+        # permission check only; the worker renews an expired Yahoo grant through
+        # connected_client after this transaction releases the global lock.
+        await require_actor(db, job)
     if job.kind == "generation" and (settled_recovery or job.calls >= job.max_calls):
         saved = (await db.scalars(select(ProviderAttempt).where(ProviderAttempt.operation_id == job_id))).all()
         if len(saved) != job.calls or any(a.state != "received" or a.usage_state != "known" or a.error_code for a in saved):
             raise Held("provider_outcome_unknown" if settled_recovery else "attempt_allowance_exhausted")
     before = {"state": job.state, "reason": job.reason, "calls": job.calls}
     job.state, job.reason = "queued", ""
+    job.updated_at = stamp()
+    if job.kind in FREE_REFRESH_KINDS:
+        job.progress_json = dump({"stage": "queued", "message": "Refresh queued after review."})
     audit(db, actor, "job_resumed", job_id, body.reason, before, {"state": job.state, "calls": job.calls})
     return data(job)
 
@@ -270,8 +301,28 @@ async def propose_correction(db, ident, body, actor):
     if artifact.feature == "analyst":
         saved = {"edition": previous, "facts": previous.get("facts", {}),
                  "season": previous["season"], "week": previous["week"]}
+    elif not saved.get("facts") and artifact.provenance == "legacy_unreviewed":
+        # Legacy prose often has no facts archive. The owner still starts from
+        # its current saved revision; use only a matching refreshed snapshot,
+        # never turn an ordinary completed candidate into implicit rewrite work.
+        candidates = (await db.scalars(select(GenerationCandidate).where(
+            GenerationCandidate.subject == artifact.subject,
+            GenerationCandidate.feature == artifact.feature,
+            GenerationCandidate.league_id == artifact.league_id,
+            GenerationCandidate.series_id == artifact.series_id,
+        ).order_by(GenerationCandidate.observed_at.desc(), GenerationCandidate.key))).all()
+        for candidate in candidates:
+            snapshot = json.loads(candidate.payload_json)
+            if candidate.key.startswith("correction:") or candidate.event.startswith("correction:") or snapshot.get("correction_base"):
+                continue
+            if candidate.hold not in REVIEWABLE_HOLDS:
+                raise Held(candidate.hold)
+            if snapshot.get("facts") and candidate.digest == digest(snapshot):
+                saved = snapshot
+            # Older observations cannot replace missing or invalid current facts.
+            break
     if not saved.get("facts"):
-        raise Held("Legacy facts are unavailable; refresh data and preview the current candidate instead")
+        raise Held("Correction facts are unavailable; refresh this league's data, then request the correction from Saved content again")
     saved = {**saved, "correction_base": ident, "correction_reason": body.reason,
              "previous_content": previous}
     saved.pop("_validation", None)

@@ -3,6 +3,7 @@ import logging
 
 from sleeper_dynasty.api.nfl_schedule import fetch_week_schedule
 from sleeper_dynasty.api.projections import normalize_projection
+from sleeper_dynasty.models.scoring import has_threshold_bonuses
 from sleeper_dynasty.api.weather import fetch_game_weather
 from sleeper_dynasty.engine.lineup import solve_optimal_lineup
 from sleeper_dynasty.engine.outlook import build_matchup_previews, build_weather_notes
@@ -13,6 +14,11 @@ log = logging.getLogger(__name__)
 
 async def upcoming_outlook(client, league, week, rosters, players):
     try:
+        # Even a weekly stat average lacks threshold-hit probabilities. Do
+        # not publish base-only team forecasts for bonus-inclusive scoring.
+        if has_threshold_bonuses(league.scoring_settings, getattr(league, "scoring_bonuses", ())):
+            log.info("Analyst upcoming-week preview omitted: threshold bonus projections unavailable")
+            return None
         raw = await client.get_projections(league.season, week)
         if not raw:
             return None

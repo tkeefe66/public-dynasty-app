@@ -5,8 +5,14 @@ import { Button } from "@/components/furniture/Button";
 import { GenerationJob } from "./GenerationJob";
 import { ActionForm, ActionProps, contentName, controlClass, dateLabel, leagueName, money, readable, secondary, TechnicalDetails } from "./GenerationShared";
 
-const availableHold = (hold?: string) => !hold || ["historical_approval_required", "missed_event_approval_required"].includes(hold);
-const available = (row: GenerationRecord) => availableHold(row.hold) && (!row.availability || row.availability === "available");
+const available = (row: GenerationRecord) => !!row.key && row.availability === "available"
+  && row.reviewable === true && !row.blocked_by?.length;
+const reviewReasons: Record<string, string> = {
+  manual_approval_required: "Awaiting manual approval",
+  historical_approval_required: "Optional historical content",
+  missed_event_approval_required: "Optional missed-event content",
+  correction_approval_required: "Requested correction",
+};
 const recordKinds = { attempts: "AI requests and costs", artifacts: "Saved content", audit: "Change history", outbox: "Publication delivery" };
 
 export function GenerationRecords({ leagues, busy, run, version, initialKind = "jobs", advanced = false }: ActionProps & {
@@ -29,20 +35,21 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
     let current = true;
     setLoading(true); setError(""); setPage({ records: [], next_offset: null });
     setSelected([]); setPreview(null); setAction(null);
-    generationRequest<GenerationPage<GenerationRecord>>(`/records/${kind}?limit=25&offset=${offset}${series && supportsLeagueFilter ? `&series_id=${encodeURIComponent(series)}` : ""}`)
+    generationRequest<GenerationPage<GenerationRecord>>(`/records/${kind}?limit=25&offset=${offset}${series && supportsLeagueFilter ? `&series_id=${encodeURIComponent(series)}` : ""}${kind === "candidates" ? "&view=review" : ""}`)
       .then(value => { if (current) setPage(value); })
       .catch(err => { if (current) setError(err.message || "Activity could not load. Try reloading."); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
   }, [kind, series, offset, version, supportsLeagueFilter]);
   const blocked = busy || loading || pendingPreview;
+  const visibleRecords = kind === "candidates" ? page.records.filter(available) : page.records;
   async function selectAll() {
     setPendingPreview(true); setError(""); setPreview(null);
     try {
       const keys: string[] = [];
       let next: number | null = 0;
       while (next !== null) {
-        const result: GenerationPage<GenerationRecord> = await generationRequest(`/records/candidates?limit=100&offset=${next}${series ? `&series_id=${encodeURIComponent(series)}` : ""}`);
+        const result: GenerationPage<GenerationRecord> = await generationRequest(`/records/candidates?limit=100&offset=${next}${series ? `&series_id=${encodeURIComponent(series)}` : ""}&view=review`);
         keys.push(...result.records.filter(available).map(row => row.key!));
         if (keys.length > 1000) throw new Error("More than 1,000 items are available. Select a league and try again.");
         next = result.next_offset;
@@ -74,11 +81,11 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
       {advanced && <label className="text-prose">Record type<select className={controlClass + " mt-1"} disabled={blocked} value={kind} onChange={e => { setKind(e.target.value); setOffset(0); }}>{Object.entries(recordKinds).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
     </div>
     {!supportsLeagueFilter && <p className="mt-2 text-prose text-dim">Records across all leagues.</p>}
-    {kind === "candidates" && <p className="mt-3 max-w-2xl text-prose text-dim">Select content, review its request allowance, then approve paid writing. Selection and preview do not call the AI provider. Already completed or otherwise ineligible items will be rejected by the preview.</p>}
+    {kind === "candidates" && <p className="mt-3 max-w-2xl text-prose text-dim">Only available manual or historical content appears here. Select what you want, review its request allowance, then approve paid writing. Selection and preview do not call the AI provider.</p>}
     {kind === "candidates" && <div className="mt-4 rounded-lg border border-rule p-4">
       <h4 className="font-display text-name font-bold">One-time catch-up</h4>
       <p className="mt-1 max-w-2xl text-prose text-dim">Gather missing completed-week Analyst roasts, current GM profiles and franchise outlooks, and trade stories from the last seven days. Completed content and work already running or needing repair are skipped.</p>
-      <Button className="mt-3 px-4 py-2" disabled={blocked} onClick={previewCatchup}>{series ? "Preview catch-up for this league" : "Preview catch-up across all leagues"}</Button>
+      <button className={secondary + " mt-3"} disabled={blocked} onClick={previewCatchup}>{series ? "Preview catch-up for this league" : "Preview catch-up across all leagues"}</button>
     </div>}
     {kind === "candidates" && <div className="mt-3 flex flex-wrap items-center gap-3">
       <button className={secondary} disabled={blocked} onClick={selectAll}>Select all available content</button>
@@ -102,7 +109,7 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
         <details className="mt-3"><summary className="min-h-tap cursor-pointer py-2 text-dim">Review individual items</summary><ul className="space-y-2">{preview.items.map(item => <li key={item.key}>{leagueName(item, leagues)} · {item.label} · {FEATURE_LABELS[item.feature]} · up to {item.max_calls} requests</li>)}</ul></details>
         {!!preview.skipped && <p className="mt-3 text-dim">Skipped: {Object.entries(preview.skipped).map(([why, count]) => `${count} ${readable(why).toLowerCase()}`).join(" · ") || "none"}.</p>}
       </> : <details className="mt-3"><summary className="min-h-tap cursor-pointer py-2">Review individual items</summary><ul className="space-y-3">{preview.items.map(item => <li key={item.key}><strong>{item.label} · {FEATURE_LABELS[item.feature]}</strong><p>{leagueName(item, leagues)} · {readable(item.event)}</p><p className="text-dim">{item.model} · up to {item.max_calls} requests</p>{item.blocked_by.length > 0 && <p className="text-neg-strong">Blocked: {item.blocked_by.map(readable).join("; ")}</p>}</li>)}</ul></details>}
-      <Button className="mt-3 px-4 py-2" disabled={blocked || !reason.trim() || preview.items.some(i => i.blocked_by.length > 0)} onClick={async () => {
+      <Button className="mt-3 px-4 py-2" disabled={blocked || !reason.trim() || !preview.items.length || preview.items.some(i => i.blocked_by.length > 0)} onClick={async () => {
         setError("");
         try { await run(() => generationRequest("/campaigns/apply", { preview_id: preview.id, digest: preview.digest, reason }), "Paid writing approved for the reviewed content."); setPreview(null); }
         catch (err) { setError(err instanceof Error ? err.message : "Approval failed. Reload and preview again."); }
@@ -110,9 +117,9 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
     </div>}
     {loading && <p role="status" className="mt-3 text-prose">Loading records…</p>}
     {error && <p role="alert" className="mt-3 text-prose text-neg-strong">{error}</p>}
-    {!loading && !error && !page.records.length && <p className="mt-3 text-prose text-dim">{kind === "candidates" ? "Content ready for approval will appear here after a league data refresh." : "Records will appear here as work runs for these leagues."}</p>}
+    {!loading && !error && !visibleRecords.length && <p className="mt-3 text-prose text-dim">{kind === "candidates" ? "Available manual and historical content will appear here after a league data refresh." : "Records will appear here as work runs for these leagues."}</p>}
     <ul className="mt-3 divide-y divide-rule">
-      {page.records.map(row => kind === "jobs" ? <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} /> : <li key={row.id || row.key} className="py-4 text-prose">
+      {visibleRecords.map(row => kind === "jobs" ? <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} /> : <li key={row.id || row.key} className="py-4 text-prose">
         <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
           <div className="min-w-0">
             <label className="flex items-start gap-3 font-semibold">
@@ -122,7 +129,7 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
             {supportsLeagueFilter && <p className="mt-1 text-dim">{leagueName(row, leagues)}</p>}
             <p className="mt-1 text-dim">{dateLabel(row.created_at || row.observed_at)}</p>
             {kind === "attempts" && <p className="mt-1">{money(row.cost_microusd)} · {row.model} · {readable(row.state)}</p>}
-            {kind === "candidates" && <p className="mt-1 text-dim">{row.availability && row.availability !== "available" ? readable(row.availability) : availableHold(row.hold) ? "Available to preview" : `Blocked: ${readable(row.hold)}`} · {readable(row.event)}</p>}
+            {kind === "candidates" && <p className="mt-1 text-dim">{reviewReasons[row.review_reason || ""] || "Available to preview"} · {readable(row.event)}</p>}
             {kind === "outbox" && <p className="mt-1">{row.error ? "Saved content could not be delivered. Retry delivery without buying new writing." : row.delivered ? "Delivered" : "Waiting for delivery"}</p>}
             {kind === "audit" && <p className="mt-1 break-words">{row.reason}</p>}
           </div>
@@ -153,7 +160,7 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
         <TechnicalDetails value={row} />
       </li>)}
     </ul>
-    {(offset > 0 || page.next_offset !== null) && <div className="mt-3 flex flex-wrap items-center gap-3 text-prose"><button className={secondary} disabled={blocked || offset === 0} onClick={() => setOffset(Math.max(0, offset - 25))}>Previous</button><span>Showing {offset + 1}–{offset + page.records.length}</span><button className={secondary} disabled={blocked || page.next_offset === null} onClick={() => setOffset(page.next_offset!)}>Next</button></div>}
+    {(offset > 0 || page.next_offset !== null) && <div className="mt-3 flex flex-wrap items-center gap-3 text-prose"><button className={secondary} disabled={blocked || offset === 0} onClick={() => setOffset(Math.max(0, offset - 25))}>Previous</button><span>{visibleRecords.length ? `Showing ${offset + 1}–${offset + visibleRecords.length}` : "No available items on this page"}</span><button className={secondary} disabled={blocked || page.next_offset === null} onClick={() => setOffset(page.next_offset!)}>Next</button></div>}
 
   </div>;
 }

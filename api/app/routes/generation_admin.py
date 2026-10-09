@@ -10,6 +10,8 @@ from app.config import get_settings
 from app.db.models import LeagueMembership
 from app.db.session import get_db
 from app.services.generation import administration as commands
+from app.services.generation.candidate_status import classify_candidates
+from app.services.generation.league_names import attach_league_names
 from app.services.generation.models import (
     ContentArtifact,
     GenerationAudit,
@@ -156,8 +158,8 @@ async def series(series_id: str, body: SeriesChange, db: DB, owner: Owner):
 
 @router.get("/records/{kind}")
 async def records(kind: Literal["jobs", "attempts", "candidates", "artifacts", "audit", "outbox"],
-                  db: DB, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100),
-                  series_id: str = "", state: str = ""):
+                  db: DB, owner: Owner, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100),
+                  series_id: str = "", state: str = "", view: Literal["all", "review"] = "all"):
     model = {"jobs": GenerationOperation, "attempts": ProviderAttempt, "candidates": GenerationCandidate,
         "artifacts": ContentArtifact, "audit": GenerationAudit, "outbox": GenerationOutbox}[kind]
     query = select(model)
@@ -167,21 +169,46 @@ async def records(kind: Literal["jobs", "attempts", "candidates", "artifacts", "
         query = query.where(model.state == state)
     order = model.observed_at if kind == "candidates" else model.created_at
     key = model.key if kind == "candidates" else model.id
-    rows = (await db.scalars(query.order_by(order.desc(), key).offset(offset).limit(limit + 1))).all()
+    query = query.order_by(order.desc(), key)
+    statuses = {}
+    if kind == "candidates" and view == "review":
+        # Filtering after pagination would produce empty first pages and make
+        # Select all miss actionable records behind completed/automatic work.
+        # Scan bounded batches: saved candidate facts can be large, and review
+        # pages need only the requested slice plus one record for the next link.
+        rows, raw_offset, matched = [], 0, 0
+        while len(rows) <= limit:
+            candidates = (await db.scalars(query.offset(raw_offset).limit(100))).all()
+            batch_status = await classify_candidates(db, candidates, actor_id=owner.id)
+            for row in candidates:
+                if not batch_status[row.key]["reviewable"]:
+                    continue
+                if matched >= offset:
+                    rows.append(row)
+                    statuses[row.key] = batch_status[row.key]
+                matched += 1
+                if len(rows) > limit:
+                    break
+            if len(candidates) < 100:
+                break
+            raw_offset += 100
+    else:
+        rows = (await db.scalars(query.offset(offset).limit(limit + 1))).all()
+        if kind == "candidates":
+            statuses = await classify_candidates(db, rows[:limit], actor_id=owner.id)
     safe = []
     for row in rows[:limit]:
         item = data(row)
         if kind in ("candidates", "jobs"):
             item["label"] = commands.candidate_label(row)
         if kind == "candidates":
-            latest = await db.scalar(select(GenerationOperation).where(
-                GenerationOperation.subject == row.subject).order_by(GenerationOperation.created_at.desc()).limit(1))
-            item["availability"] = ("completed" if latest and latest.state == "succeeded" and latest.request_digest == row.digest else
-                latest.state if latest and latest.state in ("queued", "running", "held", "needs_attention") else "available")
+            item.update(statuses[row.key])
         for name in ("payload_json", "facts_json", "request_json", "receipt_json", "policy_json"):
             if name in item:
                 item["has_" + name.removesuffix("_json")] = bool(item.pop(name))
         safe.append(item)
+    if kind in ("jobs", "candidates"):
+        await attach_league_names(db, safe)
     return {"records": safe, "next_offset": offset + limit if len(rows) > limit else None}
 
 
@@ -192,7 +219,9 @@ async def job_detail(job_id: str, db: DB):
         raise HTTPException(404, "Job not found")
     attempts = (await db.scalars(select(ProviderAttempt).where(
         ProviderAttempt.operation_id == job_id).order_by(ProviderAttempt.stage))).all()
-    return {"job": data(row), "attempts": [data(a) for a in attempts]}
+    job = data(row)
+    await attach_league_names(db, [job])
+    return {"job": job, "attempts": [data(a) for a in attempts]}
 
 
 @router.post("/jobs/{job_id}")

@@ -9,6 +9,11 @@ The adapter now reads football league settings, current and weekly rosters,
 league-scored player totals, standings, playoffs, transactions, and draft picks.
 It uses the existing keeper/redraft engine and canonical Sleeper player IDs.
 
+Configurable cumulative weekly scoring bonuses are supported for verified
+offense, kicking, and team-defense categories. See [Yahoo scoring](yahoo-scoring.md)
+for the complete mapping table, source evidence, unsupported categories, and
+the admin recovery action for a data refresh stopped before this support shipped.
+
 ## Run an import
 
 Install the repository's Python and API dependencies first. Set the public

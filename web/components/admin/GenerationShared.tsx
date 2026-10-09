@@ -11,15 +11,25 @@ export const dateLabel = (value?: number) => value ? new Date(value * 1000).toLo
 export type RunAction = (action: () => Promise<unknown>, notice: string, reload?: boolean) => Promise<void>;
 export interface ActionProps { busy: boolean; run: RunAction }
 export function leagueName(row: GenerationRecord, leagues: GenerationSeries[]) {
-  return leagues.find(l => l.id === row.series_id || l.seasons.some(s => s.league_id === row.league_id))?.name || "League name unavailable";
+  return row.league_name || leagues.find(l => l.id === row.series_id || l.seasons.some(s => s.league_id === row.league_id))?.name
+    || (row.league_id ? `League ${row.league_id}` : "No league recorded");
 }
 export function contentName(row: GenerationRecord) {
-  return row.feature && FEATURE_LABELS[row.feature] || (row.kind === "refresh" ? "League data refresh" : "Background work");
+  return row.feature && FEATURE_LABELS[row.feature] || (row.kind === "refresh" ? "League data refresh" : row.kind === "analyst_refresh" ? "Weekly Analyst data refresh" : "Background work");
+}
+export function isDataRefresh(row: GenerationRecord) {
+  return row.kind === "refresh" || row.kind === "analyst_refresh";
+}
+export function failedFreeRefresh(row: GenerationRecord) {
+  return isDataRefresh(row) && row.state === "needs_attention" && row.reason === "execution_failed";
 }
 export function jobStatus(row: GenerationRecord) {
   return ({ needs_attention: "Stopped — review required", held: "Paused — review required", queued: "Waiting to start", running: "In progress", succeeded: "Completed", cancelled: "Cancelled" } as Record<string, string>)[row.state || ""] || readable(row.state);
 }
 export function problemExplanation(row: GenerationRecord) {
+  if (isDataRefresh(row) && row.reason === "execution_failed") {
+    return "The data refresh stopped before completion. After fixing the import problem, retry this saved refresh. Its original member's league access and connection will be checked again. This action does not approve paid writing.";
+  }
   if (row.reason === "provider_outcome_unknown") return "We could not confirm whether the AI provider completed this request. Check the saved receipts before resuming; its cost may still be unknown.";
   const reasons: Record<string, string> = {
     restore_reapproval_required: "This work was restored from a backup and cannot resume. Cancel it, check provider activity, then preview and approve a replacement separately.",
@@ -34,10 +44,12 @@ export function problemExplanation(row: GenerationRecord) {
     capability_unknown: "The league’s capabilities could not be verified. Refresh its data and verify the league setup before resuming.",
     manual_only: "This feature now requires your approval. Review this work before deciding whether to resume it.",
     failed_job_requires_replacement_review: "These jobs failed and need a separately reviewed replacement; resuming would repeat the failure or exceed their allowance.",
+    free_refresh_requires_individual_review: "Use Retry data refresh on this job's individual row after fixing the import problem.",
     writing_paused: "AI writing is paused. Resolve the pause before resuming.",
     job_no_longer_stopped: "These jobs changed state and no longer need this action. Reload status.",
     provider_cooldown: "The AI provider is temporarily unavailable or rate limited. Review the provider status before resuming.",
     membership_removed: "The membership that authorized this work was removed. Review league access before approving any replacement.",
+    data_refresh_has_provider_activity: "This data refresh has AI request activity. Review its saved receipts before approving any recovery.",
   };
   if (row.reason && reasons[row.reason]) return reasons[row.reason];
   if (row.state === "held") return "This work is paused. Review the saved details and current settings before resuming its remaining steps.";

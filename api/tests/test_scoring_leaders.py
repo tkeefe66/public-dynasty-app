@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from sleeper_dynasty.models.league import League, Roster
+from sleeper_dynasty.models.scoring import ThresholdBonus
 
 
 def roster(roster_id, owner_id, players):
@@ -87,6 +88,39 @@ async def test_points_must_reconcile_with_sleeper_matchups(tmp_path):
     source.matchup_points = 20
     with pytest.raises(ValueError, match="match"):
         await load_scoring_leaders("123", tmp_path, source)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rule_format", ["typed", "legacy", "mixed"])
+async def test_bonuses_reconcile_matchups_and_survive_cached_league_settings(tmp_path, rule_format):
+    from app.services.scoring_leaders import load_scoring_leaders
+    from sleeper_dynasty.cache import FileCache
+
+    class BonusSource(Source):
+        async def get_league(self, league_id):
+            league, prior = await super().get_league(league_id)
+            league.scoring_bonuses = [ThresholdBonus(("rec",), 6, 3),
+                                      ThresholdBonus(("rec",), 8, 5)]
+            if rule_format != "typed":
+                league.scoring_settings.update({"bonus_gte:rec:6": 3, "bonus_gte:rec:8": 5})
+            if rule_format == "legacy":
+                league.scoring_bonuses = []
+            return league, prior
+
+    source = BonusSource()
+    source.matchup_points = 15
+    expected = [("free", 48), ("rostered", 30)]
+    first = await load_scoring_leaders("123", tmp_path, source)
+    assert [(r["player_id"], r["points"]) for r in first["players"]] == expected
+    cache = FileCache(tmp_path / "scoring")
+    cache.invalidate("board_v2_123.json")
+    if rule_format == "legacy":
+        saved = cache.read("league_123.json")
+        saved.pop("scoring_bonuses")
+        cache.write("league_123.json", saved)
+    second = await load_scoring_leaders("123", tmp_path, source)
+    assert [(r["player_id"], r["points"]) for r in second["players"]] == expected
+    assert sorted(source.stats_calls) == [1, 2]
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,7 @@ import uuid
 from sqlalchemy import select
 
 from app.db.models import User
+from app.services.generation.candidate_status import completed_candidate_keys
 from app.services.generation.commands import (
     LEASE_SECONDS,
     attention,
@@ -45,7 +46,13 @@ async def admit_automatic(maker):
             GenerationCandidate.hold == "", GenerationCandidate.eligible_at > 0,
             GenerationCandidate.eligible_at <= stamp()
         ).order_by(GenerationCandidate.eligible_at, GenerationCandidate.key).limit(100))).all()
+        completed = await completed_candidate_keys(db, candidates)
         for candidate in candidates:
+            # Manual catch-up and legacy imports can complete the same event
+            # without an automatic authorization key. Never buy that event again.
+            if candidate.key in completed:
+                candidate.eligible_at = 0
+                continue
             # Rotate bounded scans so paused/manual subjects cannot starve later leagues.
             candidate.eligible_at = stamp() + 60
             policy = await resolve_policy(db, candidate.series_id)

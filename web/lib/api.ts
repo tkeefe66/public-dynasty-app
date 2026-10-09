@@ -4,6 +4,7 @@ import {
   SideBetCreateBody, SideBetListResp, SideBetUpdateBody, SideBetView, TradeDetailResp, Year,
 } from "./types";
 import type { ScoringResp } from "./scoring";
+import { refreshErrorMessage } from "./league-status";
 
 const BASE = typeof window === "undefined"
   ? `${process.env.API_URL || "http://localhost:8000"}/api`
@@ -194,6 +195,8 @@ export interface MyLeague {
   name: string | null;
   season: number | null;
   warm: boolean;
+  /** Optional during rolling deploys; missing means no job status is known. */
+  refresh_job?: Pick<RefreshJob, "id" | "state" | "reason"> | null;
   sleeper_roster_id: number | null;
   added_at: string;
 }
@@ -425,9 +428,19 @@ export interface RefreshJob {
   progress: { stage?: string; message?: string; done?: number; total?: number };
 }
 
+export interface RefreshEvent {
+  stage: string;
+  message?: string;
+  done?: number;
+  total?: number;
+  /** A stopped job cannot be retried by resubmitting its saved request. */
+  retryable?: boolean;
+}
+
 export function refreshStream(
   leagueId: string,
-  onEvent: (e: { stage: string; message?: string; done?: number; total?: number }) => void,
+  onEvent: (e: RefreshEvent) => void,
+  options: { jobId?: string; idempotencyKey?: string } = {},
 ): { close: () => void } {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -438,12 +451,10 @@ export function refreshStream(
     controller.abort();
     if (timer !== undefined) clearTimeout(timer);
   };
-  const error = (reason?: string) => {
+  const error = (reason?: string, state?: string) => {
     if (closed) return;
-    const message = reason === "yahoo_rate_limited"
-      ? "Yahoo is limiting API access right now. Please wait before retrying. Your league is saved, and completed seasons will be reused."
-      : "The refresh needs attention. Your saved data is retained; the administrator can inspect its job.";
-    onEvent({ stage: "error", message });
+    const message = refreshErrorMessage(reason, state);
+    onEvent({ stage: "error", message, ...(state ? { retryable: false } : {}) });
     close();
   };
   const observe = async (job: RefreshJob): Promise<void> => {
@@ -453,8 +464,12 @@ export function refreshStream(
       close();
       return;
     }
-    if (["held", "needs_attention", "cancelled", "superseded"].includes(job.state)) {
-      error(job.reason);
+    if (["held", "needs_attention", "failed", "cancelled", "superseded"].includes(job.state)) {
+      error(job.reason, job.state);
+      return;
+    }
+    if (!["queued", "running"].includes(job.state)) {
+      error();
       return;
     }
     onEvent({ ...job.progress, stage: job.progress.stage || "queued",
@@ -471,11 +486,18 @@ export function refreshStream(
       ).then(observe).catch(() => error());
     }, 2000);
   };
-  // A single POST submits work. Polling and close() never cancel or recreate it.
-  void jsonFetch<RefreshJob>(`${BASE}/league/${encodeURIComponent(leagueId)}/refresh-jobs`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idempotency_key: crypto.randomUUID() }), signal: controller.signal,
-  }).then(observe).catch(() => error());
+  const path = `${BASE}/league/${encodeURIComponent(leagueId)}/refresh-jobs`;
+  // Returning to an existing job is read-only, including failed or paused jobs.
+  // Only the first build (or an explicit new attempt) submits work. A stable
+  // key lets the caller survive effect restarts without submitting duplicates.
+  const request = options.jobId
+    ? jsonFetch<RefreshJob>(`${path}/${encodeURIComponent(options.jobId)}`, { signal: controller.signal })
+    : jsonFetch<RefreshJob>(path, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idempotency_key: options.idempotencyKey ?? crypto.randomUUID() }),
+      signal: controller.signal,
+    });
+  void request.then(observe).catch(() => error());
   return { close };
 }
 

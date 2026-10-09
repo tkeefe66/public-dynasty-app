@@ -3,6 +3,7 @@ import pytest
 from sleeper_dynasty.engine.rookie_cohorts import (
     band, build_cohorts, score_season, verdict, verdict_for_row,
 )
+from sleeper_dynasty.models.scoring import ThresholdBonus
 
 SCORING = {"pass_yd": 0.04, "pass_td": 6.0, "pass_int": -1.0, "rec": 1.0,
            "rec_yd": 0.1, "rec_td": 6.0, "rush_yd": 0.1, "rush_td": 6.0}
@@ -94,6 +95,30 @@ def test_a_league_pricing_something_priced_cannot_express_is_refused():
     assert build_cohorts(_history(10, 2.0), {"rec_td": 6.0, "bonus_rec_te": 0.5}) == {}
     # A league that prices NOTHING outside _PRICED is unaffected.
     assert build_cohorts(_history(10, 2.0), {"rec_td": 6.0}) != {}
+
+
+@pytest.mark.parametrize("keys", [("rec_yd",), ("kr_yd", "pr_yd"), ("fum",),
+                                  ("new_stat",), ("def_td", "rec_td")])
+def test_threshold_bonus_cannot_be_scored_from_season_aggregate_history(keys):
+    assert build_cohorts(_history(10, 2.0), {"rec_td": 6.0},
+                         bonuses=[ThresholdBonus(keys, 100, 3)]) == {}
+
+
+def test_defense_only_or_disabled_bonus_does_not_suppress_offensive_cohorts():
+    history, scoring = _history(10, 2.0), {"rec_td": 6.0}
+    expected = build_cohorts(history, scoring)
+    assert expected
+    assert build_cohorts(history, scoring, bonuses=[ThresholdBonus(("sack",), 4, 3),
+                                                    ThresholdBonus(("rec_yd",), 100, 0)]) == expected
+
+
+@pytest.mark.parametrize("keys", [("def_kr_yd", "def_pr_yd"), ("def_4_and_stop",)])
+def test_team_only_return_and_fourth_down_rules_preserve_offensive_cohorts(keys):
+    history, scoring = _history(10, 2.0), {"rec_td": 6.0}
+    expected = build_cohorts(history, scoring)
+    assert expected
+    assert build_cohorts(history, {**scoring, **dict.fromkeys(keys, .1)},
+                         bonuses=[ThresholdBonus(keys, 3, 5)]) == expected
 
 
 def test_verdict_reads_against_the_cohorts_own_bars():

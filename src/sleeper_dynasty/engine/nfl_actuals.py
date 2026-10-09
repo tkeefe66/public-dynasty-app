@@ -3,11 +3,16 @@ dropped player's production over a rolling post-drop window. Pure — no I/O."""
 
 from __future__ import annotations
 
-from sleeper_dynasty.api.projections import normalize_projection
+from collections.abc import Mapping, Sequence
+
+from sleeper_dynasty.engine.scoring import score_week_stats
+from sleeper_dynasty.models.scoring import ThresholdBonus
 
 
 def score_week(
-    raw_stats: dict[str, dict], scoring: dict[str, float]
+    raw_stats: dict[str, dict], scoring: dict[str, float],
+    *, bonuses: Sequence[ThresholdBonus] = (),
+    positions: Mapping[str, str] | None = None,
 ) -> dict[str, float]:
     """{player_id: league fantasy points} for one NFL week's stats.
 
@@ -18,7 +23,9 @@ def score_week(
     for pid, stats in (raw_stats or {}).items():
         if not pid or not stats:
             continue
-        out[pid] = normalize_projection(stats, scoring)
+        out[pid] = float(score_week_stats(
+            stats, scoring, bonuses=bonuses, position=(positions or {}).get(pid),
+        ))
     return out
 
 

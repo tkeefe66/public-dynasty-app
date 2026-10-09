@@ -10,11 +10,13 @@ import asyncio
 import logging
 import re
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 
 import httpx
 
 from sleeper_dynasty.api.yahoo_json import collection, merge_fragments, unwrap
 from sleeper_dynasty.models.league import League, Roster
+from sleeper_dynasty.models.scoring import ThresholdBonus, threshold_bonus_key
 from sleeper_dynasty.util.name_match import normalize_player_name
 
 log = logging.getLogger(__name__)
@@ -105,7 +107,9 @@ def resolve_named_player(player, index):
 
 # Yahoo stat IDs are stable across NFL seasons. Compound stats expand into the
 # corresponding canonical stats; actual lineup points come directly from Yahoo.
+# Catalog and source-counter verification: docs/yahoo-scoring.md.
 _SCORING = {
+    0: ("gp",),
     1: ("pass_att",),
     2: ("pass_cmp",),
     3: ("pass_inc",),
@@ -136,12 +140,14 @@ _SCORING = {
     28: ("fgmiss_50p",),
     29: ("xpm",),
     30: ("xpmiss",),
+    31: ("pts_allow",),
     32: ("sack",),
     33: ("int",),
     34: ("fum_rec",),
     35: ("def_td",),
     36: ("safe",),
     37: ("blk_kick",),
+    48: ("def_kr_yd", "def_pr_yd"),
     49: ("def_st_td",),
     50: ("pts_allow_0",),
     51: ("pts_allow_1_6",),
@@ -152,6 +158,15 @@ _SCORING = {
     56: ("pts_allow_35p",),
     57: ("fum_rec_td",),
     58: ("pass_int_td",),
+    59: ("pass_cmp_40p",),
+    60: ("pass_td_40p",),
+    61: ("rush_40p",),
+    62: ("rush_td_40p",),
+    63: ("rec_40p",),
+    64: ("rec_td_40p",),
+    67: ("def_4_and_stop",),
+    68: ("tkl_loss",),
+    69: ("yds_allow",),
     70: ("yds_allow_negative",),
     71: ("yds_allow_0_100",),
     72: ("yds_allow_100_199",),
@@ -159,7 +174,15 @@ _SCORING = {
     74: ("yds_allow_300_349", "yds_allow_350_399"),
     75: ("yds_allow_400_449", "yds_allow_450_499"),
     76: ("yds_allow_500_549", "yds_allow_550p"),
+    77: ("def_3_and_out",),
+    78: ("rec_tgt",),
+    79: ("pass_fd",),
+    80: ("rec_fd",),
+    81: ("rush_fd",),
     82: ("def_2pt",),
+    84: ("fgm_yds",),
+    85: ("fgm",),
+    86: ("fgmiss",),
 }
 _POSITIONS = {
     "W/R": "WRRB_FLEX",
@@ -183,24 +206,151 @@ def normalize_yardage_stats(players):
     return result
 
 
-def scoring_settings(settings: dict) -> dict[str, float]:
-    result = {}
-    for item in collection(child(settings.get("stat_modifiers"), "stats")):
-        stat = merge_fragments(item.get("stat"))
-        stat_id = int(stat["stat_id"])
-        value = float(stat["value"])
-        keys = _SCORING.get(stat_id)
-        if not keys and value:
-            raise YahooDataError(f"Yahoo scoring stat {stat_id} is not supported yet.")
-        if stat.get("bonuses"):
+def _scoring_number(value, description: str) -> float:
+    """Validate source numbers before they enter a persisted scoring model."""
+    try:
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            raise ValueError
+        number = Decimal(str(value))
+        converted = float(number)
+        if not number.is_finite() or not Decimal(str(converted)).is_finite():
+            raise ValueError
+        return converted
+    except (InvalidOperation, ValueError, OverflowError):
+        raise YahooDataError(f"Yahoo returned an invalid {description}.") from None
+
+
+def _bonus_records(node, stat_id: int) -> list[dict]:
+    """Read Yahoo's bonus singleton, list, and numeric collection envelopes.
+
+    Yahoo's published bonus shape is {target, points}. Unknown rule shapes
+    cannot be treated as an empty collection: that would discard real points.
+    """
+    if node is None or node == [] or node == {}:
+        return []
+    if isinstance(node, list):
+        # One resource can itself be fragmented into [{target}, {points}].
+        if (node and all(isinstance(part, dict) and part
+                         and set(part) <= {"target", "points"} for part in node)
+                and sum("target" in part for part in node) == 1
+                and sum("points" in part for part in node) == 1):
+            return [merge_fragments(node)]
+        return [record for part in node for record in _bonus_records(part, stat_id)]
+    if not isinstance(node, dict):
+        raise YahooDataError(f"Yahoo scoring stat {stat_id} has malformed bonuses.")
+    if set(node) <= {"target", "points"}:
+        return [node]
+    if "bonus" in node and set(node) <= {"bonus", "count"}:
+        records = _bonus_records(node["bonus"], stat_id)
+    elif all(str(key).isdigit() or key == "count" for key in node):
+        records = [record for part in collection(node)
+                   for record in _bonus_records(part, stat_id)]
+    else:
+        raise YahooDataError(
+            f"Yahoo scoring stat {stat_id} has an unsupported bonus shape; "
+            "expected target and points."
+        )
+    if "count" in node:
+        count = _scoring_number(node["count"], f"bonus count for scoring stat {stat_id}")
+        if count != len(records):
             raise YahooDataError(
-                "Yahoo scoring bonuses require explicit mapping before grading."
+                f"Yahoo scoring stat {stat_id} has an incomplete bonus collection."
+            )
+    return records
+
+
+def scoring_rules(settings: dict) -> tuple[dict[str, float], list[ThresholdBonus]]:
+    """Map every configured multiplier and cumulative weekly threshold.
+
+    The rule carries canonical stat components, not Yahoo IDs. In particular,
+    a combined return-yard bonus compares kick + punt yards ONCE; expanding
+    the bonus into two independent thresholds would change Yahoo's scoring.
+    No fixed list of yardage milestones or point awards is assumed.
+    """
+    result: dict[str, float] = {}
+    bonuses: list[ThresholdBonus] = []
+    source = child(settings.get("stat_modifiers"), "stats")
+    items = [source] if isinstance(source, dict) and "stat" in source else collection(source)
+    names = {
+        str(merge_fragments(item.get("stat")).get("stat_id")):
+        merge_fragments(item.get("stat")).get("name")
+        for item in collection(child(settings.get("stat_categories"), "stats"))
+        if isinstance(item, dict)
+    }
+    seen = set()
+    for item in items:
+        stat = merge_fragments(merge_fragments(item).get("stat"))
+        raw_id = _scoring_number(stat.get("stat_id"), "scoring stat ID")
+        if raw_id != int(raw_id) or raw_id < 0:
+            raise YahooDataError("Yahoo returned an invalid scoring stat ID.")
+        stat_id = int(raw_id)
+        if stat_id in seen:
+            raise YahooDataError(f"Yahoo returned duplicate scoring stat {stat_id}.")
+        seen.add(stat_id)
+        value = _scoring_number(stat.get("value"), f"multiplier value for scoring stat {stat_id}")
+        raw_bonuses: dict[float, Decimal] = {}
+        for bonus in _bonus_records(stat.get("bonuses"), stat_id):
+            if set(bonus) != {"target", "points"}:
+                raise YahooDataError(
+                    f"Yahoo scoring stat {stat_id} has an incomplete bonus; "
+                    "both target and points are required."
+                )
+            target = _scoring_number(bonus["target"], f"bonus target for scoring stat {stat_id}")
+            points = _scoring_number(bonus["points"], f"bonus points for scoring stat {stat_id}")
+            if target < 0:
+                raise YahooDataError(f"Yahoo scoring stat {stat_id} has a negative bonus target.")
+            if target == 0 and points:
+                raise YahooDataError(
+                    f"Yahoo scoring stat {stat_id} has an unsupported zero bonus target; "
+                    "player eligibility at a zero threshold requires explicit evidence."
+                )
+            if points:
+                # Yahoo awards are cumulative, including repeated slots at
+                # the same target. Coalesce them into one combined award, so
+                # equivalent spellings such as 100 and 1e2 are priced once.
+                raw_bonuses[target] = raw_bonuses.get(target, Decimal(0)) + Decimal(str(points))
+        keys = _SCORING.get(stat_id)
+        if not keys and (value or raw_bonuses):
+            name = re.sub(r"\s+", " ", str(names.get(str(stat_id)) or "")).strip()[:80]
+            label = f" ({name})" if name else ""
+            raise YahooDataError(
+                f"Yahoo scoring stat {stat_id}{label} has no verified mapping "
+                f"(base value {value:g}, {len(raw_bonuses)} active bonuses). "
+                "No scoring rules were discarded."
             )
         for key in keys or ():
-            result[key] = value
+            result[key] = _scoring_number(
+                str(Decimal(str(result.get(key, 0.0))) + Decimal(str(value))),
+                f"combined multiplier for scoring stat {stat_id}",
+            )
+        for target, summed_points in raw_bonuses.items():
+            points = _scoring_number(str(summed_points), f"combined bonus points for scoring stat {stat_id}")
+            if not points:
+                continue
+            try:
+                bonuses.append(ThresholdBonus(stat_keys=keys, target=target, points=points))
+            except (TypeError, ValueError) as exc:
+                raise YahooDataError(f"Yahoo scoring stat {stat_id} has an invalid bonus: {exc}") from None
     if not result:
         raise YahooDataError(
             "Yahoo returned no scoring settings; refusing an empty scoring model."
+        )
+    return result, bonuses
+
+
+def scoring_settings(settings: dict) -> dict[str, float]:
+    """Compatibility for callers using the former encoded scoring dictionary.
+
+    ``YahooAdapter.get_league`` uses ``scoring_rules`` and persists typed rules.
+    Keeping this public entrypoint lets older callers score saved rules during
+    migration without making encoded keys the fresh ingestion contract.
+    """
+    result, bonuses = scoring_rules(settings)
+    for bonus in bonuses:
+        key = threshold_bonus_key(bonus.stat_keys, bonus.target)
+        result[key] = _scoring_number(
+            str(Decimal(str(result.get(key, 0.0))) + Decimal(str(bonus.points))),
+            "combined bonus points",
         )
     return result
 
@@ -373,13 +523,15 @@ class YahooAdapter:
             position = merge_fragments(item.get("roster_position"))
             slot = position.get("position")
             slots.extend([_POSITIONS.get(slot, slot)] * int(position.get("count", 1)))
+        scoring, bonuses = scoring_rules(settings)
         league = League(
             league_id=meta["league_key"],
             name=meta.get("name") or "Yahoo league",
             season=int(meta["season"]),
             total_rosters=int(meta["num_teams"]),
             roster_positions=slots,
-            scoring_settings=scoring_settings(settings),
+            scoring_settings=scoring,
+            scoring_bonuses=bonuses,
             playoff_week_start=int(settings.get("playoff_start_week") or 0),
             num_playoff_teams=int(settings.get("num_playoff_teams") or 0),
             status="complete"

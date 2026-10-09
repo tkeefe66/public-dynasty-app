@@ -7,6 +7,24 @@ Tools for analyzing [Sleeper](https://sleeper.com) fantasy-football leagues — 
 
 Both share one grading engine: the `src/sleeper_dynasty/` Python package.
 
+### Yahoo scoring bonuses
+
+Yahoo league imports support configurable cumulative weekly threshold bonuses
+across the verified offense, kicking, and team-defense scoring categories.
+Each rule preserves its actual threshold and point award; combined categories,
+such as kickoff plus punt return yards, are evaluated as one total. Yahoo's
+recorded player and lineup points remain authoritative. Locally calculated
+weekly production applies the same bonus rules after reading raw statistics.
+
+Projection comparisons and offensive rookie-cohort verdicts are omitted where
+the source data cannot represent weekly bonuses. Unknown active categories or
+malformed rules stop the import with an actionable error. See the complete
+[mapping catalog, source evidence, and coverage limits](docs/yahoo-scoring.md).
+
+After correcting a stopped data refresh, an admin can use **Retry data refresh**
+on its row under **Needs your review**. This reuses the audited job and rechecks the original
+member's access. It cannot retry paid generation or a job with AI-call receipts.
+
 ### Weekly recap player context
 
 The web app's league refresh collects free player news from Sleeper's
@@ -303,7 +321,57 @@ For each received player the refresh computes **games missed, split by season ph
 
 ### Auto-refresh (Liveness)
 
-The backend runs an in-process scheduler that periodically re-runs the refresh for every league it has already cached (the `chain_*.json` files), so caches stay warm and current. Page loads stay instant (they read the cache) and new trades appear automatically within the schedule interval, with no one having to trigger a manual refresh. It is incremental (a cycle that finds no new trades is nearly free) and best-effort (a league that fails is logged and skipped). Controlled by `TRADE_GRADER_AUTO_REFRESH` (default on) and `TRADE_GRADER_REFRESH_INTERVAL_SECONDS` (default 3 hours). The manual `GET /api/league/{id}/refresh` SSE endpoint still works for an immediate or forced refresh.
+The backend runs an in-process scheduler that periodically re-runs the refresh for every league it has already cached (the `chain_*.json` files), so caches stay warm and current. Page loads stay instant (they read the cache) and new trades appear automatically within the schedule interval, with no one having to trigger a manual refresh. It is incremental (a cycle that finds no new trades is nearly free) and best-effort (a league that fails is logged and skipped). Controlled by `TRADE_GRADER_AUTO_REFRESH` (default on) and `TRADE_GRADER_REFRESH_INTERVAL_SECONDS` (default 3 hours). Manual data refreshes use durable jobs, as described below.
+
+### Import status and recovery
+
+My Leagues reports cache availability separately from the latest data-refresh
+job. A newly added league with no job is **Not built**; **Queued** and **Building**
+mean actual work exists. A failed first build shows **Needs attention**, while
+previously saved results remain available after a failed update. Reopening a
+failed or paused build observes the same job instead of repeatedly submitting
+refresh requests.
+
+The browser submits `POST /api/league/{id}/refresh-jobs` and observes
+`GET /api/league/{id}/refresh-jobs/{job_id}`. The worker continues after the
+browser closes; the legacy GET/SSE refresh endpoint returns 410.
+
+After fixing an import error, an administrator can choose **Retry data refresh**
+directly on the stopped import under **Needs your review**. The action reads the
+current job state before requeuing the saved job, retains its original account,
+and rechecks current access. Failed first imports use the name captured when the
+league was added, with a league-ID fallback if no name is available. Cancelled
+refreshes can also be replaced by a new explicit request without waiting for the scheduler's
+cooldown. Replaying the old request still returns the old job.
+
+Yahoo scoring bonuses are normalized as cumulative per-week thresholds: every
+reached target adds its configured points. Calculated weekly actuals use those
+rules, while Yahoo's own roster and matchup totals remain authoritative. Bonus
+rules that cannot be interpreted safely fail explicitly. Seasonal totals cannot
+reconstruct weekly bonus counts, so incompatible rookie-cohort comparisons stay
+unavailable. Projection comparisons are omitted when their source cannot
+represent the league's weekly threshold awards. Encoded rules saved by the
+initial bonus release remain readable alongside the typed scoring model.
+
+### Automatic writing and review
+
+**Needs your review** contains stopped or paused jobs. **Manual content and
+catch-up** is a separate, initially collapsed panel for optional historical
+writing and features set to **Ask me first**. The candidate catalog is a record
+of observed content, not a count of failed jobs or required approvals.
+
+**Automatic** handles new eligible events under each league's effective policy.
+Enabling or resuming it does not approve historical work accumulated before
+activation; the one-time catch-up preview selects eligible missing content for
+a separate, explicit batch approval. Per-league settings and pauses continue to
+apply.
+
+The review list filters eligibility before pagination and bulk selection.
+Completed content, active or stopped jobs, blocked items, and new events already
+covered by Automatic are excluded. Campaign preview and application recheck
+completion and eligibility. Automatic admission also recognizes an event already
+completed through a manual campaign, while a later weekly summary remains a new
+event. Revisions to saved prose use an explicit correction from **Saved content**.
 
 ### Franchise Rating + the Franchise Ratings leaderboard
 
