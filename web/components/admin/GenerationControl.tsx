@@ -85,7 +85,7 @@ export function GenerationControl() {
       <Panel className="p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0"><h3 className="font-display text-name font-bold">{heading}</h3>
-            <p className="mt-1 max-w-2xl text-prose text-dim">{globallyPaused ? "New paid writing is blocked. Review the reason below before resuming." : automatic ? "Some features may write for new events. Check Settings to see which leagues and features are automatic." : manual ? "New writing needs approval. Previously approved work may still finish." : "No active league currently has an available writing feature. Check Settings to enable one."}</p>
+            <p className="mt-1 max-w-2xl text-prose text-dim">{globallyPaused ? "New paid writing is blocked. Review the reason below before resuming." : automatic ? "Features set to Automatic handle new eligible events. Historical catch-up is optional; features set to Ask me first still need approval." : manual ? "New writing needs approval. Previously approved work may still finish." : "No active league currently has an available writing feature. Check Settings to enable one."}</p>
             <p className="mt-1 text-prose text-dim">League data refreshes run separately from paid AI writing.</p>
           </div>
           <button className={secondary} disabled={blocked} onClick={() => setAction(action === "pause" ? "" : "pause")}>Pause all AI writing</button>
@@ -102,15 +102,23 @@ export function GenerationControl() {
       <Panel className="p-4 sm:p-5" role="region" aria-labelledby="generation-review-title">
         <h3 id="generation-review-title" className="font-display text-name font-bold">Needs your review</h3>
         <p className="mt-1 text-prose text-dim">{overview.jobs.needs_attention || 0} stopped · {overview.jobs.held || 0} paused. Across all leagues.</p>
-        {!reviewRows.length && <p className="mt-3 text-prose">No stopped or paused work to review. Content awaiting approval is below.</p>}
-        <GenerationBulkReview rows={reviewRows} leagues={leagues} busy={blocked} run={run} version={version} />
+        {!reviewRows.length && <p className="mt-3 text-prose">Stopped or paused work will appear here if it needs your attention.</p>}
+        <GenerationBulkReview rows={reviewRows} leagues={leagues} busy={blocked} run={run} version={version}
+          hasMore={stopped.next_offset !== null || held.next_offset !== null} />
         {([["needs_attention", stopped, setStopped], ["held", held, setHeld]] as const).map(([state, page, update]) => page.next_offset !== null && <button key={state} className={secondary + " mt-3"} disabled={blocked} onClick={async () => {
           setBusy(true); setError("");
           try { const more = await generationRequest<GenerationPage<GenerationRecord>>(`/records/jobs?limit=25&state=${state}&offset=${page.next_offset}`); update(old => ({ records: [...old.records, ...more.records], next_offset: more.next_offset })); }
           catch (err) { setError(err instanceof Error ? err.message : "More review items could not load."); }
           finally { setBusy(false); }
         }}>Load more {state === "held" ? "paused" : "stopped"} work</button>)}
-        <details className="mt-3 border-t border-rule pt-2" open={approvalsOpen} onToggle={e => setApprovalsOpen(e.currentTarget.open)}><summary className={summaryClass}>Approve new content</summary>{approvalsOpen && <GenerationRecords leagues={leagues} busy={blocked} run={run} version={version} initialKind="candidates" />}</details>
+      </Panel>
+
+      <Panel className="p-4 sm:p-5" role="region" aria-label="Manual content and catch-up">
+        <details open={approvalsOpen} onToggle={e => setApprovalsOpen(e.currentTarget.open)}>
+          <summary className={summaryClass}>Manual content and catch-up</summary>
+          <p className="max-w-2xl text-prose text-dim">Choose content for features set to Ask me first, or optionally fill gaps in older content. New eligible events for Automatic features run without an approval here.</p>
+          {approvalsOpen && <GenerationRecords leagues={leagues} busy={blocked} run={run} version={version} initialKind="candidates" />}
+        </details>
       </Panel>
 
       <Panel className="p-4 sm:p-5"><details open={settingsOpen} onToggle={e => setSettingsOpen(e.currentTarget.open)}><summary className={summaryClass}>Settings</summary><p className="text-prose text-dim">Off, ask me first, or automatic — for all leagues or individual leagues.</p>{settingsOpen && <GenerationSettings leagues={leagues} busy={blocked} run={run} version={version} />}</details></Panel>
