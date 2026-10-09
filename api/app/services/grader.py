@@ -808,6 +808,7 @@ class GraderService:
         # by that block's blanket `except Exception`, so it would look like a
         # clean "those columns drop" degrade instead of the bug it is.
         scoring: dict = {}
+        scoring_bonuses = ()
         projected_by_player: dict[str, float] = {}
         num_draft_rounds = 4
         current_league_drafts: list = []  # for the league-phase draft window
@@ -868,6 +869,7 @@ class GraderService:
 
             latest = max(chain, key=lambda lg: lg.season)
             scoring = getattr(latest, "scoring_settings", {}) or {}
+            scoring_bonuses = getattr(latest, "scoring_bonuses", ())
             rec_points = float(scoring.get("rec") or 0.0)
             roster_positions = list(
                 getattr(latest, "roster_positions", []) or [])
@@ -958,7 +960,11 @@ class GraderService:
             # Projections are the same format story as ADP (matrix: "Projection
             # baseline — dynasty: no"), and they are a flat per-player map, so
             # the gate has to sit here rather than per class.
-            if any(c.axis == "production" for c in draft_classes):
+            # Published standard/PPR season totals contain no distribution of
+            # weekly milestones. Comparing them with bonus-inclusive actuals
+            # would invent a projection baseline for this league.
+            if (any(c.axis == "production" for c in draft_classes)
+                    and not any(b.points for b in scoring_bonuses)):
                 projected_by_player = parse_projected_points(
                     raw_proj, field=points_field_for(rec_points=rec_points))
         except Exception:
@@ -1062,7 +1068,8 @@ class GraderService:
                 _blob = _files("sleeper_dynasty.data").joinpath(
                     "rookie_stats.json.gz").read_bytes()
                 rookie_cohorts = build_cohorts(
-                    json.loads(_gz.decompress(_blob)), scoring)
+                    json.loads(_gz.decompress(_blob)), scoring,
+                    bonuses=scoring_bonuses)
         except Exception:
             log.exception("rookie ECR fetch skipped; those columns drop")
 

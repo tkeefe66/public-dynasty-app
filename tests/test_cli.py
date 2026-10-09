@@ -8,7 +8,8 @@ from sleeper_dynasty.cli import parse_args
 
 
 @pytest.mark.asyncio
-async def test_run_recap_builds_and_delivers(tmp_path, monkeypatch):
+@pytest.mark.parametrize("bonus_points", [None, 3, -2, 0])
+async def test_run_recap_builds_and_delivers(tmp_path, monkeypatch, bonus_points):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
 
     # Stub the Sleeper client.
@@ -21,6 +22,9 @@ async def test_run_recap_builds_and_delivers(tmp_path, monkeypatch):
         scoring_settings={}, playoff_week_start=15, num_playoff_teams=6,
         status="in_season",
     )
+    if bonus_points is not None:
+        from sleeper_dynasty.models.scoring import ThresholdBonus
+        league.scoring_bonuses = [ThresholdBonus(("pass_yd",), 300, bonus_points)]
     rosters = [
         Roster(1, "u1", "Team A", ["p1"], 1, 0, 0, 45.0, 0.0),
         Roster(2, "u2", "Team B", ["p2"], 0, 1, 0, 30.0, 0.0),
@@ -63,6 +67,35 @@ async def test_run_recap_builds_and_delivers(tmp_path, monkeypatch):
 
     # write() was called with an outlook kwarg (may be None if schedule empty).
     assert "outlook" in MockWriter.return_value.write.call_args.kwargs
+    if bonus_points:
+        fake.get_projections.assert_not_awaited()
+        assert MockWriter.return_value.write.call_args.kwargs["outlook"] is None
+        assert fake.get_matchup_results.await_count == 1
+    else:
+        fake.get_projections.assert_awaited_once_with(2025, 9)
+
+
+@pytest.mark.asyncio
+async def test_analysis_refuses_simulation_without_bonus_projection_evidence(tmp_path, monkeypatch, capsys):
+    from sleeper_dynasty.cache import FileCache
+    from sleeper_dynasty.models.league import League
+    from sleeper_dynasty.models.scoring import ThresholdBonus
+
+    league = League("LID", "Bros", 2025, 2, ["QB"], {"pass_yd": .04}, 15, 2,
+                    "in_season", scoring_bonuses=[ThresholdBonus(("pass_yd",), 300, 3)])
+    fake = MagicMock()
+    fake.get_user_id = AsyncMock(return_value="uid")
+    fake.get_leagues = AsyncMock(return_value=[league])
+    fake.get_projections = AsyncMock()
+    fake.get_rosters = AsyncMock()
+    fake.close = AsyncMock()
+    monkeypatch.setattr(cli, "SleeperClient", lambda: fake)
+    monkeypatch.setattr(cli, "FileCache", lambda: FileCache(tmp_path))
+    await cli._run_analysis(parse_args(["analyze", "me", "--season", "2025"]))
+    assert "weekly threshold bonuses" in capsys.readouterr().out
+    fake.get_projections.assert_not_awaited()
+    fake.get_rosters.assert_not_awaited()
+    fake.close.assert_awaited_once()
 
 
 def test_parse_args_defaults():

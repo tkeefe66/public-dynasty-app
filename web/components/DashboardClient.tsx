@@ -33,6 +33,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [yahooReconnect, setYahooReconnect] = useState(false);
+  const [refreshNeedsReview, setRefreshNeedsReview] = useState(false);
   const [events, setEvents] = useState<
     { stage: string; message?: string; done?: number; total?: number }[]
   >([]);
@@ -47,6 +48,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
   const loadOrRefresh = useCallback(async () => {
     setError(null);
     setYahooReconnect(false);
+    setRefreshNeedsReview(false);
     setLoading(true);
     try {
       const d = await dashboard(leagueId, { year: requestedYear, lens: initialLens });
@@ -58,7 +60,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
         setYahooReconnect(true);
         setError(err.message);
       } else if (err instanceof ApiError && err.status === 409) {
-        // Cold cache: kick off the SSE refresh that builds + grades the chain.
+        // Submit once, then observe the durable job that builds the chain.
         setLoading(false);
         setRefreshing(true);
         setEvents([]);
@@ -66,6 +68,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
           setEvents((cur) => [...cur, ev]);
           if (ev.stage === "error") {
             setRefreshing(false);
+            setRefreshNeedsReview(ev.retryable === false);
             setError(ev.message || "The refresh stopped before it finished. Try again.");
             return;
           }
@@ -117,7 +120,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
         <Button as="link" href="/leagues/add?provider=yahoo" className="mt-5 px-4 py-2">Connect Yahoo</Button>
       </section>
     );
-    return <ErrorState message={error} onRetry={loadOrRefresh} />;
+    return <ErrorState message={error} onRetry={refreshNeedsReview ? undefined : loadOrRefresh} />;
   }
 
   // First load (or post-cold-start reload) before any data: skeleton, not blank.
@@ -157,13 +160,13 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
       {error && (
         <div role="alert" className="mb-4 flex items-center justify-between gap-3 border border-ink px-3 py-2">
           <span className="font-mono text-figure text-neg-strong">{error}</span>
-          <button
+          {!refreshNeedsReview && <button
             type="button"
             onClick={loadOrRefresh}
             className="shrink-0 font-mono text-label font-bold uppercase tracking-[0.1em] text-dim hover:text-ink"
           >
             Retry
-          </button>
+          </button>}
         </div>
       )}
 
@@ -252,7 +255,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
  * condition, an Archivo headline in plain words, one line of body, one ink
  * button. No illustration, no centered card.
  * ------------------------------------------------------------------------ */
-function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div className="mt-16 max-w-md">
       <div className="font-mono text-label uppercase tracking-[0.14em] text-dim">
@@ -262,9 +265,9 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
         Something broke on the way in.
       </h2>
       <p className="mt-2 text-figure leading-relaxed text-body">{message}</p>
-      <Button onClick={onRetry} className="mt-4 px-4 py-2">
+      {onRetry && <Button onClick={onRetry} className="mt-4 px-4 py-2">
         ↻ Try again
-      </Button>
+      </Button>}
     </div>
   );
 }

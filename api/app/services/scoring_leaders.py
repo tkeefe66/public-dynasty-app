@@ -14,10 +14,12 @@ from decimal import Decimal
 from pathlib import Path
 
 from sleeper_dynasty.cache import FileCache
+from sleeper_dynasty.api.platform import platform_for_league_id
 from sleeper_dynasty.engine.lineup import BENCH_SLOTS, SLOT_ELIGIBILITY
 from sleeper_dynasty.engine.scoring_leaders import (
     build_scoring_rows, completed_week, score_player_week,
 )
+from sleeper_dynasty.models.scoring import ThresholdBonus
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +65,8 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
                     lambda d: isinstance(d, dict) and bool(d.get("season"))),
     )
     season = int(league["season"])
+    source_namespace = platform_for_league_id(league_id)
+    bonuses = [ThresholdBonus(**bonus) for bonus in league.get("scoring_bonuses", ())]
     cutoff = completed_week(season, state)
 
     async def roster_data():
@@ -98,7 +102,7 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
         async def week_data(week):
             try:
                 raw, matchups = await _gather(
-                    read_source(f"stats_{season}_{week}.json", 3600,
+                    read_source(f"stats_{source_namespace}_{season}_{week}.json", 3600,
                                 lambda: client.get_stats(season, week),
                                 lambda d: isinstance(d, dict) and all(isinstance(s, dict) for s in d.values()) and any(
                                     isinstance(s, dict) and s.get("gp")
@@ -135,11 +139,12 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
             for matchup in matchups:
                 for pid, actual in matchup["players_points"].items():
                     calculated = score_player_week(raw.get(pid) or {}, league["scoring_settings"],
-                                                   (players.get(pid) or {}).get("position", ""))
+                                                   (players.get(pid) or {}).get("position", ""),
+                                                   bonuses=bonuses)
                     if abs(calculated - Decimal(str(actual))) > Decimal(".02"):
                         log.warning("Scoring mismatch league=%s week=%s player=%s calculated=%s actual=%s",
                                     league_id, week, pid, calculated, actual)
-                        cache.invalidate(f"stats_{season}_{week}.json")
+                        cache.invalidate(f"stats_{source_namespace}_{season}_{week}.json")
                         cache.invalidate(f"matchups_{league_id}_{week}.json")
                         raise ValueError(f"Week {week}: Calculated points do not match Sleeper's league scores. "
                                          "A scoring rule or stat correction needs reconciliation; try again shortly.")
@@ -149,7 +154,8 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
         }
         eligible = set().union(*(SLOT_ELIGIBILITY.get(slot, defensive_slots.get(slot, {slot}))
                                  for slot in league["roster_positions"] if slot not in BENCH_SLOTS))
-        all_rows = build_scoring_rows(weeks, players, league["scoring_settings"], cutoff)
+        all_rows = build_scoring_rows(weeks, players, league["scoring_settings"], cutoff,
+                                      bonuses=bonuses)
         ranks = Counter((row["position"], row["rank"]) for row in all_rows)
         for row in all_rows:
             row["tied"] = ranks[row["position"], row["rank"]] > 1

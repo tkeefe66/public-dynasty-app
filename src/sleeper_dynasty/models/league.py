@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from sleeper_dynasty.models.scoring import ThresholdBonus
+
 
 @dataclass
 class League:
@@ -25,6 +27,10 @@ class League:
     standings_settings: dict = field(default_factory=dict)
     # Permission evidence: display defaults never authorize paid processing.
     format_verified: bool = False
+    # Per-week conditional awards are separate from linear stat multipliers.
+    # Keeping the two distinct prevents season projections from accidentally
+    # earning a weekly bonus once against the entire season's yardage.
+    scoring_bonuses: list[ThresholdBonus] = field(default_factory=list)
 
 
 @dataclass

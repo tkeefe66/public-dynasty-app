@@ -12,6 +12,28 @@ Three-tier monorepo for analyzing Sleeper dynasty leagues:
 
 The engine is shared by the CLI and the backend — changes there affect both.
 
+### Yahoo threshold scoring
+
+`League.scoring_bonuses` stores platform-neutral `ThresholdBonus` rules alongside
+linear `scoring_settings`. Yahoo IDs and payload parsing stay in `api/yahoo.py`;
+`engine/scoring.py::score_week_stats` applies each satisfied weekly threshold
+cumulatively, summing compound components before awarding it once. Yahoo's
+reported player/lineup points remain authoritative. Never score weekly bonuses
+against aggregate season totals or projection means. Unsupported projection
+comparisons and offensive rookie-cohort verdicts are omitted.
+
+Raw NFL caches are namespaced by provider and rescored after every read. Existing
+successful ChainCache entries can default to no bonuses: the previous adapter
+rejected every bonus-bearing league before caching it, so this addition does
+not require a global schema bump. Saved chain records are dictionaries; consumers
+rehydrate rules with `ThresholdBonus(**record)`. See `docs/yahoo-scoring.md` for
+verified mappings, limitations, and public evidence.
+
+The explicit admin **Retry data refresh** action only resumes failed free
+`refresh`/`analyst_refresh` jobs after checking their original actor and Yahoo
+grant. Any paid-call allowance or provider receipt blocks this recovery. Keep
+member resubmission idempotent and the paid-generation authorization separate.
+
 ## Key conventions
 
 - **Five metrics** everywhere, derived per-trade and rolled up per-owner. **Trade Value is a zero-sum swing; the four production metrics are received-only tallies** — points scored by the assets a side *received*, while on that side's roster (no "phantom given" subtraction). Each trade reads as a head-to-head ("104 vs 56"), not a swing.

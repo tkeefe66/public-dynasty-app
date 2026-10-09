@@ -29,6 +29,12 @@ LEASE_SECONDS = 600
 UNRESOLVED = ("dispatching", "unknown")
 
 
+def failed_data_refresh(job: GenerationOperation) -> bool:
+    """A stopped free data collection can be retried after an explicit review."""
+    return (job.kind in ("refresh", "analyst_refresh")
+            and job.state == "needs_attention" and job.reason == "execution_failed")
+
+
 async def require_actor(db, job: GenerationOperation):
     """Recheck stored identity, membership and connection generation per stage."""
     member_ids = list((await db.scalars(select(LeagueMembership.user_id).where(

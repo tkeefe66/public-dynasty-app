@@ -425,9 +425,18 @@ export interface RefreshJob {
   progress: { stage?: string; message?: string; done?: number; total?: number };
 }
 
+export interface RefreshEvent {
+  stage: string;
+  message?: string;
+  done?: number;
+  total?: number;
+  /** A stopped durable job needs admin review, not another submission. */
+  retryable?: boolean;
+}
+
 export function refreshStream(
   leagueId: string,
-  onEvent: (e: { stage: string; message?: string; done?: number; total?: number }) => void,
+  onEvent: (e: RefreshEvent) => void,
 ): { close: () => void } {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -438,12 +447,12 @@ export function refreshStream(
     controller.abort();
     if (timer !== undefined) clearTimeout(timer);
   };
-  const error = (reason?: string) => {
+  const error = (reason?: string, needsReview = false) => {
     if (closed) return;
     const message = reason === "yahoo_rate_limited"
       ? "Yahoo is limiting API access right now. Please wait before retrying. Your league is saved, and completed seasons will be reused."
       : "The refresh needs attention. Your saved data is retained; the administrator can inspect its job.";
-    onEvent({ stage: "error", message });
+    onEvent({ stage: "error", message, ...(needsReview ? { retryable: false } : {}) });
     close();
   };
   const observe = async (job: RefreshJob): Promise<void> => {
@@ -454,7 +463,7 @@ export function refreshStream(
       return;
     }
     if (["held", "needs_attention", "cancelled", "superseded"].includes(job.state)) {
-      error(job.reason);
+      error(job.reason, true);
       return;
     }
     onEvent({ ...job.progress, stage: job.progress.stage || "queued",

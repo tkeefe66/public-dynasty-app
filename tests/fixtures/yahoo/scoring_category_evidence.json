@@ -1,0 +1,1082 @@
+{
+  "schema_version": 1,
+  "description": "Public provider observations supporting additional Yahoo scoring mappings. Mapping decisions are separate from raw category names and numeric counters. No private account or league payload is included.",
+  "retrieved_at_utc": "2026-10-09T04:28:44.825912+00:00",
+  "sources": {
+    "yahoo_catalog": {
+      "url": "https://raw.githubusercontent.com/mattdodge/yahoofantasy/master/yahoofantasy/stats/nfl.py",
+      "kind": "maintained_provider_library_catalog",
+      "generator_url": "https://raw.githubusercontent.com/mattdodge/yahoofantasy/master/yahoofantasy/stats/generate.py",
+      "generator_resource": "game/nfl/stat_categories",
+      "note": "The generator requests Yahoo stat_categories and preserves stat_id, name, display_name, sort_order. Anonymous direct game/470/stat_categories returned HTTP401; this is not a capture of current game470."
+    },
+    "yahoo_offense_ui": {
+      "url": "https://football.fantasysports.yahoo.com/2020/f1/602442/players?pos=O",
+      "kind": "public_yahoo_html",
+      "observation": "Table th title labels and sort query IDs independently confirmed59,60,61,62,63,64,78,79,80,81."
+    },
+    "yahoo_defense_ui": {
+      "url": "https://football.fantasysports.yahoo.com/2020/f1/602442/players?pos=DEF",
+      "kind": "public_yahoo_html",
+      "observation": "Table th title labels and sort query IDs independently confirmed31,32,33,34,35,36,37,48,49,67,68,69,77."
+    },
+    "yahoo_idp_ui": {
+      "url": "https://football.fantasysports.yahoo.com/2022/f1/90001/players?pos=D",
+      "kind": "public_yahoo_html",
+      "observation": "Table th title labels and sort query IDs independently confirmed38,39,40,41,42,43,44,45,46,47,65,66."
+    },
+    "yahoo_kicker_ui": {
+      "url": "https://football.fantasysports.yahoo.com/2022/f1/90001/players?pos=K",
+      "kind": "public_yahoo_html",
+      "observation": "Table th title Field Goals Total Yards links to sort84."
+    },
+    "sleeper_2025_week1": {
+      "url": "https://api.sleeper.app/v1/stats/nfl/regular/2025/1",
+      "kind": "public_raw_stats",
+      "season": 2025,
+      "week": 1
+    },
+    "sleeper_2025_week4": {
+      "url": "https://api.sleeper.app/v1/stats/nfl/regular/2025/4",
+      "kind": "public_raw_stats",
+      "season": 2025,
+      "week": 4
+    },
+    "yahoo_bonus_help": {
+      "url": "https://ca.help.yahoo.com/kb/fantasy-football/scoring-categories-plays-faq-fantasy-football-sln6442.html",
+      "kind": "official_help"
+    },
+    "sleeper_scoring_help": {
+      "url": "https://support.sleeper.com/en/articles/3998131-what-scoring-options-are-available",
+      "kind": "official_help"
+    },
+    "yahoo_idp_2022_week18_page25": {
+      "url": "https://football.fantasysports.yahoo.com/2022/f1/90001/players?pos=D&stat1=S_W_18&status=ALL&sort=38&count=25",
+      "kind": "public_yahoo_html",
+      "season": 2022,
+      "week": 18
+    },
+    "yahoo_idp_2022_week18_page50": {
+      "url": "https://football.fantasysports.yahoo.com/2022/f1/90001/players?pos=D&stat1=S_W_18&status=ALL&sort=38&count=50",
+      "kind": "public_yahoo_html",
+      "season": 2022,
+      "week": 18
+    },
+    "sleeper_2022_week18": {
+      "url": "https://api.sleeper.app/v1/stats/nfl/regular/2022/18",
+      "kind": "public_raw_stats",
+      "season": 2022,
+      "week": 18
+    }
+  },
+  "yahoo_category_observations": [
+    {
+      "stat_id": 0,
+      "name": "Games Played"
+    },
+    {
+      "stat_id": 1,
+      "name": "Passing Attempts"
+    },
+    {
+      "stat_id": 2,
+      "name": "Completions"
+    },
+    {
+      "stat_id": 3,
+      "name": "Incomplete Passes"
+    },
+    {
+      "stat_id": 4,
+      "name": "Passing Yards"
+    },
+    {
+      "stat_id": 5,
+      "name": "Passing Touchdowns"
+    },
+    {
+      "stat_id": 6,
+      "name": "Interceptions"
+    },
+    {
+      "stat_id": 7,
+      "name": "Sacks"
+    },
+    {
+      "stat_id": 8,
+      "name": "Rushing Attempts"
+    },
+    {
+      "stat_id": 9,
+      "name": "Rushing Yards"
+    },
+    {
+      "stat_id": 10,
+      "name": "Rushing Touchdowns"
+    },
+    {
+      "stat_id": 11,
+      "name": "Receptions"
+    },
+    {
+      "stat_id": 12,
+      "name": "Receiving Yards"
+    },
+    {
+      "stat_id": 13,
+      "name": "Receiving Touchdowns"
+    },
+    {
+      "stat_id": 14,
+      "name": "Return Yards"
+    },
+    {
+      "stat_id": 15,
+      "name": "Return Touchdowns"
+    },
+    {
+      "stat_id": 16,
+      "name": "2-Point Conversions"
+    },
+    {
+      "stat_id": 17,
+      "name": "Fumbles"
+    },
+    {
+      "stat_id": 18,
+      "name": "Fumbles Lost"
+    },
+    {
+      "stat_id": 19,
+      "name": "Field Goals 0-19 Yards"
+    },
+    {
+      "stat_id": 20,
+      "name": "Field Goals 20-29 Yards"
+    },
+    {
+      "stat_id": 21,
+      "name": "Field Goals 30-39 Yards"
+    },
+    {
+      "stat_id": 22,
+      "name": "Field Goals 40-49 Yards"
+    },
+    {
+      "stat_id": 23,
+      "name": "Field Goals 50+ Yards"
+    },
+    {
+      "stat_id": 24,
+      "name": "Field Goals Missed 0-19 Yards"
+    },
+    {
+      "stat_id": 25,
+      "name": "Field Goals Missed 20-29 Yards"
+    },
+    {
+      "stat_id": 26,
+      "name": "Field Goals Missed 30-39 Yards"
+    },
+    {
+      "stat_id": 27,
+      "name": "Field Goals Missed 40-49 Yards"
+    },
+    {
+      "stat_id": 28,
+      "name": "Field Goals Missed 50+ Yards"
+    },
+    {
+      "stat_id": 29,
+      "name": "Point After Attempt Made"
+    },
+    {
+      "stat_id": 30,
+      "name": "Point After Attempt Missed"
+    },
+    {
+      "stat_id": 31,
+      "name": "Points Allowed"
+    },
+    {
+      "stat_id": 32,
+      "name": "Sack"
+    },
+    {
+      "stat_id": 33,
+      "name": "Interception"
+    },
+    {
+      "stat_id": 34,
+      "name": "Fumble Recovery"
+    },
+    {
+      "stat_id": 35,
+      "name": "Touchdown"
+    },
+    {
+      "stat_id": 36,
+      "name": "Safety"
+    },
+    {
+      "stat_id": 37,
+      "name": "Block Kick"
+    },
+    {
+      "stat_id": 38,
+      "name": "Tackle Solo"
+    },
+    {
+      "stat_id": 39,
+      "name": "Tackle Assist"
+    },
+    {
+      "stat_id": 40,
+      "name": "Sack"
+    },
+    {
+      "stat_id": 41,
+      "name": "Interception"
+    },
+    {
+      "stat_id": 42,
+      "name": "Fumble Force"
+    },
+    {
+      "stat_id": 43,
+      "name": "Fumble Recovery"
+    },
+    {
+      "stat_id": 44,
+      "name": "Defensive Touchdown"
+    },
+    {
+      "stat_id": 45,
+      "name": "Safety"
+    },
+    {
+      "stat_id": 46,
+      "name": "Pass Defended"
+    },
+    {
+      "stat_id": 47,
+      "name": "Block Kick"
+    },
+    {
+      "stat_id": 48,
+      "name": "Return Yards"
+    },
+    {
+      "stat_id": 49,
+      "name": "Kickoff and Punt Return Touchdowns"
+    },
+    {
+      "stat_id": 50,
+      "name": "Points Allowed 0 points"
+    },
+    {
+      "stat_id": 51,
+      "name": "Points Allowed 1-6 points"
+    },
+    {
+      "stat_id": 52,
+      "name": "Points Allowed 7-13 points"
+    },
+    {
+      "stat_id": 53,
+      "name": "Points Allowed 14-20 points"
+    },
+    {
+      "stat_id": 54,
+      "name": "Points Allowed 21-27 points"
+    },
+    {
+      "stat_id": 55,
+      "name": "Points Allowed 28-34 points"
+    },
+    {
+      "stat_id": 56,
+      "name": "Points Allowed 35+ points"
+    },
+    {
+      "stat_id": 57,
+      "name": "Offensive Fumble Return TD"
+    },
+    {
+      "stat_id": 58,
+      "name": "Pick Sixes Thrown"
+    },
+    {
+      "stat_id": 59,
+      "name": "40+ Yard Completions"
+    },
+    {
+      "stat_id": 60,
+      "name": "40+ Yard Passing Touchdowns"
+    },
+    {
+      "stat_id": 61,
+      "name": "40+ Yard Run"
+    },
+    {
+      "stat_id": 62,
+      "name": "40+ Yard Rushing Touchdowns"
+    },
+    {
+      "stat_id": 63,
+      "name": "40+ Yard Receptions"
+    },
+    {
+      "stat_id": 64,
+      "name": "40+ Yard Receiving Touchdowns"
+    },
+    {
+      "stat_id": 65,
+      "name": "Tackles for Loss"
+    },
+    {
+      "stat_id": 66,
+      "name": "Turnover Return Yards"
+    },
+    {
+      "stat_id": 67,
+      "name": "4th Down Stops"
+    },
+    {
+      "stat_id": 68,
+      "name": "Tackles for Loss"
+    },
+    {
+      "stat_id": 69,
+      "name": "Defensive Yards Allowed"
+    },
+    {
+      "stat_id": 70,
+      "name": "Defensive Yards Allowed - Negative"
+    },
+    {
+      "stat_id": 71,
+      "name": "Defensive Yards Allowed 0-99"
+    },
+    {
+      "stat_id": 72,
+      "name": "Defensive Yards Allowed 100-199"
+    },
+    {
+      "stat_id": 73,
+      "name": "Defensive Yards Allowed 200-299"
+    },
+    {
+      "stat_id": 74,
+      "name": "Defensive Yards Allowed 300-399"
+    },
+    {
+      "stat_id": 75,
+      "name": "Defensive Yards Allowed 400-499"
+    },
+    {
+      "stat_id": 76,
+      "name": "Defensive Yards Allowed 500+"
+    },
+    {
+      "stat_id": 77,
+      "name": "Three and Outs Forced"
+    },
+    {
+      "stat_id": 78,
+      "name": "Targets"
+    },
+    {
+      "stat_id": 79,
+      "name": "Passing 1st Downs"
+    },
+    {
+      "stat_id": 80,
+      "name": "Receiving 1st Downs"
+    },
+    {
+      "stat_id": 81,
+      "name": "Rushing 1st Downs"
+    },
+    {
+      "stat_id": 82,
+      "name": "Extra Point Returned"
+    },
+    {
+      "stat_id": 83,
+      "name": "Extra Point Returned"
+    },
+    {
+      "stat_id": 84,
+      "name": "Field Goals Total Yards"
+    },
+    {
+      "stat_id": 85,
+      "name": "Field Goals Made"
+    },
+    {
+      "stat_id": 86,
+      "name": "Field Goals Missed"
+    }
+  ],
+  "sleeper_counter_observations": [
+    {
+      "source": "sleeper_2025_week4",
+      "sleeper_player_or_team_id": "DAL",
+      "counter": "def_2pt",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "HOU",
+      "counter": "def_3_and_out",
+      "value": 2.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "PIT",
+      "counter": "def_4_and_stop",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "HOU",
+      "counter": "def_kr_yd",
+      "value": 11.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "HOU",
+      "counter": "def_pr_yd",
+      "value": 20.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "11533",
+      "counter": "fgm",
+      "value": 2.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "11533",
+      "counter": "fgm_yds",
+      "value": 94.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "4666",
+      "counter": "fgmiss",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "11533",
+      "counter": "gp",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "5876",
+      "counter": "idp_blk_kick",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "7687",
+      "counter": "idp_def_td",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "5841",
+      "counter": "idp_ff",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "6911",
+      "counter": "idp_fum_rec",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "3215",
+      "counter": "idp_fum_ret_yd",
+      "value": 2.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "7642",
+      "counter": "idp_int",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "7642",
+      "counter": "idp_int_ret_yd",
+      "value": 10.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "3268",
+      "counter": "idp_pass_def",
+      "value": 2.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "10970",
+      "counter": "idp_sack",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week4",
+      "sleeper_player_or_team_id": "11429",
+      "counter": "idp_safe",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "2064",
+      "counter": "idp_tkl_ast",
+      "value": 4.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "2064",
+      "counter": "idp_tkl_loss",
+      "value": 2.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "2064",
+      "counter": "idp_tkl_solo",
+      "value": 2.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "4943",
+      "counter": "pass_cmp_40p",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "19",
+      "counter": "pass_fd",
+      "value": 12.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "11559",
+      "counter": "pass_td_40p",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "HOU",
+      "counter": "pts_allow",
+      "value": 14.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "8138",
+      "counter": "rec_40p",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "6786",
+      "counter": "rec_fd",
+      "value": 6.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "9509",
+      "counter": "rec_td_40p",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "6786",
+      "counter": "rec_tgt",
+      "value": 13.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "11589",
+      "counter": "rush_40p",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "11584",
+      "counter": "rush_fd",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "3198",
+      "counter": "rush_td_40p",
+      "value": 1.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "HOU",
+      "counter": "tkl_loss",
+      "value": 5.0
+    },
+    {
+      "source": "sleeper_2025_week1",
+      "sleeper_player_or_team_id": "HOU",
+      "counter": "yds_allow",
+      "value": 296.0
+    }
+  ],
+  "field_mapping_decisions": [
+    {
+      "yahoo_stat_id": 0,
+      "canonical_stat_keys": [
+        "gp"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 31,
+      "canonical_stat_keys": [
+        "pts_allow"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 38,
+      "canonical_stat_keys": [
+        "idp_tkl_solo",
+        "st_tkl_solo"
+      ],
+      "operation": "sum",
+      "status": "dp_numeric_semantics_observed_but_position_applicability_unverified",
+      "note": "Eight defensive players have Yahoo solo tackles equal to the sum. Applying this to offense WR/RB special-teams gunners remains unverified; require provider position scoping before admitting as a global mapping."
+    },
+    {
+      "yahoo_stat_id": 39,
+      "canonical_stat_keys": [
+        "idp_tkl_ast"
+      ],
+      "operation": "identity",
+      "status": "requires_cross_provider_semantic_review"
+    },
+    {
+      "yahoo_stat_id": 40,
+      "canonical_stat_keys": [
+        "idp_sack"
+      ],
+      "operation": "identity",
+      "status": "requires_cross_provider_semantic_review"
+    },
+    {
+      "yahoo_stat_id": 41,
+      "canonical_stat_keys": [
+        "idp_int"
+      ],
+      "operation": "identity",
+      "status": "requires_cross_provider_semantic_review"
+    },
+    {
+      "yahoo_stat_id": 42,
+      "canonical_stat_keys": [
+        "idp_ff"
+      ],
+      "operation": "identity",
+      "status": "requires_cross_provider_semantic_review"
+    },
+    {
+      "yahoo_stat_id": 43,
+      "canonical_stat_keys": [
+        "idp_fum_rec"
+      ],
+      "operation": "identity",
+      "status": "requires_cross_provider_semantic_review"
+    },
+    {
+      "yahoo_stat_id": 44,
+      "canonical_stat_keys": [
+        "idp_def_td"
+      ],
+      "operation": "identity",
+      "status": "requires_cross_provider_semantic_review"
+    },
+    {
+      "yahoo_stat_id": 45,
+      "canonical_stat_keys": [
+        "idp_safe"
+      ],
+      "operation": "identity",
+      "status": "requires_cross_provider_semantic_review"
+    },
+    {
+      "yahoo_stat_id": 46,
+      "canonical_stat_keys": [
+        "idp_pass_def"
+      ],
+      "operation": "identity",
+      "status": "requires_cross_provider_semantic_review"
+    },
+    {
+      "yahoo_stat_id": 47,
+      "canonical_stat_keys": [
+        "idp_blk_kick"
+      ],
+      "operation": "identity",
+      "status": "requires_cross_provider_semantic_review"
+    },
+    {
+      "yahoo_stat_id": 48,
+      "canonical_stat_keys": [
+        "def_kr_yd",
+        "def_pr_yd"
+      ],
+      "operation": "sum",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 59,
+      "canonical_stat_keys": [
+        "pass_cmp_40p"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 60,
+      "canonical_stat_keys": [
+        "pass_td_40p"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 61,
+      "canonical_stat_keys": [
+        "rush_40p"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 62,
+      "canonical_stat_keys": [
+        "rush_td_40p"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 63,
+      "canonical_stat_keys": [
+        "rec_40p"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 64,
+      "canonical_stat_keys": [
+        "rec_td_40p"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 65,
+      "canonical_stat_keys": [
+        "idp_tkl_loss"
+      ],
+      "operation": "identity",
+      "status": "requires_cross_provider_semantic_review"
+    },
+    {
+      "yahoo_stat_id": 66,
+      "canonical_stat_keys": [
+        "idp_int_ret_yd",
+        "idp_fum_ret_yd"
+      ],
+      "operation": "sum",
+      "status": "requires_cross_provider_semantic_review"
+    },
+    {
+      "yahoo_stat_id": 67,
+      "canonical_stat_keys": [
+        "def_4_and_stop"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 68,
+      "canonical_stat_keys": [
+        "tkl_loss"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 69,
+      "canonical_stat_keys": [
+        "yds_allow"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 77,
+      "canonical_stat_keys": [
+        "def_3_and_out"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 78,
+      "canonical_stat_keys": [
+        "rec_tgt"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 79,
+      "canonical_stat_keys": [
+        "pass_fd"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 80,
+      "canonical_stat_keys": [
+        "rec_fd"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 81,
+      "canonical_stat_keys": [
+        "rush_fd"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 82,
+      "canonical_stat_keys": [
+        "def_2pt"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 84,
+      "canonical_stat_keys": [
+        "fgm_yds"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 85,
+      "canonical_stat_keys": [
+        "fgm"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    },
+    {
+      "yahoo_stat_id": 86,
+      "canonical_stat_keys": [
+        "fgmiss"
+      ],
+      "operation": "identity",
+      "status": "supported_by_category_and_counter_observations"
+    }
+  ],
+  "known_limitations": [
+    "Raw sparse counter absence is not proof that an event did not occur or that a field is universally supported; examples only prove presence in the stated seasons/weeks.",
+    "Yahoo stat83 is IDP Extra Point Returned. No corresponding individual-player counter was observed in2025week4 even though DAL def_2pt=1. Do not invent idp_2pt or copy a team counter to a player.",
+    "Yahoo bonuses use cumulative thresholds, while Sleeper precomputed yardage milestone flags represent nonstacking bands. Apply Yahoo targets to actual weekly yardage rather than substituting Sleeper bonus flags.",
+    "No Yahoo from/to bonus schema was observed. The maintained YFPY Bonus model documents target and points only; nested wire envelopes require an actual league bonus capture.",
+    "Yahoo38 includes special-teams solo tackles for the defensive players checked, but whether Yahoo awards IDP categories to offensive players is unverified. All IDP mappings remain pending provider-specific applicability support.",
+    "Sleeper idp_ff and st_ff overlap in observed records and must not be blindly summed; some st_fum_rec records lack idp_fum_rec, so different special-teams categories need separate treatment.",
+    "Cross-provider stat corrections differ: in2022week18 Yahoo reported Christian Harris7solo/3assist while Sleeper reported6/4, and Jarrad Davis5assists while Sleeper reported4. Actual Yahoo player_points remain the authority for Yahoo score reconciliation."
+  ],
+  "cross_provider_idp_tackle_observations": [
+    {
+      "sleeper_player_id": "8854",
+      "yahoo_source": "yahoo_idp_2022_week18_page25",
+      "yahoo_stats": {
+        "38": 5,
+        "39": 0
+      },
+      "sleeper_source": "sleeper_2022_week18",
+      "sleeper_counters": {
+        "idp_tkl_solo": 4.0,
+        "st_tkl_solo": 1.0
+      }
+    },
+    {
+      "sleeper_player_id": "8388",
+      "yahoo_source": "yahoo_idp_2022_week18_page25",
+      "yahoo_stats": {
+        "38": 4,
+        "39": 0
+      },
+      "sleeper_source": "sleeper_2022_week18",
+      "sleeper_counters": {
+        "idp_tkl_solo": 3.0,
+        "st_tkl_solo": 1.0
+      }
+    },
+    {
+      "sleeper_player_id": "6217",
+      "yahoo_source": "yahoo_idp_2022_week18_page25",
+      "yahoo_stats": {
+        "38": 3,
+        "39": 1
+      },
+      "sleeper_source": "sleeper_2022_week18",
+      "sleeper_counters": {
+        "idp_tkl_solo": 2.0,
+        "idp_tkl_ast": 1.0,
+        "st_tkl_solo": 1.0
+      }
+    },
+    {
+      "sleeper_player_id": "7782",
+      "yahoo_source": "yahoo_idp_2022_week18_page50",
+      "yahoo_stats": {
+        "38": 3,
+        "39": 0
+      },
+      "sleeper_source": "sleeper_2022_week18",
+      "sleeper_counters": {
+        "idp_tkl_solo": 1.0,
+        "st_tkl_solo": 2.0
+      }
+    },
+    {
+      "sleeper_player_id": "5161",
+      "yahoo_source": "yahoo_idp_2022_week18_page50",
+      "yahoo_stats": {
+        "38": 2,
+        "39": 3
+      },
+      "sleeper_source": "sleeper_2022_week18",
+      "sleeper_counters": {
+        "idp_tkl_solo": 1.0,
+        "idp_tkl_ast": 3.0,
+        "st_tkl_solo": 1.0
+      }
+    },
+    {
+      "sleeper_player_id": "5753",
+      "yahoo_source": "yahoo_idp_2022_week18_page50",
+      "yahoo_stats": {
+        "38": 2,
+        "39": 0
+      },
+      "sleeper_source": "sleeper_2022_week18",
+      "sleeper_counters": {
+        "st_tkl_solo": 2.0
+      }
+    },
+    {
+      "sleeper_player_id": "8889",
+      "yahoo_source": "yahoo_idp_2022_week18_page50",
+      "yahoo_stats": {
+        "38": 2,
+        "39": 0
+      },
+      "sleeper_source": "sleeper_2022_week18",
+      "sleeper_counters": {
+        "idp_tkl_solo": 1.0,
+        "st_tkl_solo": 1.0
+      }
+    },
+    {
+      "sleeper_player_id": "4225",
+      "yahoo_source": "yahoo_idp_2022_week18_page50",
+      "yahoo_stats": {
+        "38": 2,
+        "39": 2
+      },
+      "sleeper_source": "sleeper_2022_week18",
+      "sleeper_counters": {
+        "idp_tkl_solo": 1.0,
+        "idp_tkl_ast": 2.0,
+        "st_tkl_solo": 1.0
+      }
+    }
+  ],
+  "sleeper_idp_special_teams_overlap_observations": [
+    {
+      "source": "sleeper_2022_week18",
+      "sleeper_player_id": "2677",
+      "counters": {
+        "idp_ff": 1.0,
+        "st_ff": 1.0,
+        "st_tkl_solo": 2.0
+      }
+    },
+    {
+      "source": "sleeper_2022_week18",
+      "sleeper_player_id": "8519",
+      "counters": {
+        "idp_ff": 1.0,
+        "st_ff": 1.0,
+        "st_tkl_solo": 1.0
+      }
+    },
+    {
+      "source": "sleeper_2022_week18",
+      "sleeper_player_id": "6611",
+      "counters": {
+        "idp_ff": 1.0,
+        "st_ff": 1.0
+      }
+    },
+    {
+      "source": "sleeper_2022_week18",
+      "sleeper_player_id": "5055",
+      "counters": {
+        "idp_tkl_solo": 4.0,
+        "st_fum_rec": 1.0
+      }
+    },
+    {
+      "source": "sleeper_2022_week18",
+      "sleeper_player_id": "7069",
+      "counters": {
+        "idp_tkl_solo": 4.0,
+        "idp_tkl_ast": 1.0,
+        "st_fum_rec": 1.0
+      }
+    },
+    {
+      "source": "sleeper_2022_week18",
+      "sleeper_player_id": "5318",
+      "counters": {
+        "idp_tkl_solo": 4.0,
+        "idp_tkl_ast": 3.0,
+        "st_fum_rec": 1.0
+      }
+    },
+    {
+      "source": "sleeper_2022_week18",
+      "sleeper_player_id": "8516",
+      "counters": {
+        "st_fum_rec": 1.0
+      }
+    }
+  ]
+}

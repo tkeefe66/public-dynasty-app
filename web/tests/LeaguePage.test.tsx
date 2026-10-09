@@ -48,6 +48,24 @@ it("opens the unfiltered dashboard with the API's active season selected", async
   expect(screen.getByRole("columnheader", { name: /^Finish/i })).toBeInTheDocument();
 });
 
+it("shows a stopped data job without inviting repeated cold-cache submissions", async () => {
+  const normal = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    const path = new URL(String(input), "http://localhost").pathname;
+    if (path === "/api/league/L1") return new Response(JSON.stringify({ detail: "cache cold" }), { status: 409 });
+    if (path === "/api/league/L1/refresh-jobs") return new Response(JSON.stringify({
+      id: "stopped-job", state: "needs_attention", reason: "execution_failed", progress: {},
+    }), { status: 202 });
+    return normal(input, init);
+  });
+  openPage();
+  await screen.findByText(/The refresh needs attention/);
+  expect(screen.queryByRole("button", { name: /Try again/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog", { name: "Building your league" })).not.toBeInTheDocument();
+  expect(vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+    String(url).endsWith("/refresh-jobs") && init?.method === "POST")).toHaveLength(1);
+});
+
 it("keeps Owners all-time without turning its default into an explicit All choice on return", async () => {
   // Mutation: give navigation the fallback data year instead of the URL selection.
   openPage("tab=owners");

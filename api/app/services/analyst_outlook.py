@@ -13,6 +13,11 @@ log = logging.getLogger(__name__)
 
 async def upcoming_outlook(client, league, week, rosters, players):
     try:
+        # Even a weekly stat average lacks threshold-hit probabilities. Do
+        # not publish base-only team forecasts for bonus-inclusive scoring.
+        if any(bonus.points for bonus in getattr(league, "scoring_bonuses", ())):
+            log.info("Analyst upcoming-week preview omitted: threshold bonus projections unavailable")
+            return None
         raw = await client.get_projections(league.season, week)
         if not raw:
             return None

@@ -5,7 +5,13 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.services.generation.commands import UNRESOLVED, authorize_candidate, cancel
+from app.services.generation.commands import (
+    UNRESOLVED,
+    authorize_candidate,
+    cancel,
+    failed_data_refresh,
+    require_actor,
+)
 from app.services.generation.models import (
     ArtifactHead,
     ContentArtifact,
@@ -208,8 +214,17 @@ async def job_action(db, job_id, body, actor):
     if body.action == "cancel":
         return data(await cancel(db, job_id, actor, body.reason))
     settled_recovery = job.state == "needs_attention" and job.reason == "provider_outcome_unknown"
-    if job.state != "held" and not settled_recovery:
+    data_retry = failed_data_refresh(job)
+    if job.state != "held" and not (settled_recovery or data_retry):
         raise Held("Only held jobs can resume; failed jobs require a separate reviewed authorization")
+    if data_retry:
+        # Free collection has no AI request allowance to renew. Keep its saved
+        # identity, active key and idempotency records; only an owner action can
+        # requeue it, and the next claim receives a fresh worker generation.
+        if job.calls or job.max_calls or await db.scalar(select(ProviderAttempt.id).where(
+                ProviderAttempt.operation_id == job_id).limit(1)):
+            raise Held("data_refresh_has_provider_activity")
+        await require_actor(db, job)
     if job.reason == "restore_reapproval_required" and job.kind == "generation":
         raise Held("Cancel restored work, reconcile provider activity, then preview a separate authorization")
     if await db.scalar(select(ProviderAttempt.id).where(
@@ -221,6 +236,9 @@ async def job_action(db, job_id, body, actor):
             raise Held("provider_outcome_unknown" if settled_recovery else "attempt_allowance_exhausted")
     before = {"state": job.state, "reason": job.reason, "calls": job.calls}
     job.state, job.reason = "queued", ""
+    if data_retry:
+        job.progress_json = "{}"
+        job.updated_at = stamp()
     audit(db, actor, "job_resumed", job_id, body.reason, before, {"state": job.state, "calls": job.calls})
     return data(job)
 

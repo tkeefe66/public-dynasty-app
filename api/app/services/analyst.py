@@ -171,9 +171,15 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                     raise ValueError("AI unavailable for requested correction; preserving published edition")
                 projections = {}
                 try:
-                    raw = await client.get_projections(league.season, week)
-                    projections = {pid: normalize_projection(stats, league.scoring_settings)
-                                   for pid, stats in raw.items() if isinstance(stats, dict)}
+                    # Weekly projected averages do not give the probability
+                    # of crossing a bonus threshold. Base-only expectations
+                    # cannot fairly label bonus-inclusive actuals as busts.
+                    if not any(bonus.points for bonus in getattr(league, "scoring_bonuses", ())):
+                        raw = await client.get_projections(league.season, week)
+                        projections = {pid: normalize_projection(stats, league.scoring_settings)
+                                       for pid, stats in raw.items() if isinstance(stats, dict)}
+                    else:
+                        log.info("Analyst week %s: threshold bonus projections unavailable; omitting busts", week)
                 except Exception:
                     log.warning("Analyst week %s: projections unavailable; omitting busts", week, exc_info=True)
                 facts = build_recap_facts(
