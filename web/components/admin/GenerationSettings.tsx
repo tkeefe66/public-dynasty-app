@@ -121,7 +121,8 @@ export function GenerationSettings({ leagues, busy, run, version, budgetSeriesId
           </div>
           <TechnicalDetails value={policy} label="Saved settings and where defaults come from" />
         </details>
-        <label className="mt-3 block text-prose">Reason for this change<input className={controlClass + " mt-1"} value={reason} maxLength={1000} required onChange={e => setReason(e.target.value)} placeholder="Briefly explain what you’re changing." /></label>
+        <label className="mt-3 block text-prose">Reason for this change (required)<input aria-label="Reason for this change" aria-describedby="generation-settings-reason-help" className={controlClass + " mt-1"} value={reason} maxLength={1000} required onChange={e => setReason(e.target.value)} placeholder="For example: Enable automatic weekly recap scripts." /></label>
+        <p id="generation-settings-reason-help" className="mt-2 text-sm text-dim">{reason.trim() ? "This reason will be saved with your settings change." : "Enter a reason to enable Save configuration."}</p>
         <Button type="submit" className="mt-3 px-4 py-2" disabled={blocked || !reason.trim()}>Save configuration</Button>
       </fieldset>
     </form>}

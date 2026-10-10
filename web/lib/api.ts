@@ -98,6 +98,10 @@ export function analystArchive(leagueId: string): Promise<{ editions: AnalystEdi
   return jsonFetch(`${BASE}/league/${leagueId}/analyst`);
 }
 
+export function analystShareState(leagueId: string, season: number, week: number): Promise<{ token: string | null }> {
+  return jsonFetch(`${BASE}/league/${encodeURIComponent(leagueId)}/analyst/${season}/${week}/share`, { signal: AbortSignal.timeout(10000) });
+}
+
 export function scoringLeaders(leagueId: string): Promise<ScoringResp> {
   return jsonFetch(`${BASE}/league/${leagueId}/scoring`);
 }
