@@ -223,11 +223,20 @@ describe("Generation controls", () => {
 
   it("previews catch-up across all leagues without selecting individual rows", async () => {
     const normal = request.getMockImplementation()!;
-    request.mockImplementation((path, ...args) => path === "/campaigns/catch-up/preview"
-      ? normal("/campaigns/preview", ...args) : normal(path, ...args));
+    const loadedRecords = await normal("/records/candidates");
+    let releaseRecords!: (value: unknown) => void;
+    const records = new Promise(resolve => { releaseRecords = resolve; });
+    request.mockImplementation((path = "", ...args) => path.startsWith("/records/candidates") ? records
+      : path === "/campaigns/catch-up/preview" ? normal("/campaigns/preview", ...args) : normal(path, ...args));
     render(<GenerationControl />);
     fireEvent.click(await screen.findByText("Manual content and catch-up", { selector: "summary" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preview catch-up across all leagues" }));
+    const preview = await screen.findByRole("button", { name: "Preview catch-up across all leagues" });
+    expect(preview).toBeDisabled();
+    fireEvent.click(preview);
+    expect(request.mock.calls.some(c => c[0] === "/campaigns/catch-up/preview")).toBe(false);
+    releaseRecords(loadedRecords);
+    await waitFor(() => expect(preview).toBeEnabled());
+    fireEvent.click(preview);
     await screen.findByRole("button", { name: "Approve paid writing" });
     expect(request).toHaveBeenCalledWith("/campaigns/catch-up/preview", {
       series_id: "", reason: "One-time catch-up of missing current content across leagues",

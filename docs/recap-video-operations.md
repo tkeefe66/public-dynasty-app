@@ -439,6 +439,7 @@ implementer's self-check; release evidence must identify their final commit.
 | 12 historical fixtures | Full PG sweep exposed latest-ORM fields in old-schema receipts and head downgrade crossing guarded migrations. Build actual old schemas, seed historical columns, roundtrip only reversible 0013 and assert later downgrade refusal; no product migration/constraint change. |
 | 12 automatic preflight | Persist the free challenge in its own savepoint before checking for its completed result. Otherwise the expected readiness hold rolls back the queued stage forever. Repeated ticks retain one claimable challenge; unauthorized work still fails current policy/actor fences. |
 | 12 selected-content idempotence | Automatic advancement skips exact already-selected current media without changing lifecycle or delivery. The existing outbox still owns checks/retries, including pending and policy-held projections; prevents false review attention without claiming content was delivered. |
+| 12 catch-up test readiness | A final full Web run reproduced one disabled-button click race. Deferred record loading proves the ignored click; await enabled before clicking, with no timeout increase or product workaround. Full rerun required. |
 | 12 sibling identity | Namespace episode/budget React keys. Duplicate series keys repeatedly remounted real populated panels and hid cap controls; unit collision check plus real saved-cap acceptance cover the defect. |
 
 Proposed skill candidate (not created): project-scoped
@@ -457,9 +458,11 @@ image built from the candidate tree. The final release commit/image identity mus
 be recorded again after independent parent reviews; this record is not deployment
 proof. CI runs the same contracts but has not been executed remotely by this task.
 
-- Root engine: 1,346 passed. Normal API: 1,547 passed, 56 environment-gated skips.
-  Full Web: 969 passed across 100 files; prior intermittent teardown failures did
-  not recur. TypeScript, lint and build passed; existing Dashboard ref-cleanup
+- Root engine: 1,346 passed. Normal API: 1,550 passed, 56 environment-gated skips.
+  Full Web: 969 passed across 100 files before a later full run exposed a
+  catch-up test clicking its still-disabled control. Deferred record loading
+  reproduces it; the test now waits for enabled state; full rerun passes all 969. The earlier undefined-then
+  teardown failure did not recur. TypeScript, lint and build passed; existing Dashboard ref-cleanup
   warning and API dependency warnings remain. No Python linter is configured.
 - Dedicated PG sweep: 68 passed, including exact historical migrations,
   concurrency, budgets, receipt recovery, publication and quarantined restore.
