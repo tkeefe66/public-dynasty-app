@@ -515,12 +515,14 @@ remains directly usable without creating a skill.
 
 ## Final-review fix verification (2026-10-10)
 
-The integrated product fixes passed 1,348 root tests, 1,566 normal API tests
+The integrated product fixes passed 1,348 root tests, 1,570 normal API tests
 (57 environment-gated skips), all 969 Web tests across 100 files, and 69
-sequential disposable PostgreSQL tests. Sixteen targeted boundary tests include
+sequential disposable PostgreSQL tests. Twenty targeted boundary tests include
 late dispatch/receipts in both calendars, atomic envelope conversion,
 cross-episode reservation competition, delayed finished review after renewal,
-and the actual authorized replacement through publication. Two deliberate
+and the actual authorized replacement through publication. Deleting or changing
+the replacement disposition after finished approval blocks both selection and
+projection. Two deliberate
 mutations were killed and source restored byte-for-byte. TypeScript, Web lint
 and production build exited zero; the existing Dashboard ref warning and Python
 dependency warnings remain. No Python linter is configured. Publication scan

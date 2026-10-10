@@ -137,7 +137,8 @@ async def test_complete_video_plan_blocks_script_when_narration_cannot_fit(maker
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('invalid', ['none', 'unknown_original', 'unrelated_unknown', 'stale_disposition', 'current_unknown'])
+@pytest.mark.parametrize('invalid', ['none', 'unknown_original', 'unrelated_unknown', 'stale_disposition', 'current_unknown',
+    'deleted_select', 'changed_select', 'deleted_project', 'changed_project'])
 async def test_explicit_replacement_settlement_new_review_selects_and_projects(maker, tmp_path, monkeypatch, invalid):
     # Mutation: every abandoned ancestor blocks review, or replacement bypasses current manual review.
     from app.services.recap_video import workflow as w, qualification as q, publication as p
@@ -177,7 +178,7 @@ async def test_explicit_replacement_settlement_new_review_selects_and_projects(m
             mid = lease['stage_id']
     async def verified(*args): return {}, 'script'
     monkeypatch.setattr(p, 'verified_media', verified)
-    if invalid != 'none':
+    if invalid in ('unknown_original', 'unrelated_unknown', 'stale_disposition', 'current_unknown'):
         async with maker.begin() as db:
             if invalid == 'unknown_original':
                 (await db.get(m.RecapProviderAttempt, 'narration-0')).cost_microusd = None
@@ -206,8 +207,31 @@ async def test_explicit_replacement_settlement_new_review_selects_and_projects(m
             reason='Fresh finished replacement review', checks={key: 'Synthetic retained evidence for this exact replacement' for key in
                 ('factual_coverage', 'performance', 'physical_phone', 'message_preview')}))
         assert (await q.qualification_status(db, 'series', 2026))['passed'] == 3
+    async def invalidate_disposition():
+        async with maker.begin() as db:
+            recovery = await db.scalar(select(m.RecapRecovery).where(m.RecapRecovery.action == 'bounded_replacement_authority'))
+            if invalid.startswith('deleted'):
+                await db.delete(recovery)
+            else:
+                recovery.action = 'changed_action'
+    if invalid.endswith('_select'):
+        await invalidate_disposition()
+        async with maker.begin() as db:
+            with pytest.raises(Held):
+                await p.select_publication(db, ident, 0, mid, proof)
+            assert await p.authority_for_episode(db, await db.get(m.RecapEpisode, ident)) is None
+        return
     async with maker.begin() as db:
         await p.select_publication(db, ident, 0, mid, proof)
+    if invalid.endswith('_project'):
+        await invalidate_disposition()
+        async with maker.begin() as db:
+            item = await db.scalar(select(GenerationOutbox).where(GenerationOutbox.key == f'recap-publication:{ident}:1'))
+            with pytest.raises(Held):
+                await p.project_publication(db, item, tmp_path)
+            authority = await p.authority_for_episode(db, await db.get(m.RecapEpisode, ident))
+            assert authority is None or authority.projected_revision != 1
+        return
     async with maker.begin() as db:
         item = await db.scalar(select(GenerationOutbox).where(GenerationOutbox.key == f'recap-publication:{ident}:1'))
         await p.project_publication(db, item, tmp_path)

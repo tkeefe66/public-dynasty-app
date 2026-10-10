@@ -315,7 +315,8 @@ async def require_standing_proof(db, proof):
                 RecapStage.script_id == stage.script_id,
                 RecapStage.execution_revision == stage.execution_revision,
                 RecapRecovery.action.in_(('adopt_recovered_audio', 'bounded_replacement_authority'))).limit(1)) if stage else None
-            if recovered:
+            # Replacement identity survives removal or relabeling of disposition evidence.
+            if recovered or stage and stage.execution_revision > 1:
                 await target_publication_binding(db,proof.episode_id,scope,manual_proof_id=proof.id)
         return {}
     episode = await db.get(RecapEpisode, proof.episode_id)
