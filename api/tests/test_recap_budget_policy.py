@@ -32,15 +32,16 @@ def test_caps_reject_unknown_fields():
         RecapCaps(unknown=1)
 
 
-def test_defaults_read_only_and_inactive(client, admin_db):
+def test_defaults_read_only_and_enforced(client, admin_db):
     response = client.get(PATH, params={"episode_id": "episode"})
     assert response.status_code == 200
     value = response.json()
     assert value["revision"] == 0
     assert value["caps"] == RecapCaps().model_dump()
     assert value["episode_id"] == "episode"
-    assert value["enforcement_state"] == {"active": False, "reason": "ledger_unavailable"}
-    assert all(balance is None for balance in value["balances"].values())
+    assert value["enforcement_state"] == {"active": True, "reason": ""}
+    assert value["media_automation_enabled"] is False
+    assert all(balance["known_microusd"] == balance["reserved_microusd"] == 0 for balance in value["balances"].values())
     async def check():
         async with admin_db() as db:
             assert await db.scalar(select(func.count()).select_from(RecapBudgetPolicy)) == 0
@@ -95,7 +96,28 @@ def test_app_limit_visible_without_rewriting_setting(client, admin_db):
         async with admin_db.begin() as db:
             await set_monthly_budget(db, 7.5)
     asyncio.run(seed())
-    assert client.get(PATH).json()["app_limit"] == {"month_microusd": 7_500_000, "balance": None}
+    value = client.get(PATH).json()["app_limit"]
+    assert value["month_microusd"] == value["balance"]["remaining_microusd"] == 7_500_000
+
+
+def test_overcommit_response_is_structured_and_requires_acknowledgment(client, admin_db):
+    # Mutation: collapse overcommit and revision conflicts into indistinguishable strings.
+    from app.services.generation.recap_budget import reserve_plan
+    from tests.test_recap_budget_ledger import NOW, allocation
+    async def seed():
+        async with admin_db.begin() as db:
+            await reserve_plan(db, "episode", "series", "plan", [allocation()], NOW)
+    asyncio.run(seed())
+    body = dict(caps={"video_episode_microusd": 1_000_000}, expected_revision=0,
+                reason="Lower", acknowledge_overcommitted=False)
+    response = client.put(PATH, json=body)
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "recap_budget_overcommitted"
+    assert detail["acknowledgment_required"] is True
+    assert detail["affected"][0]["reserved_microusd"] == 2_000_000
+    assert client.get(PATH).json()["revision"] == 0
+    assert client.put(PATH, json={**body, "acknowledge_overcommitted": True}).status_code == 200
 
 
 @pytest.mark.parametrize("extra", [{"unexpected": 1}, {"reason": "   "},

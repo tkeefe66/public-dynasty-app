@@ -36,4 +36,7 @@ async def get_monthly_budget(db: AsyncSession) -> float:
 
 
 async def set_monthly_budget(db: AsyncSession, value: float) -> None:
+    # Budget edits and physical admissions share the same serialization order.
+    from app.services.generation.store import lock_control
+    await lock_control(db)
     await set_setting(db, _BUDGET_KEY, str(value))

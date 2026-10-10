@@ -17,7 +17,10 @@ async def ledger_records(db):
 
 
 async def unknown_count(db, cutoff=None):
-    query = select(func.count()).select_from(ProviderAttempt).where(ProviderAttempt.cost_microusd.is_(None))
+    # This is uncertainty, not active work: cancelled/old unknowns remain visible.
+    # Only proven non-submission is excluded from financial uncertainty.
+    query = select(func.count()).select_from(ProviderAttempt).where(
+        ProviderAttempt.cost_microusd.is_(None), ProviderAttempt.state != "not_sent")
     if cutoff:
         query = query.where(ProviderAttempt.created_at >= int(cutoff.timestamp()))
     return await db.scalar(query)

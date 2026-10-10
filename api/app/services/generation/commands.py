@@ -173,6 +173,8 @@ async def finish(db, operation_id, generation, *, now=None, progress=None):
     job.active_key = None
     job.updated_at = stamp() if now is None else now
     job.progress_json = dump(progress or {"stage": "done"})
+    from app.services.generation.recap_budget import release_unsubmitted
+    await release_unsubmitted(db, job.id, "operation_completed")
     return job
 
 
@@ -190,6 +192,8 @@ async def cancel(db, operation_id, actor, reason):
     job.reason = "owner_cancelled"
     job.updated_at = stamp()
     audit(db, actor, "job_cancelled", operation_id, reason, before, {"state": job.state})
+    from app.services.generation.recap_budget import release_unsubmitted
+    await release_unsubmitted(db, job.id, "operation_cancelled")
     return job
 
 

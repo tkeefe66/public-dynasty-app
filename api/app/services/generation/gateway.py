@@ -7,7 +7,8 @@ import logging
 
 from sqlalchemy import func, select
 
-from app.services.generation.accounting import price_usage, pricing
+from app.services.generation.accounting import price_usage, pricing, validate_request_shape
+from app.services.generation.recap_budget import admit_provider_allocation, settle_attempt
 from app.services.generation.commands import UNRESOLVED, require_actor, require_owner
 from app.services.generation.models import (
     GenerationOperation,
@@ -83,14 +84,14 @@ class Gateway:
             if stage != job.calls + 1 or job.calls >= min(job.max_calls, feature["max_calls"]):
                 raise Held("attempt_allowance_exhausted")
             allowed_model = saved["review_model"] if job.feature == "analyst" and stage > 1 else saved["model"]
-            if request.get("model") != allowed_model:
+            current_model = feature["review_model"] if job.feature == "analyst" and stage > 1 else feature["model"]
+            if request.get("model") != allowed_model or allowed_model != current_model:
                 raise Held("request_model_changed")
             if (type(request.get("max_tokens")) is not int or request["max_tokens"] < 1
                     or request["max_tokens"] > min(feature["max_tokens"], saved["max_tokens"])
                     or len(dump(request)) > min(feature["max_prompt_chars"], saved["max_prompt_chars"])):
                 raise Held("request_limit_exceeded")
-            if set(request) - {"model", "max_tokens", "system", "messages", "tools", "tool_choice"}:
-                raise Held("request_option_unregistered")
+            validate_request_shape(request)
             snapshot = pricing(allowed_model)
             if hasattr(self.transport, "check_ready"):
                 self.transport.check_ready()
@@ -104,14 +105,7 @@ class Gateway:
                     ProviderAttempt.state.in_(UNRESOLVED)))
             if series_pending:
                 raise Held("series_concurrency_busy")
-            # Preserve the configured nonzero legacy stop without inventing caps.
-            from app.repositories.app_settings import get_monthly_budget
-            budget = await get_monthly_budget(db)
-            if budget > 0:
-                from app.services.generation.usage import month_known
-                from app.services.refresh_service import month_to_date_spend
-                if month_to_date_spend(get_settings().cache_dir) + await month_known(db) >= budget:
-                    raise Held("legacy_budget_reached")
+            allocation = await admit_provider_allocation(db, job, stage, request, saved, feature, stamp())
             attempt = ProviderAttempt(operation_id=job.id, stage=stage, generation=generation,
                 request_digest=request_hash, request_json=dump(request), model=allowed_model,
                 pricing_json=dump(snapshot))
@@ -119,6 +113,7 @@ class Gateway:
             job.calls += 1
             await db.flush()
             attempt_id = attempt.id
+            allocation.attempt_id = attempt.id
         log.info("provider admitted operation=%s attempt=%s stage=%s", operation_id, attempt_id, stage)
         # No cancellation, restart or exception path repeats this submission.
         try:
@@ -130,6 +125,7 @@ class Gateway:
                     row = await db.get(ProviderAttempt, attempt_id)
                     row.state = "unknown"
                     row.error_code = "provider_outcome_unknown"
+                    await settle_attempt(db, row, {"outcome": "unknown", "attempt_id": attempt_id})
             except Exception:
                 log.exception("provider attempt remains unresolved after persistence failure attempt=%s", attempt_id)
             if isinstance(exc, asyncio.CancelledError):
@@ -209,6 +205,10 @@ class Gateway:
                 db.add(GenerationOutbox(key="usage:" + attempt_id, kind="telemetry",
                     payload_json=dump({"attempt_id": attempt_id, "operation_id": row.operation_id,
                         "model": row.model, "usage": usage, "cost_microusd": amount})))
+            await settle_attempt(db, row, {"attempt_id": attempt_id, "receipt_digest": digest(row.receipt_json),
+                                           "usage_state": usage_state, "status": receipt.status})
+            if control.provider_hold == "reservation_exceeded":
+                row.error_code = "reservation_exceeded"
             log.info("provider receipt attempt=%s status=%s usage=%s", attempt_id, receipt.status, usage_state)
 
     async def reconcile_receipts(self):

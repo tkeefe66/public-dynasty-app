@@ -263,7 +263,7 @@ async def resolve_attempt(db, attempt_id, body, actor):
         raise Conflict("Attempt state changed; reload its receipt before acting")
     if not body.workers_stopped or not body.evidence.strip():
         raise ValueError("Confirm the sending worker stopped and record supporting evidence")
-    if row.usage_state == "known":
+    if row.cost_microusd is not None or row.usage_state == "known":
         raise Conflict("Known paid usage cannot be abandoned or marked unbilled")
     before = {"state": row.state, "usage_state": row.usage_state, "cost_microusd": row.cost_microusd}
     row.state = "abandoned" if body.action == "abandon_unknown" else "not_sent"
@@ -275,6 +275,10 @@ async def resolve_attempt(db, attempt_id, body, actor):
     audit(db, actor, "attempt_" + body.action, attempt_id, body.reason, before,
         {"state": row.state, "usage_state": row.usage_state, "evidence": body.evidence,
          "sending_process_stopped": True, "replacement_authorized": False})
+    from app.services.generation.recap_budget import release_unsubmitted, settle_attempt
+    await settle_attempt(db, row, {"action": body.action, "actor_id": actor,
+        "evidence": body.evidence, "reason": body.reason, "sending_process_stopped": True})
+    await release_unsubmitted(db, job.id, "owner_resolved_attempt")
     return data(row)
 
 
