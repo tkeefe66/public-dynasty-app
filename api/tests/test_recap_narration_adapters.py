@@ -37,13 +37,20 @@ async def test_preflight_persists_metadata_and_renewal_keeps_compatibility(monke
 
 
 @pytest.mark.asyncio
-async def test_api_builds_all_ordered_chunks_at_exact_price_and_configuration(monkeypatch):
+async def test_api_builds_all_ordered_chunks_at_exact_price_and_configuration(maker, tmp_path, monkeypatch):
+    from tests.test_recap_speech_reviews import reviewed_artifact
+    from app.services.generation.models import ContentArtifact
+    from app.services.generation.store import digest, dump
+    episode_id, _ = await reviewed_artifact(maker, tmp_path, monkeypatch)
     approval = qualified(monkeypatch)
-    row = SimpleNamespace(episode_id="episode", evidence_json="")
+    row = SimpleNamespace(episode_id=episode_id, evidence_json="")
     evidence = await el.validate_preflight(None, row, {"report": approval["metadata"]})
-    artifact = SimpleNamespace(digest="script-hash", payload_json=json.dumps({"episode_id": "episode", "claims": {},
-        "script": {"opening": "Opening.", "closing": "Ending.", "segments": [{"id": "s1", "text": "x" * 1999}]}}))
-    plan = await el.build_media_plan(None, artifact, evidence)
+    async with maker.begin() as db:
+        artifact = await db.get(ContentArtifact, "script")
+        payload = json.loads(artifact.payload_json)
+        payload["script"]["segments"][0]["text"] = "x" * 1999
+        artifact.payload_json, artifact.digest = dump(payload), digest(payload)
+        plan = await el.build_media_plan(db, artifact, evidence)
     assert [s["kind"] for s in plan] == ["narrate", "narrate", "narrate", "speech_check", "render", "media_check"]
     for s in plan[:3]:
         paid = s["input"]["paid"]
@@ -76,12 +83,15 @@ async def test_api_reads_immutable_raw_speech_and_rejects_worker_success_boolean
     from app.services.recap_video.audio import MODEL_REVISION, MODEL_SHA256
     from app.services.recap_video.storage import LocalPrivateMediaStore
     from app.services.generation.recap_models import RecapStage, RecapAsset
-    from tests.test_recap_workflow import seed_media
+    from tests.test_recap_speech_reviews import reviewed_artifact
+    from app.services.generation.models import ContentArtifact
+    from app.services.generation.store import digest, dump
+    from app.services.recap_video.speech_reviews import bind_reviews
     from tests.test_recap_audio import transcript
-    _, stage_id = await seed_media(maker, tmp_path, monkeypatch, "speech_check")
+    _, stage_id = await reviewed_artifact(maker, tmp_path, monkeypatch)
     monkeypatch.setenv("TRADE_GRADER_MEDIA_ASSET_ROOT", str(tmp_path / "objects"))
     store = LocalPrivateMediaStore(tmp_path / "objects")
-    raw = {**transcript("Avery won by forty points."), "model_revision": MODEL_REVISION,
+    raw = {**transcript("Welcome. Avery won by forty points. That is all."), "model_revision": MODEL_REVISION,
         "model_sha256": MODEL_SHA256["model.bin"]}
     data = json.dumps(raw).encode()
     key = str(uuid.uuid4())
@@ -90,8 +100,12 @@ async def test_api_reads_immutable_raw_speech_and_rejects_worker_success_boolean
     async with maker.begin() as db:
         stage = await db.get(RecapStage, stage_id)
         stage.generation = 1
-        stage.input_json = json.dumps({"script": {"segments": [{"id": "s", "text": "Avery won by fourteen points.",
-            "spoken_numbers": [{"spoken": "fourteen", "value": "14"}]}]}})
+        artifact = await db.get(ContentArtifact, "script")
+        payload = json.loads(artifact.payload_json)
+        payload["script"]["segments"][0]["text"] = "Avery won by fourteen points."
+        artifact.payload_json, artifact.digest = dump(payload), digest(payload)
+        stage.input_json = dump({"script": payload["script"], "script_digest": artifact.digest,
+            "speech_review": await bind_reviews(db, artifact)})
         prior = await db.get(RecapStage, stage.predecessor_id)
         prior.result_json = json.dumps({"asset_ids": ["audio"]})
         db.add(RecapAsset(id="transcript", stage_id=stage_id, generation=1, digest=sha, size=len(data),
@@ -101,3 +115,51 @@ async def test_api_reads_immutable_raw_speech_and_rejects_worker_success_boolean
         with pytest.raises(Held, match="speech_verification_failed"):
             await el.validate_speech(db, stage, {"asset_ids": ["transcript"], "report": {
                 "transcript_asset_id": "transcript", "audio_asset_ids": ["audio"], "passed": True}})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,passes", [("Welcome. Averie and Blake tied. That is all.", True),
+    ("Welcome. Averie and Blake won. That is all.", False),
+    ("Welcome. Avery and Brock tied. That is all.", False)])
+async def test_canonical_artifact_review_reaches_speech_verifier(maker, tmp_path, monkeypatch, text, passes):
+    import hashlib
+    import uuid
+    from tests.test_recap_speech_reviews import reviewed_artifact, approve
+    from tests.test_recap_audio import transcript
+    from app.services.recap_video.audio import MODEL_REVISION, MODEL_SHA256
+    from app.services.recap_video.storage import LocalPrivateMediaStore
+    from app.services.generation.models import ContentArtifact
+    from app.services.generation.recap_models import RecapStage, RecapAsset
+    from app.services.generation.store import dump
+    episode_id, stage_id = await reviewed_artifact(maker, tmp_path, monkeypatch)
+    approval = qualified(monkeypatch)
+    evidence = await el.validate_preflight(None, SimpleNamespace(episode_id=episode_id), {"report": approval["metadata"]})
+    raw = {**transcript(text), "model_revision": MODEL_REVISION, "model_sha256": MODEL_SHA256["model.bin"],
+        "name_aliases": {"Blake": ["Brock"]}}
+    data, key = json.dumps(raw).encode(), str(uuid.uuid4())
+    sha = hashlib.sha256(data).hexdigest()
+    monkeypatch.setenv("TRADE_GRADER_MEDIA_ASSET_ROOT", str(tmp_path / "objects"))
+    LocalPrivateMediaStore(tmp_path / "objects").put_verified(key, data, sha)
+    async with maker.begin() as db:
+        review = await approve(db)
+        artifact = await db.get(ContentArtifact, "script")
+        plan = await el.build_media_plan(db, artifact, evidence)
+        stage = await db.get(RecapStage, stage_id)
+        stage.input_json = dump(next(p["input"] for p in plan if p["kind"] == "speech_check"))
+        prior = await db.get(RecapStage, stage.predecessor_id)
+        prior.result_json = dump({"asset_ids": ["audio"]})
+        db.add(RecapAsset(id="transcript", stage_id=stage_id, generation=stage.generation,
+            digest=sha, size=len(data), media_type="application/json", storage_key=key))
+    async with maker.begin() as db:
+        stage = await db.get(RecapStage, stage_id)
+        result = {"asset_ids": ["transcript"], "report": {"transcript_asset_id": "transcript",
+            "audio_asset_ids": ["audio"], "passed": True, "name_aliases": {"Blake": ["Brock"]}}}
+        if passes:
+            await el.validate_speech(db, stage, result)
+            saved = json.loads(stage.evidence_json)
+            assert saved["passed"] is True
+            assert saved["speech_review"]["rules"][0]["id"] == review.id
+            assert saved["speech_review"]["script_digest"] == artifact.digest
+        else:
+            with pytest.raises(Held, match="speech_verification_failed"):
+                await el.validate_speech(db, stage, result)

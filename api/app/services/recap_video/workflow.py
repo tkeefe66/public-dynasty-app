@@ -543,32 +543,48 @@ async def settle_receipt(db, attempt_id, *, worker_id):
     attempt = await db.get(RecapProviderAttempt, attempt_id)
     if not attempt or attempt.worker_id != worker_id:
         raise OwnershipLost("Provider receipt does not belong to this worker")
-    recovery = bool(attempt.recovery_receipt_json)
-    if (recovery and attempt.recovery_settled_at) or (not recovery and attempt.settled_at):
+    original_pending = bool(attempt.receipt_json) and not attempt.settled_at
+    recovery_pending = bool(attempt.recovery_receipt_json) and not attempt.recovery_settled_at
+    if not original_pending and not recovery_pending:
+        if not attempt.receipt_json and not attempt.recovery_receipt_json:
+            raise Held("media_receipt_missing")
         return {"attempt_id": attempt.id, "state": attempt.state}
-    if not attempt.receipt_json and not recovery:
-        raise Held("media_receipt_missing")
-    receipt = json.loads(attempt.recovery_receipt_json if recovery else attempt.receipt_json)
+    receipts = {name: json.loads(raw) for name, raw in (
+        ("original", attempt.receipt_json), ("recovery", attempt.recovery_receipt_json)) if raw}
     settle = RECEIPT_SETTLERS.get(attempt.provider)
     if settle is None:
         raise Held("provider_receipts_unqualified")
-    try:
-        state, amount, error = settle(json.loads(attempt.request_json), json.loads(attempt.pricing_json), receipt)
-    except Exception:
-        raise Held("provider_receipt_validation_failed") from None
-    if state not in ("received", "rejected", "unknown") or error not in ("", "provider_rejected", "provider_outcome_unknown", "response_invalid"):
-        raise Held("media_receipt_invalid")
-    if recovery and amount is None and attempt.cost_microusd is not None:
-        # An audio-only retrieval cannot erase already validated metering.
-        amount = attempt.cost_microusd
-    if attempt.cost_microusd is not None and amount != attempt.cost_microusd:
-        raise Conflict("Recovered metering conflicts with settled amount")
-    if recovery:
-        # Financial reconciliation cannot itself certify recovered audio/timing.
+    decoded = []
+    for receipt in receipts.values():
+        try:
+            item = settle(json.loads(attempt.request_json), json.loads(attempt.pricing_json), receipt)
+            state, amount, error = item
+        except Exception:
+            raise Held("provider_receipt_validation_failed") from None
+        if (state not in ("received", "rejected", "unknown")
+                or error not in ("", "provider_rejected", "provider_outcome_unknown", "response_invalid")
+                or (amount is not None and (type(amount) is not int or amount < 0))):
+            raise Held("media_receipt_invalid")
+        decoded.append(item)
+    # Reconcile all durable same-attempt evidence, even if the original commit
+    # preceded a crash before its settlement. No receipt takes precedence over a
+    # contradictory amount, and unknown evidence cannot erase a provable charge.
+    known = {item[1] for item in decoded if item[1] is not None}
+    if attempt.cost_microusd is not None:
+        known.add(attempt.cost_microusd)
+    if len(known) > 1:
+        raise Conflict("Recovered metering conflicts with retained charge evidence")
+    amount = next(iter(known), None)
+    state, _, error = decoded[-1]
+    if attempt.recovery_receipt_json:
+        state = "received" if amount is not None else "unknown"
         error = "response_invalid" if amount is not None else "provider_outcome_unknown"
+    if original_pending:
+        attempt.settled_at = stamp()
+    if recovery_pending:
         attempt.recovery_settled_at = stamp()
-    attempt.cost_microusd = amount
-    attempt.state, attempt.error_code, attempt.settled_at = state, error, stamp()
+    attempt.cost_microusd, attempt.state, attempt.error_code = amount, state, error
+    receipt = next(reversed(receipts.values()))
     from app.services.generation.provider_control import record_failure
     await record_failure(db, attempt.provider, attempt.account_key, receipt.get("status"), stamp(),
         accounting_unknown=amount is None)
@@ -576,7 +592,7 @@ async def settle_receipt(db, attempt_id, *, worker_id):
     if not allocation:
         raise Held("media_allocation_missing")
     from app.services.generation.recap_budget import settle_allocation
-    await settle_allocation(db, allocation.id, amount, {"receipt_digest": digest(receipt), "attempt_id": attempt.id})
+    await settle_allocation(db, allocation.id, amount, {"receipt_digests": {name: digest(value) for name, value in receipts.items()}, "attempt_id": attempt.id})
     return {"attempt_id": attempt.id, "state": attempt.state}
 
 
@@ -597,7 +613,7 @@ async def reconcile_media_receipts(maker):
         try:
             async with maker.begin() as db:
                 await settle_receipt(db, attempt_id, worker_id=worker_id)
-        except Held:
+        except (Held, Conflict):
             async with maker.begin() as db:
                 await lock_control(db)
                 row = await db.get(RecapProviderAttempt, attempt_id)

@@ -9,6 +9,70 @@ from tests.test_recap_workflow import seed_media, fence, result
 
 
 @pytest.mark.asyncio
+async def test_recovery_before_first_settlement_keeps_original_metering(maker, tmp_path, monkeypatch):
+    # Mutation: selecting recovery exclusively discards durable original charge proof.
+    from tests.test_recap_elevenlabs import REQUEST, RATE
+    from app.services.recap_video.elevenlabs import canonical, settle_receipt
+    await seed_media(maker, tmp_path, monkeypatch, "narrate")
+    async with maker.begin() as db:
+        lease = await work.claim_stage(db, "narrator", {"narrate"}, stamp())
+        authority = await work.authorize_dispatch(db, **fence(lease), worker_id="narrator")
+        attempt = await db.get(RecapProviderAttempt, authority["attempt_id"])
+        attempt.request_json, attempt.pricing_json = dump(REQUEST), dump(RATE)
+    identity = {"request_id": "synthetic-request", "history_item_id": "synthetic-history"}
+    original = {"schema": "elevenlabs-v1", "request_digest": canonical(REQUEST), "identity": identity,
+        "outcome": "unknown", "status": 200, "error": "response_invalid",
+        "metering": {"credits": "10", "source": "character-cost-header"}}
+    recovery = {k: v for k, v in original.items() if k != "metering"}
+    recovery["outcome"] = "recovered"
+    monkeypatch.setitem(work.RECEIPT_SETTLERS, "elevenlabs", settle_receipt)
+    async with maker.begin() as db:
+        await work.persist_receipt(db, attempt.id, original, worker_id="narrator")
+    async with maker.begin() as db:
+        await work.persist_recovery_receipt(db, attempt.id, recovery, worker_id="narrator")
+        assert (await db.get(RecapProviderAttempt, attempt.id)).settled_at == 0
+    async with maker.begin() as db:
+        await work.settle_receipt(db, attempt.id, worker_id="narrator")
+        saved = await db.get(RecapProviderAttempt, attempt.id)
+        assert saved.cost_microusd == 70 and saved.state == "received"
+        assert saved.error_code == "response_invalid" and saved.settled_at and saved.recovery_settled_at
+        assert saved.receipt_json == dump(original) and saved.recovery_receipt_json == dump(recovery)
+        timestamps = saved.settled_at, saved.recovery_settled_at
+        allocation = await db.scalar(select(RecapBudgetAllocation).where(RecapBudgetAllocation.attempt_id == attempt.id))
+        assert allocation.actual_microusd == 70 and allocation.outstanding_microusd == 0
+    # A duplicate call must not decode or charge again.
+    def forbidden(*args):
+        raise AssertionError("Already reconciled evidence decoded again")
+    monkeypatch.setitem(work.RECEIPT_SETTLERS, "elevenlabs", forbidden)
+    async with maker.begin() as db:
+        await work.settle_receipt(db, attempt.id, worker_id="narrator")
+        saved = await db.get(RecapProviderAttempt, attempt.id)
+        assert (saved.settled_at, saved.recovery_settled_at) == timestamps
+
+
+@pytest.mark.asyncio
+async def test_conflicting_original_and_recovery_costs_preserve_unsettled_evidence(maker, tmp_path, monkeypatch):
+    # Mutation: prefer either charge instead of rejecting contradictory evidence.
+    await seed_media(maker, tmp_path, monkeypatch, "narrate")
+    async with maker.begin() as db:
+        lease = await work.claim_stage(db, "narrator", {"narrate"}, stamp())
+        authority = await work.authorize_dispatch(db, **fence(lease), worker_id="narrator")
+    identity = {"request_id": "synthetic-request", "history_item_id": "synthetic-history"}
+    original, recovered = {"identity": identity, "cost": 70}, {"identity": identity, "cost": 71}
+    async with maker.begin() as db:
+        await work.persist_receipt(db, authority["attempt_id"], original, worker_id="narrator")
+        await work.persist_recovery_receipt(db, authority["attempt_id"], recovered, worker_id="narrator")
+    monkeypatch.setitem(work.RECEIPT_SETTLERS, "elevenlabs", lambda req, rate, receipt: ("received", receipt["cost"], ""))
+    with pytest.raises(Conflict):
+        async with maker.begin() as db:
+            await work.settle_receipt(db, authority["attempt_id"], worker_id="narrator")
+    async with maker() as db:
+        saved = await db.get(RecapProviderAttempt, authority["attempt_id"])
+        assert saved.cost_microusd is None and saved.settled_at == saved.recovery_settled_at == 0
+        assert saved.receipt_json == dump(original) and saved.recovery_receipt_json == dump(recovered)
+
+
+@pytest.mark.asyncio
 async def test_early_identity_then_unknown_recovery_retains_evidence_and_never_dispatches(maker, tmp_path, monkeypatch):
     episode, _ = await seed_media(maker, tmp_path, monkeypatch, "narrate")
     async with maker.begin() as db:

@@ -1,5 +1,5 @@
 """Durable league recap spending policy, independent of activation."""
-from sqlalchemy import BigInteger, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -165,4 +165,24 @@ class RecapAsset(Base):
     size: Mapped[int] = mapped_column(BigInteger)
     media_type: Mapped[str] = mapped_column(String)
     storage_key: Mapped[str] = mapped_column(String, unique=True)
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class RecapSpeechReview(Base):
+    """Immutable human-reviewed spelling of one source entity; never LLM output."""
+    __tablename__ = "recap_speech_reviews"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    series_id: Mapped[str] = mapped_column(String, index=True)
+    season: Mapped[int] = mapped_column(Integer)
+    entity_kind: Mapped[str] = mapped_column(String)
+    entity_id: Mapped[str] = mapped_column(String)
+    canonical_name: Mapped[str] = mapped_column(String)
+    canonical_token: Mapped[str] = mapped_column(String)
+    reusable: Mapped[bool] = mapped_column(Boolean, default=False)
+    aliases_json: Mapped[str] = mapped_column(String)
+    script_id: Mapped[str] = mapped_column(String)
+    script_digest: Mapped[str] = mapped_column(String)
+    script_revision: Mapped[int] = mapped_column(Integer)
+    reviewer_id: Mapped[str] = mapped_column(String)
+    reason: Mapped[str] = mapped_column(String)
     created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)

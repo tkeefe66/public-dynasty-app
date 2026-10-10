@@ -89,14 +89,15 @@ async def test_narration_handler_commits_identity_audio_receipt_once(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_speech_handler_preserves_raw_evidence_and_holds_ambiguity(monkeypatch):
+@pytest.mark.parametrize("spoken,status", [("Averie won.", "ok"), ("Averie lost.", "input_failure")])
+async def test_speech_handler_preserves_raw_evidence_and_holds_ambiguity(monkeypatch, spoken, status):
     import json
     import httpx
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "api"))
     from media import worker as runtime
     uploaded = []
-    raw = {"text": "Avery lost.", "words": [{"word": "Avery", "start": 0, "end": .3, "probability": .99},
-        {"word": "lost.", "start": .3, "end": .6, "probability": .99}]}
+    raw = {"text": spoken, "words": [{"word": "Averie", "start": 0, "end": .3, "probability": .99},
+        {"word": spoken.split()[1], "start": .3, "end": .6, "probability": .99}]}
     async def process(argv, directory, timeout):
         if argv[-1].endswith("raw.json"):
             Path(argv[-1]).write_text(json.dumps(raw))
@@ -111,8 +112,10 @@ async def test_speech_handler_preserves_raw_evidence_and_holds_ambiguity(monkeyp
         runtime.install_narration_handlers(client, api_key="", model_directory="/synthetic-model")
         result = await runtime.run_stage({"stage_id": "stage", "generation": 1, "epoch": "epoch", "input_digest": "digest",
             "capability": "speech_check", "allowed_assets": ["audio"], "input": {"chunks": [{}],
+                "speech_review": {"aliases": {"avery": ["averie"]}},
                 "script": {"segments": [{"id": "s", "text": "Avery won."}]}}})
     assert uploaded == [raw]
-    assert result["status"] == "input_failure"
-    assert "result_verb_mismatch" in result["report"]["issues"]
+    assert result["status"] == status
+    if status == "input_failure":
+        assert "result_verb_mismatch" in result["report"]["issues"]
     assert result["asset_ids"] == ["raw-evidence"]

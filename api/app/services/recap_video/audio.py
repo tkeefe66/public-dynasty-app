@@ -111,21 +111,50 @@ def _tokens(text):
     return _numbers(expanded)
 
 
-def verify_speech(script: dict, raw_transcript: dict) -> dict:
+def validate_alias_spellings(canonical, variants):
+    """Narrow orthography guard; human review must separately establish identity."""
+    forbidden = set("not no never won win wins lost lose loses tied tie beat defeated defeats winner loser points percent dollars minus plus hundred thousand million".split())
+    tokens = _tokens(canonical) if isinstance(canonical, str) else []
+    if (len(tokens) != 1 or tokens[0] in forbidden or not re.fullmatch(r"[a-z]{3,40}", tokens[0])
+            or not isinstance(variants, list) or not 1 <= len(variants) <= 8):
+        raise ValueError("Reviewed name spelling invalid")
+    target = tokens[0]
+    result = []
+    for value in variants:
+        alias = value.lower() if isinstance(value, str) else ""
+        if not re.fullmatch(r"[a-z]{3,40}", alias) or alias in forbidden or alias in ONES or alias in TENS or alias[0] != target[0]:
+            raise ValueError("Reviewed spelling cannot change semantic tokens")
+        previous = list(range(len(alias) + 1))
+        for i, char in enumerate(target, 1):
+            current = [i]
+            for j, other in enumerate(alias, 1):
+                current.append(min(current[-1] + 1, previous[j] + 1, previous[j - 1] + (char != other)))
+            previous = current
+        if previous[-1] > 2 or alias == target:
+            raise ValueError("Reviewed spelling is not a bounded orthographic variant")
+        result.append(alias)
+    return target, sorted(set(result))
+
+
+def verify_speech(script: dict, raw_transcript: dict, *, reviewed_aliases=None) -> dict:
     expected = _tokens(" ".join(s["text"] for s in script_segments(script)))
     actual = _tokens(raw_transcript.get("text", ""))
-    # Aliases are explicit reviewed name spellings, never number/result synonyms.
-    forbidden = set("not no never won win wins lost lose loses tied beat defeated fourteen forty".split())
-    for canonical, variants in script.get("name_aliases", {}).items():
-        target = _tokens(canonical)
-        if not target or any(t in forbidden or any(c.isdigit() for c in t) for t in target):
-            continue
-        for variant in variants:
-            alias = _tokens(variant)
-            if len(alias) != 1 or len(target) != 1 or alias[0] in forbidden or any(c.isdigit() for c in alias[0]):
-                continue
-            actual = [target[0] if t == alias[0] else t for t in actual]
     issues = []
+    # Only the separate API-reviewed binding can grant aliases. Embedded Script
+    # or raw transcript fields never confer authority, even if supplied by a worker.
+    replacements = {}
+    try:
+        for canonical, variants in (reviewed_aliases or {}).items():
+            target, aliases = validate_alias_spellings(canonical, variants)
+            if target not in expected:
+                raise ValueError("Reviewed name absent from approved script")
+            for alias in aliases:
+                if alias in replacements and replacements[alias] != target:
+                    raise ValueError("Ambiguous reviewed spelling")
+                replacements[alias] = target
+        actual = [replacements.get(token, token) for token in actual]
+    except (ValueError, TypeError, AttributeError):
+        issues.append("reviewed_alias_invalid")
     if actual != expected:
         issues.append("content_mismatch")
     for segment in script.get("segments", []):

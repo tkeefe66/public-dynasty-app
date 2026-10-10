@@ -38,5 +38,5 @@ async def test_additive_migrations_preserve_identity_and_seed_paused(pgmaker, mo
         account = await db.get(ProviderAccountControl, ("anthropic", "synthetic-account"))
         assert account.hold == "provider_auth_failed" and account.cooldown_until == 12345
         assert (await db.get(GenerationControl, "global")).provider_hold == ""
-        for table in ("recap_stages", "recap_provider_attempts", "recap_assets"):
+        for table in ("recap_stages", "recap_provider_attempts", "recap_assets", "recap_speech_reviews"):
             assert await db.scalar(text(f"SELECT count(*) FROM {table}")) == 0

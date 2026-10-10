@@ -34,9 +34,9 @@ def test_caption_text_cannot_hide_wrong_spoken_score():
 
 
 def test_documented_orthographic_alias_and_complete_evidence():
-    script = {"segments": [{"id": "s1", "text": "Avery won.", "spoken_numbers": []}],
-        "name_aliases": {"Avery": ["Averie"]}}
-    assert verify_speech(script, transcript("Averie won."))["passed"]
+    script = {"segments": [{"id": "s1", "text": "Avery won.", "spoken_numbers": []}]}
+    assert verify_speech(script, transcript("Averie won."), reviewed_aliases={"Avery": ["Averie"]})["passed"]
+    assert not verify_speech({**script, "name_aliases": {"Avery": ["Averie"]}}, transcript("Averie won."))["passed"]
     assert not verify_speech(script, {"text": "Avery won.", "words": []})["passed"]
     evidence = transcript("Avery won.")
     evidence["words"][0]["probability"] = .2

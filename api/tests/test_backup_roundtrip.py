@@ -21,6 +21,7 @@ from app.config import Settings
 from app.db.base import Base
 from app.db.models import AppSetting, LeagueMembership, PageEvent, SideBet, User
 from app.services.backup_service import load_database, run_backup
+from app.services.generation.recap_models import RecapSpeechReview
 from tests.helpers import maker_scope
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
@@ -105,7 +106,11 @@ def _seed_rows():
         created_at=datetime(2025, 9, 1, 9, 0, tzinfo=timezone.utc),
         updated_at=datetime(2026, 1, 5, 9, 0, tzinfo=timezone.utc),
     )
-    return [u1, u2, m1, m2, s1, e1, e2, b1]
+    review = RecapSpeechReview(id="speech-review", series_id="synthetic-series", season=2026,
+        entity_kind="owner", entity_id="synthetic-person", canonical_name="Avery", canonical_token="avery",
+        aliases_json='["averie"]', script_id="synthetic-script", script_digest="a" * 64,
+        script_revision=1, reviewer_id="u-1", reason="Reviewed orthographic variant", created_at=123)
+    return [u1, u2, m1, m2, s1, e1, e2, b1, review]
 
 
 def _seed_cache_files(cache_dir: Path) -> dict[str, bytes]:
@@ -201,6 +206,7 @@ async def test_full_backup_then_restore_pipeline_round_trips_db_and_cache(
     assert manifest["tables"] == {**dict.fromkeys(Base.metadata.tables, 0), **{
         "users": 2, "league_memberships": 2, "app_settings": 1,
         "page_events": 2, "side_bets": 1,
+        "recap_speech_reviews": 1,
         "yahoo_connections": 0, "yahoo_oauth_states": 0, "yahoo_league_grants": 0,
     }}
     assert manifest["cache"]["members"] == 3

@@ -134,7 +134,8 @@ def install_narration_handlers(client, *, api_key, model_directory, ffmpeg="/usr
             data = (root / "raw.json").read_bytes()
             asset = await upload(lease, data, "application/json")
             from app.services.recap_video.audio import verify_speech
-            checked = verify_speech(lease["input"]["script"], json.loads(data))
+            checked = verify_speech(lease["input"]["script"], json.loads(data),
+                reviewed_aliases=lease["input"]["speech_review"]["aliases"])
         return {"status": "ok" if checked["passed"] else "input_failure", "asset_ids": [asset["asset_id"]],
             "report": {"transcript_asset_id": asset["asset_id"], "audio_asset_ids": asset_ids, "issues": checked["issues"]}}
 

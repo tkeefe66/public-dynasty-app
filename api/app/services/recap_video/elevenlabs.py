@@ -346,6 +346,7 @@ async def validate_preflight(db, stage, result):
 
 async def build_media_plan(db, artifact, evidence):
     from app.services.recap_video.audio import script_segments, split_narration
+    from app.services.recap_video.speech_reviews import bind_reviews
     from app.services.generation.store import Held
     payload = json.loads(artifact.payload_json)
     approved = await qualification(db, payload["episode_id"])
@@ -354,6 +355,7 @@ async def build_media_plan(db, artifact, evidence):
             or evidence["rate_digest"] != canonical(approved["rate_snapshot"])):
         raise Held("media_qualification_changed")
     script = payload["script"]
+    speech_review = await bind_reviews(db, artifact)
     cfg, rate = approved["config"], approved["rate_snapshot"]
     chunks = split_narration(script_segments(script))
     if len(chunks) > 63:
@@ -367,6 +369,8 @@ async def build_media_plan(db, artifact, evidence):
     for kind in ("speech_check", "render", "media_check"):
         plan.append(dict(kind=kind, chunk=0, input={"script": script, "chunks": chunks,
             "script_digest": artifact.digest, "claims": payload["claims"]}))
+        if kind == "speech_check":
+            plan[-1]["input"]["speech_review"] = speech_review
     return plan
 
 
@@ -406,11 +410,15 @@ async def validate_speech(db, stage, result):
     raw = json.loads(data)
     if raw.get("model_revision") != MODEL_REVISION or raw.get("model_sha256") != MODEL_SHA256["model.bin"]:
         raise Held("speech_model_unqualified")
-    report = verify_speech(json.loads(stage.input_json)["script"], raw)
+    from app.services.recap_video.speech_reviews import validate_binding
+    inputs = json.loads(stage.input_json)
+    binding = await validate_binding(db, stage, inputs)
+    report = verify_speech(inputs["script"], raw, reviewed_aliases=binding["aliases"])
+    stage.evidence_json = dump({"verifier_revision": report["verifier_revision"], "passed": report["passed"],
+        "transcript_asset_id": identity, "transcript_digest": asset.digest, "audio_asset_ids": expected_audio,
+        "speech_review": binding, "issues": report["issues"]})
     if not report["passed"]:
         raise Held("speech_verification_failed")
-    stage.evidence_json = dump({"verifier_revision": report["verifier_revision"], "passed": True,
-        "transcript_asset_id": identity, "transcript_digest": asset.digest, "audio_asset_ids": expected_audio})
 
 
 def install_api():
