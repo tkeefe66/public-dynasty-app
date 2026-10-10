@@ -40,6 +40,59 @@ async def seed_media(maker, tmp_path, monkeypatch, kind="render"):
     return episode_id, target
 
 
+async def seed_long_media_chain(maker, tmp_path, monkeypatch):
+    """Valid 103-stage plan whose only runnable root sorts after 102 dependents."""
+    from sqlalchemy import delete
+    await seed_media(maker, tmp_path, monkeypatch, "narrate")
+    async with maker.begin() as db:
+        templates = {row.kind: json.loads(row.input_json)
+            for row in (await db.scalars(select(RecapStage))).all()}
+        await db.execute(delete(RecapStage))
+    async def plan(db, artifact, evidence):
+        return [dict(kind=kind, chunk=chunk, input=templates[kind])
+            for kind, count in (("narrate", 63), ("speech_check", 38), ("render", 1), ("media_check", 1))
+            for chunk in range(count)]
+    monkeypatch.setattr(work, "MEDIA_PLAN_BUILDER", plan)
+    async with maker.begin() as db:
+        rows = await work.start_media(db, "script")
+        identities = {row.id: "z-root" if index == 0 else f"a-dependent-{index:03}"
+            for index, row in enumerate(rows)}
+        now = stamp()
+        for row in rows:
+            row.id = identities[row.id]
+            row.predecessor_id = identities.get(row.predecessor_id, "")
+            row.created_at = now
+    return "z-root"
+
+
+@pytest.mark.asyncio
+async def test_claim_filters_dependencies_before_bounded_window(maker, tmp_path, monkeypatch):
+    # Mutation: limiting queued rows before filtering dependencies permanently hides root.
+    root = await seed_long_media_chain(maker, tmp_path, monkeypatch)
+    async with maker.begin() as db:
+        lease = await work.claim_stage(db, "media-worker", work.MEDIA_KINDS, stamp())
+        assert lease is not None
+        assert lease["stage_id"] == root
+        assert await work.claim_stage(db, "other-worker", work.MEDIA_KINDS, stamp()) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("predecessor", ["missing", "cancelled"])
+async def test_claim_rejects_missing_or_dead_predecessor(maker, tmp_path, monkeypatch, predecessor):
+    # Mutation: absent predecessor is treated as an independent runnable root.
+    _, target = await seed_media(maker, tmp_path, monkeypatch)
+    async with maker.begin() as db:
+        row = await db.get(RecapStage, target)
+        if predecessor == "missing":
+            row.predecessor_id = "missing-stage"
+        else:
+            (await db.get(RecapStage, row.predecessor_id)).state = "cancelled"
+    async with maker.begin() as db:
+        assert await work.claim_stage(db, "renderer", {"render"}, stamp()) is None
+        row = await db.get(RecapStage, target)
+        assert row.state == "queued" and row.worker_id == "" and row.generation == 0
+
+
 def fence(lease):
     return {k: lease[k] for k in ("stage_id", "generation", "epoch", "input_digest")}
 

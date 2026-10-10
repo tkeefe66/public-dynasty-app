@@ -7,7 +7,8 @@ import hashlib
 import json
 import secrets
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
+from sqlalchemy.orm import aliased
 
 from app.config import get_settings
 from app.services.generation.commands import LEASE_SECONDS, require_actor
@@ -290,13 +291,15 @@ async def allowed_asset_ids(db, row):
 async def claim_stage(db, worker_id: str, capabilities: set[str], now: int) -> dict | None:
     await lock_control(db)
     await _expire(db, now)
+    # Blocked dependents must not consume the bounded window and hide their root.
+    predecessor = aliased(RecapStage)
+    dependency_ready = select(predecessor.id).where(predecessor.id == RecapStage.predecessor_id,
+        predecessor.script_id == RecapStage.script_id, predecessor.state == "succeeded").exists()
     rows = (await db.scalars(select(RecapStage).where(RecapStage.state == "queued",
-        RecapStage.next_attempt_at <= now, RecapStage.kind.in_(set(capabilities) & MEDIA_KINDS))
+        RecapStage.next_attempt_at <= now, RecapStage.kind.in_(set(capabilities) & MEDIA_KINDS),
+        or_(RecapStage.predecessor_id == "", dependency_ready))
         .order_by(RecapStage.created_at, RecapStage.id).with_for_update(skip_locked=True).limit(100))).all()
     for row in rows:
-        previous = await db.get(RecapStage, row.predecessor_id) if row.predecessor_id else None
-        if previous and previous.state != "succeeded":
-            continue
         try:
             episode, _ = await _current(db, row, now=now)
             if row.kind not in RESULT_VALIDATORS:

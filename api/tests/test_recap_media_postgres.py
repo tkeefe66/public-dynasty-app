@@ -5,7 +5,19 @@ from app.services.generation.models import stamp
 from app.services.generation.store import Held
 from app.services.recap_video import workflow as work
 from tests.test_generation_postgres import pgmaker  # noqa: F401
-from tests.test_recap_workflow import seed_media, fence
+from tests.test_recap_workflow import seed_media, seed_long_media_chain, fence
+
+
+@pytest.mark.asyncio
+async def test_long_chain_claim_has_single_runnable_winner(pgmaker, tmp_path, monkeypatch):
+    # Mutation: the bounded window hides root, or concurrent claims acquire it twice.
+    root = await seed_long_media_chain(pgmaker, tmp_path, monkeypatch)
+    async def claim(index):
+        async with pgmaker.begin() as db:
+            return await work.claim_stage(db, f"worker-{index}", work.MEDIA_KINDS, stamp())
+    winners = [lease for lease in await asyncio.gather(*(claim(i) for i in range(12))) if lease]
+    assert len(winners) == 1
+    assert winners[0]["stage_id"] == root
 
 
 @pytest.mark.asyncio
