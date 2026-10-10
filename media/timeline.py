@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from media.audio_seams import chunk_record
 
 VERSION = "recap-v8-linux-1"
 FONTS = dict(zip(("Bricolage", "Geist", "GeistMono"), (
@@ -73,6 +74,9 @@ def validate_episode(e):
             return ["duration_invalid"]
         if e["renderer_version"] != VERSION or e["geometry"] != {"width": 1280, "height": 720, "fps": 30}:
             issues.append("renderer_binding_invalid")
+        from media.audio_seams import boundaries_valid, RATE
+        if not boundaries_valid(e["chunk_timing"],e["audio_chunks"],round(e["audio_duration"]*RATE)):
+            issues.append("chunk_boundaries_invalid")
         chunks = e["audio_chunks"]
         if not chunks or len(chunks) != len(set(chunks)):
             issues.append("duplicate_chunk")
@@ -116,7 +120,7 @@ def validate_episode(e):
         issues.append("timeline_invalid")
     return sorted(set(issues))
 
-def build_episode(inputs, raw, audio_chunks, audio_sha256, duration, *, aliases=None):
+def build_episode(inputs, raw, audio_chunks, audio_sha256, duration, *, aliases=None, chunk_timing=None):
     """Match approved prose spans to independently verified words. Ambiguity holds.
 
     Prefix matching permits cardinal/decimal normalization without assigning invented
@@ -183,7 +187,7 @@ def build_episode(inputs, raw, audio_chunks, audio_sha256, duration, *, aliases=
     e = dict(renderer_version=VERSION, geometry=dict(width=1280, height=720, fps=30), fonts=FONTS,
         duration=duration, title="WEEKLY RECAP", edition=inputs["claims"]["period_id"],
         script_digest=inputs["script_digest"], claims=inputs["claims"], audio="audio.wav", audio_sha256=audio_sha256,
-        audio_chunks=audio_chunks, transcript_digest=digest(raw), scenes=scenes, captions=captions)
+        audio_chunks=audio_chunks, audio_duration=duration, chunk_timing=chunk_timing or [chunk_record(audio_chunks[0],audio_sha256,round(duration*44100))], transcript_digest=digest(raw), scenes=scenes, captions=captions)
     errors = validate_episode(e)
     if errors:
         raise ValueError(",".join(errors))
@@ -196,7 +200,8 @@ def synthetic_episode(duration=2):
     return dict(renderer_version=VERSION, geometry=dict(width=1280, height=720, fps=30), fonts=FONTS,
         title="WEEKLY RECAP", edition="DEMO", duration=duration, script_digest=digest("Synthetic narration"),
         claims=dict(claims=[claim], matchup_ids=["demo"]), audio="audio.wav", audio_sha256="",
-        audio_chunks=["synthetic-chunk"], captions=[dict(start=0, end=duration, text="Every matchup. Every final score.")],
+        audio_chunks=["synthetic-chunk"], audio_duration=duration,
+        chunk_timing=[chunk_record('synthetic-chunk','0'*64,round(duration*44100))], captions=[dict(start=0, end=duration, text="Every matchup. Every final score.")],
         scenes=[dict(start=0, end=duration/4, kind="intro", title="Weekly recap.", label="Opening"),
             dict(start=duration/4, end=duration*.75, kind="matchup", claim_id="result:demo", winner="Alpha", loser="Bravo",
                 winner_points="124.25", loser_points="101.50", result="win", label="Matchup", light=False,

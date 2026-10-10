@@ -66,6 +66,17 @@ def test_api_accepts_measured_fixture_and_rejects_missing_frames_or_ending():
         bad = copy.deepcopy(report);bad["measurements"][field]=value
         with pytest.raises(Held,match="media_measurements_invalid"):
             require_media_measurements(bad,episode,assets)
+    for field in ('source_seams','encoded_seams','chunk_timing'):
+        bad=copy.deepcopy(report);bad['measurements'][field]=[]
+        with pytest.raises(Held,match='media_measurements_invalid'):
+            require_media_measurements(bad,episode,assets)
+    for corrupt in ('missing','nonfinite','partial'):
+        bad=copy.deepcopy(report)
+        if corrupt=='missing': bad['render']['geometry']=[]
+        elif corrupt=='nonfinite': bad['render']['geometry'][0]['margins'][0]=float('nan')
+        else: bad['render']['geometry'].pop(0)
+        with pytest.raises(Held,match='media_measurements_invalid'):
+            require_media_measurements(bad,episode,assets)
 
 
 @pytest.mark.skipif(os.environ.get("RECAP_LINUX_TEST") == "1", reason="API speech tokenizer")
@@ -142,8 +153,9 @@ async def test_api_rederives_bundle_and_rejects_changed_score(maker, tmp_path, m
         speech = await db.get(RecapStage,speech_id)
         speech.state="succeeded"
         raw_id=await save(json.dumps(raw).encode(),"application/json",speech)
-        speech.evidence_json=dump(dict(transcript_asset_id=raw_id,audio_asset_ids=["audio-source"],speech_review={"aliases":{}}))
-        episode = build_episode(inputs,raw,["audio-source"],hashlib.sha256(audio.getvalue()).hexdigest(),2)
+        source_id=await save(audio.getvalue(),"audio/mpeg",speech)
+        speech.evidence_json=dump(dict(transcript_asset_id=raw_id,audio_asset_ids=[source_id],speech_review={"aliases":{}}))
+        episode = build_episode(inputs,raw,[source_id],hashlib.sha256(audio.getvalue()).hexdigest(),2)
         package=Path(__file__).resolve().parents[2]/"media/render"
         async def result(value):
             episode_data=json.dumps(value).encode()
@@ -182,3 +194,18 @@ def test_actual_render_and_media_check_lease_adapters(tmp_path):
     # Mutation: wrong predecessor order, ignored uploaded asset, or missing handler.
     from scripts.check_recap_media_runtime import adapter_contract
     adapter_contract(tmp_path)
+
+
+def test_raw_geometry_and_seam_evidence_are_required():
+    from media.geometry import geometry_issues
+    from media.audio_seams import seam_issues
+    assert geometry_issues([], {'captions':[{'text':'Hello'}],'scenes':[{}]}) == ['geometry_missing']
+    assert seam_issues([], [{'frames':44100,'sample_rate':44100},{'frames':44100,'sample_rate':44100}]) == ['seam_evidence_missing']
+    assert seam_issues({},[{'frames':44100}]) == ['seam_evidence_invalid']
+
+
+@pytest.mark.skipif(os.environ.get('RECAP_LINUX_TEST') != '1', reason='Linux image integration')
+def test_real_multichunk_seams_and_runtime_failures(tmp_path):
+    from scripts.check_recap_media_runtime import seam_contract, failure_contract
+    seam_contract(tmp_path)
+    failure_contract(tmp_path)

@@ -106,7 +106,9 @@ async def test_speech_handler_preserves_raw_evidence_and_holds_ambiguity(monkeyp
     uploaded = []
     raw = {"text": spoken, "words": [{"word": "Averie", "start": 0, "end": .3, "probability": .99},
         {"word": spoken.split()[1], "start": .3, "end": .6, "probability": .99}]}
+    processes=[]
     async def process(argv, directory, timeout):
+        processes.append(argv)
         if argv[-1].endswith("raw.json"):
             Path(argv[-1]).write_text(json.dumps(raw))
     def api(req):
@@ -122,6 +124,8 @@ async def test_speech_handler_preserves_raw_evidence_and_holds_ambiguity(monkeyp
             "capability": "speech_check", "allowed_assets": ["audio"], "input": {"chunks": [{}],
                 "speech_review": {"aliases": {"avery": ["averie"]}},
                 "script": {"segments": [{"id": "s", "text": "Avery won."}]}}})
+    assert processes[0][1:3]==['-m','media.audio_seams']
+    assert any(str(arg).endswith('/audio.wav') for arg in processes[1])
     assert uploaded == [raw]
     assert result["status"] == status
     if status == "input_failure":
@@ -139,6 +143,7 @@ async def test_render_alignment_ambiguity_holds_without_repeating_paid_work(monk
     async def download(client,lease,identity,target):
         target.write_text('{}')
     async def run(argv,root,timeout):
+        (root/'chunks.json').write_text('[]')
         with wave.open(str(root/'audio.wav'),'wb') as wav:
             wav.setnchannels(1);wav.setsampwidth(2);wav.setframerate(16000);wav.writeframes(b'\0\0'*16000)
     def ambiguous(*args,**kwargs):
@@ -149,3 +154,26 @@ async def test_render_alignment_ambiguity_holds_without_repeating_paid_work(monk
     registry={};adapters.install(object(),registry)
     result=await registry['render']({'allowed_assets':['raw','narration'],'input':{'chunks':[{}],'speech_review':{'aliases':{}}}})
     assert result=={'status':'input_failure','asset_ids':[],'report':{'issues':['scene_timing_ambiguous']}}
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('reason', ['timeout','exit_nonzero'])
+async def test_process_failure_is_uploaded_and_completed_under_current_lease(monkeypatch, reason):
+    import json
+    from media.runtime import MediaProcessFailure
+    async def fail(lease):
+        raise MediaProcessFailure('ffmpeg', reason, 7 if reason=='exit_nonzero' else None, 1)
+    monkeypatch.setattr(worker,'HANDLERS',{'render':fail})
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {'asset_id':'diagnostic'}
+    class Client:
+        calls=[]
+        async def post(self,path,**kwargs):
+            self.calls.append((path,kwargs));return Response()
+    client=Client()
+    await worker.run_claim(client,dict(capability='render',stage_id='stage',generation=1,epoch='epoch',input_digest='digest'))
+    assert [c[0] for c in client.calls]==['/api/internal/media/assets','/api/internal/media/complete']
+    raw=json.loads(client.calls[0][1]['content'])
+    assert raw['reason']==reason and raw['process']=='ffmpeg' and raw['stage_kind']=='render'
+    assert client.calls[1][1]['json']['result']['asset_ids']==['diagnostic']
+    assert client.calls[1][1]['json']['result']['status']=='input_failure'

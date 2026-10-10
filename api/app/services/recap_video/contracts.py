@@ -28,6 +28,12 @@ def require_media_measurements(report, episode, assets):
     from app.services.generation.store import Held
     try:
         m = report["measurements"]
+        from media.geometry import geometry_issues
+        from media.audio_seams import seam_issues, RULES
+        if (geometry_issues(report['render'].get('geometry'),episode) or m['seam_rules']!=RULES
+                or m['chunk_timing']!=episode['chunk_timing']
+                or seam_issues(m['source_seams'],episode['chunk_timing']) or seam_issues(m['encoded_seams'],episode['chunk_timing'])):
+            raise ValueError()
         if (report["version"] != "recap-media-qa-1" or report["issues"] or report["decoded"] is not True
                 or report["episode_digest"] != digest(episode) or validate_episode(episode)
                 or report["render"]["layout_issues"] or report["render"]["fonts"] != FONTS

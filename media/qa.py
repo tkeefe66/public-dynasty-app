@@ -28,8 +28,8 @@ def measure_bundle(bundle_dir: Path, episode: dict) -> dict:
         for filename in ("video.mp4", "audio.wav", "render.json"):
             report["hashes"][filename] = digest_file(root / filename)
         render = json.loads((root / "render.json").read_text())
-        if render["layout_issues"]:
-            issues.extend(render["layout_issues"])
+        from media.geometry import geometry_issues
+        issues.extend(geometry_issues(render.get("geometry"),episode))
         if render["fonts"] != episode["fonts"]:
             issues.append("font_missing")
         if render["frame_count"] != math.ceil(episode["duration"]*30):
@@ -60,6 +60,17 @@ def measure_bundle(bundle_dir: Path, episode: dict) -> dict:
         issues.extend(check_sync(audio_start_ms=first["a"], video_start_ms=first["v"]))
         source_duration = float(source["format"]["duration"])
         m = report["measurements"]
+        from media.audio_seams import measure_seams, seam_issues, RULES
+        m['seam_rules']=RULES
+        m['chunk_timing']=episode['chunk_timing']
+        m['source_seams']=measure_seams(root/'audio.wav',episode['chunk_timing'])
+        encoded=root/'qa-decoded.wav'
+        seam_decode=_call(['ffmpeg','-v','error','-nostdin','-protocol_whitelist','file,pipe','-i',str(root/'video.mp4'),'-vn','-ac','1','-ar','44100','-c:a','pcm_s16le','-y',str(encoded)])
+        if seam_decode.returncode: raise ValueError()
+        m['encoded_seams']=measure_seams(encoded,episode['chunk_timing'])
+        encoded.unlink()
+        issues.extend(seam_issues(m['source_seams'],episode['chunk_timing']))
+        issues.extend(seam_issues(m['encoded_seams'],episode['chunk_timing']))
         m.update(audio_start_ms=first["a"], video_start_ms=first["v"], sync_error_ms=abs(first["a"]-first["v"]),
             audio_duration=float(audio["duration"]), video_duration=float(video["duration"]), source_duration=source_duration,
             bytes=(root/"video.mp4").stat().st_size, frames=int(video["nb_frames"]))

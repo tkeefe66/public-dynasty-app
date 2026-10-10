@@ -42,7 +42,11 @@ async def bundle(db, stage, result):
         with wave.open(io.BytesIO(data)) as wav:
             duration = wav.getnframes()/wav.getframerate()
         expected = build_episode(inputs, raw, speech_evidence["audio_asset_ids"], audio.digest, duration,
-            aliases=speech_evidence["speech_review"]["aliases"])
+            aliases=speech_evidence["speech_review"]["aliases"],chunk_timing=episode['chunk_timing'])
+        for chunk in episode['chunk_timing']:
+            source=await db.get(RecapAsset,chunk['asset_id'])
+            if not source or source.digest!=chunk['sha256']:
+                raise ValueError()
         if expected != episode:
             raise ValueError()
         _, data = await read(db, files["render.json"], stage=stage)
@@ -86,6 +90,9 @@ async def validate_check(db, stage, result):
         if not prior or prior.kind != "render" or prior.state != "succeeded" or prior.script_id != stage.script_id:
             raise ValueError()
         episode, assets = await bundle(db, prior, json.loads(prior.result_json))
+        _,render_data=await read(db,assets['render.json'].id,stage=prior)
+        if report['render']!=json.loads(render_data):
+            raise ValueError()
         require_media_measurements(report, episode, assets)
         for frame in report["measurements"]["representative_frames"]:
             asset, _ = await read(db, frames[frame["file"]], stage=stage, mime="image/png")

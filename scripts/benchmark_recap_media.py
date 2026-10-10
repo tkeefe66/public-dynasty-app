@@ -21,6 +21,23 @@ else:
     episode = synthetic_episode(duration)
     tone(root / "audio.wav", duration)
     episode["audio_sha256"] = digest_file(root / "audio.wav")
+import wave
+from media.audio_seams import chunk_record
+with wave.open(str(root/'audio.wav')) as wav:
+    actual_frames=wav.getnframes()
+episode['audio_duration']=actual_frames/44100
+# Saved visual benchmark is one retained PCM object, not evidence about historic
+# provider chunk joins. Real multi-chunk seams are exercised by the Linux contract.
+episode['chunk_timing']=[chunk_record(episode['audio_chunks'][0],digest_file(root/'audio.wav'),actual_frames)]
+if len(sys.argv)>1 and sys.argv[1]=='short':
+    episode['audio_chunks']=['synthetic-one','synthetic-two']
+    with wave.open(str(root/'audio.wav')) as wav: raw=wav.readframes(actual_frames)
+    episode['chunk_timing']=[]
+    for i,identity in enumerate(episode['audio_chunks']):
+        path=root/f'source-chunk-{i}.wav'
+        with wave.open(str(path),'wb') as wav:
+            wav.setparams((1,2,44100,0,'NONE','not compressed'));wav.writeframes(raw[i*88200:(i+1)*88200])
+        episode['chunk_timing'].append(chunk_record(identity,digest_file(path),44100,i*44100))
 (root / "episode.json").write_text(json.dumps(episode))
 peak = {"memory_bytes": 0, "scratch_bytes": 0}
 stopped = threading.Event()

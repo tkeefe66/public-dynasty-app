@@ -50,3 +50,32 @@ and a writable `/outputs` bind. Their tone is not speech-validation evidence.
 Approved-script visual planning rejects ambiguous owner/result/status anchors
 before paid narration; speech timing is independently verified afterward.
 An ambiguous paid take stays available for explicit review/recovery.
+
+Review-fix measurement contract: each narration object is independently decoded
+at 44.1kHz mono PCM16, then its unchanged samples are concatenated. Speech uses this same helper before
+16kHz ASR resampling, so speech/render timing does not diverge on MP3 padding. Episode
+`chunk_timing` binds chronological immutable asset IDs/SHA256, decoded frame
+counts and contiguous start/end frame offsets; the total must equal joined PCM.
+Seam records measure source PCM and decoded AAC separately: ±500ms local window,
+absolute adjacent-sample jump at join, maximum adjacent-sample step within ±5ms,
+and contiguous silence touching the join below−50dBFS. Initial qualification
+rules hold for a step above0.2 full scale or silence above250ms. A120ms natural
+pause passes local fixtures; a400ms injected gap and an injected click hold.
+These conservative review thresholds do not establish perceptual certainty;
+intentional longer pauses require explicit review. No crossfade, clipping,
+trimming or silence removal is performed. A saved single PCM replay cannot prove
+historic provider chunk seams; multi-chunk fixtures exercise that contract.
+
+Canvas reports retain at most4096 per-layout/per-cue text records: exact text,
+font family/size/weight, sample count, worst transformed rectangle, available
+bounds and margins. API checks coverage/completeness, finite values and raw
+extents, and binds QA's embedded render record to its immutable render asset.
+Caption bounds are x56–1224 and bottom675; other text uses the1280×716 content
+area. Failure geometry is retained as a private diagnostic asset. Phone-size
+readability remains a separate human qualification.
+
+Expected child timeout/nonzero/runtime-admission failures are bounded structured
+records with process kind, reason, exit code and deadline, never command arguments,
+raw stderr or credentials. The current lease uploads the record and holds the
+stage; heartbeat loss/cancellation propagates and cancels children without a
+completion. Failed upload/completion requires existing server reconciliation.

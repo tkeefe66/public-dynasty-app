@@ -41,10 +41,17 @@ async function main() {
   const frames=path.join(out,'frames');fs.mkdirSync(frames,{recursive:true});
   const count=Math.ceil(e.duration*30), issues=new Set();
   const representatives=new Set([0,count-1,...e.scenes.flatMap(s=>[Math.min(count-1,Math.ceil(s.start*30)),Math.min(count-1,Math.ceil((s.start+.6)*30))])]);
-  const snapshots=[];
+  const snapshots=[],geometry=new Map();
   for(let frame=0;frame<count;frame++) {
-    for(const issue of await page.evaluate(t=>window.renderFrame(t),frame/30)) issues.add(issue);
-    if(issues.size) fail([...issues].join(','));
+    const measured=await page.evaluate(t=>window.renderFrame(t),frame/30);
+    for(const issue of measured.issues) issues.add(issue);
+    for(const row of measured.geometry) {
+      const old=geometry.get(row.key);
+      if(old) {old.left=Math.min(old.left,row.left);old.right=Math.max(old.right,row.right);old.top=Math.min(old.top,row.top);old.bottom=Math.max(old.bottom,row.bottom);old.samples++;}
+      else geometry.set(row.key,{...row,samples:1});
+    }
+    if(geometry.size>4096) fail('geometry_inventory_exceeded');
+    if(issues.size) {fs.writeFileSync(path.join(out,'geometry-error.json'),JSON.stringify([...geometry.values()]));fail([...issues].join(','));}
     const file=path.join(frames,`${String(frame).padStart(7,'0')}.png`);
     await page.screenshot({path:file,animations:'disabled'});
     if(representatives.has(frame)) {
@@ -58,7 +65,7 @@ async function main() {
     '-c:a','aac','-b:a','128k','-movflags','+faststart','-y',path.join(out,'video.mp4')],{encoding:'utf8',timeout:1200000});
   if(ffmpeg.status!==0) {fs.writeFileSync(path.join(out,'mux-error.txt'),String(ffmpeg.stderr));fail('mux_failed');}
   fs.writeFileSync(path.join(out,'render.json'),JSON.stringify({renderer_version:e.renderer_version,frame_count:count,fps:30,geometry:e.geometry,
-    fonts:e.fonts,layout_issues:[...issues],representative_frames:snapshots,input_sha256:sha(fs.readFileSync(input)),
+    fonts:e.fonts,layout_issues:[...issues],geometry:[...geometry.values()].map(r=>{const b=r.caption===null?[0,0,1280,716]:[56,0,1224,675];return {...r,bounds:b,margins:[r.left-b[0],r.top-b[1],b[2]-r.right,b[3]-r.bottom]};}),representative_frames:snapshots,input_sha256:sha(fs.readFileSync(input)),
     scripts:Object.fromEntries(['render.cjs','scene.js','style.css','index.html'].map(f=>[f,sha(fs.readFileSync(path.join(__dirname,f)))]))}));
   fs.rmSync(frames,{recursive:true});
 }

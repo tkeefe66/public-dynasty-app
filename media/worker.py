@@ -27,7 +27,19 @@ async def run_stage(lease: dict) -> dict:
 
 async def run_claim(client, lease):
     fence = {key: lease[key] for key in ("stage_id", "generation", "epoch", "input_digest")}
-    task = asyncio.create_task(run_stage(lease))
+    async def execute():
+        from media.runtime import MediaProcessFailure
+        try:
+            return await run_stage(lease)
+        except MediaProcessFailure as exc:
+            data=json.dumps({**exc.report,"stage_kind":lease["capability"]}).encode()
+            response=await client.post("/api/internal/media/assets",content=data,headers={
+                "X-Media-Lease":json.dumps(fence),"X-Content-SHA256":hashlib.sha256(data).hexdigest(),"Content-Type":"application/json"})
+            response.raise_for_status()
+            identity=response.json()["asset_id"]
+            return {"status":"input_failure","asset_ids":[identity],"report":{
+                "issues":["process_"+exc.report["reason"]],"diagnostic_asset_id":identity}}
+    task = asyncio.create_task(execute())
     async def heartbeat():
         while True:
             await asyncio.sleep(30)
@@ -124,9 +136,13 @@ def install_narration_handlers(client, *, api_key, model_directory, ffmpeg="/usr
                             if size > 64 * 1024 * 1024:
                                 raise RuntimeError("Speech input exceeds asset limit")
                             file.write(block)
-                entries.append(f"file 'chunk-{index}.mp3'")
-            (root / "concat.txt").write_text("\n".join(entries))
-            await _bounded_process([ffmpeg, "-v", "error", "-nostdin", "-protocol_whitelist", "file,pipe", "-f", "concat", "-safe", "1", "-i", str(root / "concat.txt"),
+                from media.timeline import digest_file
+                entries.append(dict(asset_id=asset_id,sha256=digest_file(root/f"chunk-{index}.mp3")))
+            (root / "chunk-inputs.json").write_text(json.dumps(entries))
+            # Same per-chunk PCM decode as render; ASR timestamps must not use a
+            # different MP3 concat-demuxer padding basis.
+            await _bounded_process([sys.executable,"-m","media.audio_seams",str(root)],root,120)
+            await _bounded_process([ffmpeg, "-v", "error", "-nostdin", "-protocol_whitelist", "file,pipe", "-i", str(root / "audio.wav"),
                 "-ac", "1", "-ar", "16000", str(root / "joined.wav")], root, 120)
             module = Path(__file__).resolve().parents[1] / "api/app/services/recap_video/audio.py"
             await _bounded_process([sys.executable, str(module), str(root / "joined.wav"),

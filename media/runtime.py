@@ -73,17 +73,37 @@ print(json.dumps(dict(isolated=os.getuid()!=0 and separate and not network and n
     finally:
         secret.unlink(missing_ok=True)
 
+class MediaProcessFailure(RuntimeError):
+    def __init__(self, process, reason, exit_code=None, timeout_seconds=None):
+        self.report = dict(version='media-process-failure-1',process=process,reason=reason,
+            exit_code=exit_code,timeout_seconds=timeout_seconds)
+        super().__init__('Isolated media process failed: '+reason)
+
 async def run(argv, work, timeout=DEADLINE):
-    """One namespace init owns every descendant; killing it kills entire PID namespace."""
-    require_limits(work)
-    proc = await asyncio.create_subprocess_exec(*command(argv, work), env={"PATH":"/usr/bin:/bin"},
-        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE, start_new_session=True)
+    """Expected failures are sanitized; cancellation still propagates without result."""
+    process = {'ffmpeg':'ffmpeg','node':'render','python':'python','python3':'python'}.get(Path(argv[0]).name,'media')
+    if '-m' in argv:
+        process={'media.qa':'media_qa','media.audio_seams':'audio_join'}.get(argv[argv.index('-m')+1],process)
+    elif any(str(a).endswith('/recap_video/audio.py') for a in argv):
+        process='asr'
+    deadline=min(timeout,DEADLINE)
     try:
-        _, stderr = await asyncio.wait_for(proc.communicate(), min(timeout, DEADLINE))
+        require_limits(work)
+        proc = await asyncio.create_subprocess_exec(*command(argv, work), env={"PATH":"/usr/bin:/bin"},
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+    except (OSError,RuntimeError):
+        raise MediaProcessFailure(process,'runtime_unavailable',timeout_seconds=deadline) from None
+    try:
+        try:
+            await asyncio.wait_for(proc.wait(), deadline)
+        except TimeoutError:
+            raise MediaProcessFailure(process,'timeout',timeout_seconds=deadline) from None
         if proc.returncode:
-            # Packaged tools only; never return raw private input or credentials.
-            raise RuntimeError("Isolated media process failed; inspect private scratch evidence and packaged runtime")
+            raise MediaProcessFailure(process,'exit_nonzero',proc.returncode,deadline)
     finally:
         if proc.returncode is None:
-            os.killpg(proc.pid, signal.SIGKILL)
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # Child may finish between timeout and cleanup.
             await proc.wait()

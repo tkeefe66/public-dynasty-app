@@ -7,6 +7,11 @@ function text(value, x, y, size, family = "Bricolage", color = PAPER, weight = 8
   const left=ctx.textAlign === "right" ? x-m.width : x;
   if(left < 0 || left+m.width > 1280 || y-m.actualBoundingBoxAscent < 0 || y+m.actualBoundingBoxDescent > 716) window.layoutIssues.push("text_overflow");
   if(window.inCaption && (y+m.actualBoundingBoxDescent > 675 || m.width > 1168)) window.layoutIssues.push("caption_overflow");
+  const matrix=ctx.getTransform();
+  const r={key:window.inCaption ? `c:${window.cueIndex}:${window.captionLine++}` : `s:${window.sceneIndex}:${window.textSlot++}`,
+    scene:window.sceneIndex,caption:window.inCaption ? window.cueIndex : null,text:String(value),size,family,weight,
+    left:left+matrix.e,right:left+m.width+matrix.e,top:y-m.actualBoundingBoxAscent+matrix.f,bottom:y+m.actualBoundingBoxDescent+matrix.f};
+  if(r.caption === null || r.text.trim()) window.geometry.push(r);
   ctx.fillText(value, x, y);
 }
 function lines(value, x, y, size, width, family = "Bricolage", color = PAPER, weight = 800) {
@@ -32,6 +37,8 @@ function captionAt(scene, time) {
 
 function draw(time) {
   const index = sceneAt(time), scene = episode.scenes[index];
+  window.sceneIndex=index;window.textSlot=0;window.captionLine=0;
+  window.cueIndex=episode.captions.findIndex(c=>time>=c.start && time<c.end);
   const opening = scene.kind === "intro" || scene.kind === "outro";
   const light = !!scene.light;
   const fg = light ? INK : PAPER, bg = opening ? COBALT : light ? PAPER : INK;
@@ -78,4 +85,4 @@ function draw(time) {
 
 }
 
-window.renderFrame=(t)=>{window.layoutIssues=[];draw(t);return [...new Set(window.layoutIssues)];};
+window.renderFrame=(t)=>{window.layoutIssues=[];window.geometry=[];draw(t);return {issues:[...new Set(window.layoutIssues)],geometry:window.geometry};};
