@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from sleeper_dynasty.engine.playoff_phase import weeks_for_round
+from sleeper_dynasty.engine.lineup import BENCH_SLOTS, SLOT_ELIGIBILITY
 
 
 def eligible_release(last_game_day: str) -> int:
@@ -82,6 +83,12 @@ def build_participants(rosters: list, scores: dict, bracket: dict, period: dict)
                 raise ValueError("participant_incomplete")
             by_week[w] = indexed
             out["starters"][str(w)] = {str(rid): deepcopy(row.get("starters")) for rid, row in indexed.items()}
+        positions = period.get("roster_positions")
+        if (not isinstance(positions, list) or not positions
+                or any(not isinstance(p, str) or p not in SLOT_ELIGIBILITY and p not in BENCH_SLOTS for p in positions)
+                or not any(p in SLOT_ELIGIBILITY for p in positions)):
+            raise ValueError("roster_positions_unsupported")
+        starter_count = sum(p not in BENCH_SLOTS for p in positions)
         phase = period["phase"]
         statuses, pairs = {}, []
         if phase == "regular":
@@ -98,7 +105,7 @@ def build_participants(rosters: list, scores: dict, bracket: dict, period: dict)
             if period.get("round_type") not in (0, 1, 2):
                 raise ValueError("playoff_rules_unknown")
             round_no = period["round"]
-            prior, future = set(), set()
+            finished, future = set(), set()
             for name in ("winners", "losers"):
                 entries = bracket.get(name)
                 if not isinstance(entries, list):
@@ -127,8 +134,13 @@ def build_participants(rosters: list, scores: dict, bracket: dict, period: dict)
                     if any(s is not None and s not in ids for s in slots):
                         raise ValueError("bracket_conflict")
                     if r < round_no:
-                        if entry.get("w") in slots and entry.get("l") in slots and entry.get("w") != entry.get("l"):
-                            prior.update(s for s in slots if s is not None)
+                        # A completed semifinal does not prove that its loser
+                        # has no placement game. Only an explicit placement
+                        # result fixes both participants' final bracket ranks.
+                        if (type(entry.get("p")) is int and entry["p"] > 0
+                                and entry.get("w") in slots and entry.get("l") in slots
+                                and entry.get("w") != entry.get("l") and None not in slots):
+                            finished.update(slots)
                     elif r > round_no:
                         future.update(s for s in slots if s is not None)
                     else:
@@ -142,9 +154,21 @@ def build_participants(rosters: list, scores: dict, bracket: dict, period: dict)
                             "winner": entry.get("w"), "loser": entry.get("l")})
             for rid in ids:
                 if rid not in statuses:
-                    statuses[rid] = "bye" if rid in future else "season_finished" if rid in prior else "unknown"
+                    statuses[rid] = "bye" if rid in future else "season_finished" if rid in finished else "unknown"
             if "unknown" in statuses.values():
                 raise ValueError("participant_status_unknown")
+            for rid, status in statuses.items():
+                if status in ("bye", "season_finished") and any(by_week[w][rid].get("matchup_id") is not None for w in weeks):
+                    raise ValueError("pairing_conflict")
+        # Every raw competitive pairing must be exactly one supported pair;
+        # matching IDs within a pair alone misses IDs shared by extra owners.
+        for w in weeks:
+            groups = defaultdict(set)
+            for row in by_week[w].values():
+                if row.get("matchup_id") is not None:
+                    groups[row["matchup_id"]].add(row["roster_id"])
+            if {frozenset(g) for g in groups.values()} != {frozenset(p["rosters"]) for p in pairs}:
+                raise ValueError("pairing_conflict")
         for pair in pairs:
             totals = []
             for rid in pair["rosters"]:
@@ -157,8 +181,7 @@ def build_participants(rosters: list, scores: dict, bracket: dict, period: dict)
                     starters, points = row.get("starters"), row.get("players_points")
                     if not isinstance(starters, list) or not starters or not isinstance(points, dict):
                         raise ValueError("starter_evidence_incomplete")
-                    positions = period.get("roster_positions")
-                    if isinstance(positions, list) and len(starters) != len([p for p in positions if p not in ("BN", "IR", "TAXI")]):
+                    if len(starters) != starter_count:
                         raise ValueError("starter_evidence_incomplete")
                     active = [pid for pid in starters if pid != "0"]
                     if len(active) != len(set(active)) or any(pid not in (row.get("players") or []) for pid in active):

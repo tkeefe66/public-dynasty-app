@@ -85,19 +85,36 @@ async def workflow_enabled(db, series_id: str) -> bool:
     return bool(feature and feature.get("mode") != "disabled")
 
 
-async def _admission_reason(db, key, snapshot):
+async def _authority_reason(db, key, league_id, *, automatic=False):
+    """Admission never substitutes for current policy or membership authority."""
     from app.db.models import LeagueMembership
-    if not await workflow_enabled(db, key.series_id):
-        return "recap_workflow_disabled"
-    series = await db.get(LeagueSeries, key.series_id)
-    season = await db.get(LeagueSeason, snapshot["league_id"])
-    latest_year = await db.scalar(select(func.max(LeagueSeason.season)).where(LeagueSeason.series_id == key.series_id))
     policy = await resolve_policy(db, key.series_id)
     if policy["blocked_by"]:
         return policy["blocked_by"][0]
-    if not season or not season.verified_at or not await db.scalar(select(LeagueMembership.id).where(
-            LeagueMembership.league_id == snapshot["league_id"]).limit(1)):
+    features = policy["policy"]["features"]
+    if not features.get("recap_video") or features["recap_video"].get("mode") == "disabled":
+        return "recap_workflow_disabled"
+    if any(not features.get(f) or features[f].get("paused") or features[f].get("mode") == "disabled"
+           for f in ("analyst", "recap_video")):
+        return "recap_feature_paused"
+    season = await db.get(LeagueSeason, league_id)
+    if (not season or not season.verified_at or season.series_id != key.series_id or season.season != key.season
+            or not await db.scalar(select(LeagueMembership.id).where(LeagueMembership.league_id == league_id).limit(1))):
         return "recap_authority_missing"
+    if automatic and any(features[f].get("mode") != "automatic" for f in ("analyst", "recap_video")):
+        return "manual_approval_required"
+    return ""
+
+
+async def _admission_reason(db, key, snapshot, *, explicit_manual=False):
+    if not await workflow_enabled(db, key.series_id):
+        return "recap_workflow_disabled"
+    reason = await _authority_reason(db, key, snapshot["league_id"], automatic=not explicit_manual)
+    if reason:
+        return reason
+    series = await db.get(LeagueSeries, key.series_id)
+    season = await db.get(LeagueSeason, snapshot["league_id"])
+    latest_year = await db.scalar(select(func.max(LeagueSeason.season)).where(LeagueSeason.series_id == key.series_id))
     if (not series or not series.activated_at or not season or season.series_id != key.series_id
             or key.season != latest_year or season.season != key.season
             or snapshot.get("current_period_id", str(season.latest_week)) != key.period_id
@@ -131,7 +148,8 @@ async def observe_period(db, key: EpisodeKey, snapshot: dict, now: int) -> str:
         previous = {**json.loads(old.snapshot_json), "observed_at": row.stable_since}
     saved = {**snapshot, "observed_at": now}
     decision = evaluate_readiness(saved, previous, now)
-    admission = "" if row.admitted_at else await _admission_reason(db, key, snapshot)
+    admission = (await _authority_reason(db, key, snapshot["league_id"]) if row.admitted_at
+                 else await _admission_reason(db, key, snapshot))
     if decision.ready and not admission and not row.admitted_at:
         row.admitted_at = now
     valid = decision.code in ("ready", "facts_unstable", "release_not_due")
@@ -153,7 +171,14 @@ async def observe_period(db, key: EpisodeKey, snapshot: dict, now: int) -> str:
     return ident
 
 
-async def require_readiness(db, series_id: str, payload: dict, *, league_id=None) -> RecapEpisode | None:
+def source_ready(row: RecapEpisode, snapshot: dict) -> bool:
+    """Recheck two persisted observations; approval itself is not an observation."""
+    return bool(row.stable_since and evaluate_readiness(snapshot,
+        {**snapshot, "observed_at": row.stable_since}, row.observed_at).ready)
+
+
+async def require_readiness(db, series_id: str, payload: dict, *, league_id=None,
+                            allow_current_admission=False, automatic=False) -> RecapEpisode | None:
     """Current persisted evidence must match the immutable operation snapshot."""
     if not await workflow_enabled(db, series_id) and not payload.get("recap_facts_digest"):
         return None
@@ -167,6 +192,23 @@ async def require_readiness(db, series_id: str, payload: dict, *, league_id=None
             or payload.get("edition", {}).get("season", season) != season
             or payload.get("edition", {}).get("week", row.week) != row.week):
         raise Held("recap_episode_identity_conflict")
+    key = EpisodeKey(series_id, row.season, row.period_id)
+    authority = await _authority_reason(db, key, row.league_id, automatic=automatic)
+    if authority:
+        raise Held(authority)
+    if allow_current_admission and not row.admitted_at:
+        observation = await db.get(RecapObservation, row.latest_observation_id)
+        snapshot = json.loads(observation.snapshot_json) if observation else {}
+        if not source_ready(row, snapshot):
+            raise Held(evaluate_readiness(snapshot, {**snapshot, "observed_at": row.stable_since}, row.observed_at).code)
+        if payload.get("recap_facts_digest") != row.facts_digest:
+            raise Held("recap_facts_changed")
+        reason = await _admission_reason(db, key, snapshot, explicit_manual=True)
+        if reason:
+            raise Held(reason)
+        # Read-only validation here. The command records admission only after
+        # actor checks and all other authorization checks have succeeded.
+        return row
     if row.lifecycle != "ready" or row.hold:
         raise Held(row.hold or "recap_not_ready")
     if not row.admitted_at:

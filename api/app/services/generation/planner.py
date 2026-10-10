@@ -76,7 +76,7 @@ async def automatic_eligibility(db, season, feature, payload, now):
         from app.services.recap_video.readiness import require_readiness
         from app.services.generation.store import Held
         try:
-            admitted = await require_readiness(db, season.series_id, payload, league_id=season.league_id)
+            admitted = await require_readiness(db, season.series_id, payload, league_id=season.league_id, automatic=True)
         except Held as exc:
             return exc.code
         if admitted:
@@ -175,18 +175,19 @@ async def collect_analyst(db, league_id, series_id, cache_dir):
         if edition["edition_type"] != "results":
             continue
         extra = {}
-        from app.services.recap_video.readiness import workflow_enabled, require_readiness
+        from app.services.recap_video.readiness import workflow_enabled, require_readiness, source_ready
         if await workflow_enabled(db, series_id):
             from app.services.generation.recap_models import RecapEpisode, RecapObservation
             from app.services.recap_video.collector import edition_from_snapshot, source_facts
             episode = await db.scalar(select(RecapEpisode).where(RecapEpisode.series_id == series_id,
                 RecapEpisode.season == edition["season"], RecapEpisode.week == edition["week"]))
-            if episode and episode.lifecycle == "ready" and episode.admitted_at:
+            if episode and (episode.lifecycle == "ready" or episode.hold == "manual_approval_required"):
                 observation = await db.get(RecapObservation, episode.latest_observation_id)
                 snapshot = json.loads(observation.snapshot_json)
-                edition = edition_from_snapshot(snapshot, generated_at=episode.admitted_at)
-                extra = {"period_id": episode.period_id, "recap_facts_digest": episode.facts_digest,
-                         "source_snapshot": source_facts(snapshot)}
+                if source_ready(episode, snapshot):
+                    edition = edition_from_snapshot(snapshot, generated_at=episode.admitted_at or episode.observed_at)
+                    extra = {"period_id": episode.period_id, "recap_facts_digest": episode.facts_digest,
+                             "source_snapshot": source_facts(snapshot)}
         row = await observe(db, series_id=series_id, league_id=league_id, feature="analyst",
             subject=subject_key("analyst", series_id, edition["season"], edition["week"]),
             event=f'{edition["season"]}:week:{edition["week"]:02d}',

@@ -12,9 +12,8 @@ from app.services.generation.store import dump
 
 @pytest.fixture(autouse=True)
 def enabled_workflow(monkeypatch):
-    async def enabled(*args):
-        return True
-    monkeypatch.setattr("app.services.recap_video.readiness.workflow_enabled", enabled)
+    from tests.recap_fixtures import install_recap_policy
+    return install_recap_policy(monkeypatch)
 
 
 def snapshot():
@@ -114,14 +113,14 @@ def test_precision_and_complete_starter_snapshot():
     from app.services.recap_video.periods import build_participants
     rows = snapshot()["scores"]
     result = build_participants([{"roster_id": i, "owner_id": f"owner-{i}"} for i in (1, 2)],
-        rows, {"ok": True, "winners": [], "losers": []}, {"phase": "regular", "nfl_weeks": [4]})
+        rows, {"ok": True, "winners": [], "losers": []}, {"phase": "regular", "nfl_weeks": [4], "roster_positions": ["QB", "RB", "BN"]})
     assert result["participant_error"] == ""
     assert result["scores"]["4"][0]["points"] == "100.0100"
     assert result["starters"]["4"]["1"] == ["p1", "p2"]
     assert result["pairings"][0]["result"] == "tie"
     rows["4"][0]["matchup_id"] = rows["4"][1]["matchup_id"] = None
     result = build_participants([{"roster_id": i, "owner_id": f"owner-{i}"} for i in (1, 2)],
-        rows, {"ok": True, "winners": [], "losers": []}, {"phase": "regular", "nfl_weeks": [4]})
+        rows, {"ok": True, "winners": [], "losers": []}, {"phase": "regular", "nfl_weeks": [4], "roster_positions": ["QB", "RB", "BN"]})
     assert result["participant_error"] == "participant_incomplete"
     assert result["pairings"] == []
 
@@ -132,7 +131,7 @@ def playoff_fixture():
         {"m": 1, "r": 1, "t1": 1, "t2": 2, "w": 1, "l": 2},
         {"m": 2, "r": 2, "t1": {"w": 1}, "t2": 3, "p": 1},
         {"m": 3, "r": 2, "t1": {"l": 1}, "t2": 4, "p": 3},
-    ], "losers": [{"m": 1, "r": 1, "t1": 5, "t2": 6, "w": 5, "l": 6}]}
+    ], "losers": [{"m": 1, "r": 1, "t1": 5, "t2": 6, "w": 5, "l": 6, "p": 1}]}
     rows = [{**snapshot()["scores"]["4"][0], "roster_id": i,
              "matchup_id": 1 if i in (1, 2) else 2 if i in (5, 6) else None} for i in range(1, 7)]
     return rosters, bracket, rows
@@ -141,7 +140,7 @@ def playoff_fixture():
 def test_playoff_byes_placement_and_finished_owners_have_evidence():
     from app.services.recap_video.periods import build_participants
     rosters, bracket, rows = playoff_fixture()
-    period = {"phase": "post", "round": 1, "nfl_weeks": [15], "round_type": 0}
+    period = {"phase": "post", "round": 1, "nfl_weeks": [15], "round_type": 0, "roster_positions": ["QB", "RB", "BN"]}
     result = build_participants(rosters, {"15": rows}, bracket, period)
     assert result["participant_error"] == ""
     assert {p["roster_id"]: p["status"] for p in result["participants"]} == {
@@ -151,7 +150,7 @@ def test_playoff_byes_placement_and_finished_owners_have_evidence():
     for row in rows:
         row["matchup_id"] = 1 if row["roster_id"] in (1, 3) else 2 if row["roster_id"] in (2, 4) else None
     result = build_participants(rosters, {"16": rows}, bracket,
-        {"phase": "post", "round": 2, "nfl_weeks": [16], "round_type": 0})
+        {"phase": "post", "round": 2, "nfl_weeks": [16], "round_type": 0, "roster_positions": ["QB", "RB", "BN"]})
     assert result["participant_error"] == ""
     assert {p["roster_id"]: p["status"] for p in result["participants"]} == {
         1: "title", 3: "title", 2: "placement", 4: "placement", 5: "season_finished", 6: "season_finished"}
@@ -161,7 +160,7 @@ def test_two_week_final_needs_both_weeks_and_resolved_bracket():
     from app.services.recap_video.periods import build_participants
     rosters = [{"roster_id": i, "owner_id": f"owner-{i}"} for i in (1, 2)]
     bracket = {"ok": True, "winners": [{"m": 1, "r": 1, "t1": 1, "t2": 2}], "losers": []}
-    period = {"phase": "post", "round": 1, "nfl_weeks": [16, 17], "round_type": 1}
+    period = {"phase": "post", "round": 1, "nfl_weeks": [16, 17], "round_type": 1, "roster_positions": ["QB", "RB", "BN"]}
     result = build_participants(rosters, {"16": snapshot()["scores"]["4"]}, bracket, period)
     assert result["participant_error"] == "round_incomplete"
     result = build_participants(rosters, {str(w): snapshot()["scores"]["4"] for w in (16, 17)}, bracket, period)
@@ -196,6 +195,104 @@ def test_shortened_starter_rows_hold_against_actual_lineup_slots():
     s["scores"]["4"][0]["starters"] = ["p1"]
     s["starters"]["4"]["1"] = ["p1"]
     assert evaluate(s, s).code == "starter_evidence_incomplete"
+
+
+@pytest.mark.parametrize("positions", [None, "QB", {}, [], ["BN"], [None], ["QB", "UNKNOWN"], [["QB"]]])
+def test_invalid_slot_inventory_never_disables_starter_completeness(positions):
+    s = snapshot()
+    s["roster_positions"] = positions
+    s["scores"]["4"][0]["starters"] = ["0"]
+    s["starters"]["4"]["1"] = ["0"]
+    assert evaluate(s, s).code == "roster_positions_unsupported"
+    del s["roster_positions"]
+    assert evaluate(s, s).code == "roster_positions_unsupported"
+
+
+@pytest.mark.parametrize("current_pairing", [None, 2])
+def test_missing_placement_match_cannot_imply_finished(current_pairing):
+    from app.services.recap_video.periods import build_participants
+    rosters = [{"roster_id": i, "owner_id": f"owner-{i}"} for i in range(1, 5)]
+    bracket = {"ok": True, "winners": [
+        {"m": 1, "r": 1, "t1": 1, "t2": 2, "w": 1, "l": 2},
+        {"m": 2, "r": 1, "t1": 3, "t2": 4, "w": 3, "l": 4},
+        {"m": 3, "r": 2, "t1": 1, "t2": 3, "w": 1, "l": 3, "p": 1},
+        {"m": 4, "r": 2, "t1": 2, "t2": 4, "w": 2, "l": 4, "p": 3},
+    ], "losers": []}
+    scores = {"16": [{"roster_id": i, "matchup_id": 1 if i in (1, 3) else 2,
+        "points": "100.00", "starters": ["p"], "players": ["p"], "players_points": {"p": "100.00"}}
+        for i in range(1, 5)]}
+    s = {**snapshot(), "week": 16, "period_id": "playoff:2", "phase": "post", "round": 2,
+         "round_type": 0, "nfl_weeks": [16], "roster_positions": ["QB"]}
+    s.update(build_participants(rosters, scores, bracket, s))
+    assert evaluate(s, s).ready
+    bracket["winners"].pop()  # Delete real placement coverage, retaining all owner rows.
+    for row in scores["16"]:
+        if row["roster_id"] in (2, 4):
+            row["matchup_id"] = current_pairing
+    s.update(build_participants(rosters, scores, bracket, s))
+    assert evaluate(s, s).code == "participant_status_unknown"
+
+
+@pytest.mark.parametrize("status", ["bye", "season_finished"])
+def test_nonplaying_bracket_status_conflicts_with_current_pairing(status):
+    from app.services.recap_video.periods import build_participants
+    rosters, bracket, rows = playoff_fixture()
+    bracket["losers"][0]["p"] = 1
+    round_no = 1 if status == "bye" else 2
+    if round_no == 2:
+        bracket["winners"][1].update(t1=1, t2=3, w=1, l=3)
+        bracket["winners"][2].update(t1=2, t2=4, w=2, l=4)
+    for row in rows:
+        rid = row["roster_id"]
+        row["matchup_id"] = (1 if rid in (1, 2) else 2 if rid in (5, 6) else 3) if round_no == 1 else (
+            1 if rid in (1, 3) else 2 if rid in (2, 4) else 3)
+    result = build_participants(rosters, {"16": rows}, bracket, {"phase": "post", "round": round_no,
+        "nfl_weeks": [16], "round_type": 0, "roster_positions": ["QB", "RB", "BN"]})
+    assert result["participant_error"] == "pairing_conflict"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("feature,change,code", [
+    ("recap_video", {"mode": "disabled"}, "recap_workflow_disabled"),
+    ("recap_video", {"paused": True}, "recap_feature_paused"),
+    ("analyst", {"paused": True}, "recap_feature_paused"),
+    ("analyst", {"mode": "disabled"}, "recap_feature_paused"),
+    ("analyst", {"mode": "manual"}, "manual_approval_required"),
+    ("recap_video", {"mode": "manual"}, "manual_approval_required"),
+])
+async def test_feature_restriction_then_rollover_cannot_mint_admission(maker, enabled_workflow, feature, change, code):
+    from app.services.recap_video.contracts import EpisodeKey
+    from app.services.recap_video.readiness import observe_period, competitive_digest
+    from app.services.generation.recap_models import RecapEpisode
+    from app.services.generation.models import LeagueSeason
+    from app.services.generation.planner import automatic_eligibility
+    from app.services.generation.commands import authorize_candidate
+    from app.services.generation.models import GenerationCandidate, ProviderAttempt
+    from app.services.generation.store import Held
+    from tests.test_generation_gateway import seed_job
+    await seed_job(maker)
+    enabled_workflow[feature].update(change)
+    async with maker.begin() as db:
+        season = await db.get(LeagueSeason, "synthetic")
+        season.latest_week = 4
+        key, s = EpisodeKey("series", 2026, "4"), snapshot()
+        ident = await observe_period(db, key, s, 1000)
+        await observe_period(db, key, s, 4600)
+        row = await db.get(RecapEpisode, ident)
+        assert row.admitted_at == 0 and row.hold == code
+        season.latest_week = 5
+        enabled_workflow[feature].update(mode="automatic", paused=False)
+        await observe_period(db, key, {**s, "current_period_id": "5"}, 5500)
+        assert row.admitted_at == 0 and row.hold == "historical_approval_required"
+        assert await automatic_eligibility(db, season, "analyst", {
+            "season": 2026, "week": 4, "recap_facts_digest": competitive_digest(s)}, 5500) == "historical_approval_required"
+        db.add(GenerationCandidate(key="recap", series_id="series", league_id="synthetic", feature="analyst",
+            subject="recap", event="2026:week:04", digest="request", payload_json=dump({
+                "season": 2026, "week": 4, "recap_facts_digest": competitive_digest(s)})))
+        with pytest.raises(Held, match="historical_approval_required"):
+            await authorize_candidate(db, "recap", actor_id="owner", actor_kind="scheduler",
+                reason="Rollover is not approval", authorization_key="rollover")
+        assert not list((await db.scalars(select(ProviderAttempt))).all())
 
 
 def test_delayed_wednesday_game_does_not_move_release_to_next_tuesday():

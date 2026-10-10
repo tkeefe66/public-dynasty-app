@@ -17,9 +17,8 @@ from tests.test_recap_readiness import snapshot
 @pytest.fixture
 def enabled(monkeypatch):
     monkeypatch.setenv("TRADE_GRADER_ADMIN_EMAILS", "owner@test.local")
-    async def yes(*args):
-        return True
-    monkeypatch.setattr("app.services.recap_video.readiness.workflow_enabled", yes)
+    from tests.recap_fixtures import install_recap_policy
+    return install_recap_policy(monkeypatch)
 
 
 class Sources:
@@ -251,3 +250,128 @@ async def test_unexpected_source_failure_invalidates_previously_ready_period(mak
     async with maker() as db:
         row = await db.scalar(select(RecapEpisode))
         assert row.lifecycle == "held" and row.hold == "source_error"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("manual_feature", ["analyst", "recap_video"])
+async def test_manual_collection_needs_explicit_current_campaign_approval(maker, tmp_path, enabled, free_sources, manual_feature):
+    from app.services.recap_video.collector import collect_recap
+    from app.services.generation.recap_models import RecapEpisode
+    from app.services.generation.planner import collect_analyst, automatic_eligibility
+    from app.services.generation.models import GenerationCandidate
+    from app.services.generation.administration import preview, apply_campaign
+    from app.services.generation.commands import authorize_candidate
+    from app.services.analyst_store import AnalystStore
+    await seed_job(maker)
+    enabled[manual_feature]["mode"] = "manual"
+    @asynccontextmanager
+    async def fence():
+        async with maker.begin() as db:
+            yield db
+    async with maker.begin() as db:
+        (await db.get(LeagueSeason, "synthetic")).latest_week = 4
+    start = int(datetime(2026, 10, 13, 14, tzinfo=timezone.utc).timestamp())
+    await collect_recap(free_sources, "synthetic", tmp_path, fence, start)
+    await collect_recap(free_sources, "synthetic", tmp_path, fence, start + 3600)
+    assert AnalystStore(tmp_path).published_editions("synthetic") == []
+
+    async with maker.begin() as db:
+        episode = await db.scalar(select(RecapEpisode))
+        assert episode.admitted_at == 0 and episode.hold == "manual_approval_required"
+        await collect_analyst(db, "synthetic", "series", tmp_path)
+        candidate = await db.scalar(select(GenerationCandidate).where(GenerationCandidate.feature == "analyst"))
+        assert candidate and json.loads(candidate.payload_json)["recap_facts_digest"] == episode.facts_digest
+        assert await automatic_eligibility(db, await db.get(LeagueSeason, "synthetic"), "analyst",
+            json.loads(candidate.payload_json), start + 3600) == "manual_approval_required"
+        with pytest.raises(Held, match="manual_only|manual_approval_required"):
+            await authorize_candidate(db, candidate.key, actor_id="owner", actor_kind="scheduler",
+                reason="Automatic cannot approve manual work", authorization_key="automatic")
+        assert episode.admitted_at == 0
+        manifest = await preview(db, [candidate.key], "owner", "Approve synthetic current recap")
+        assert episode.admitted_at == 0
+        response = await apply_campaign(db, manifest["id"], manifest["digest"], "owner", "Explicit approval")
+        assert len(response["jobs"]) == 1 and episode.admitted_at > 0 and episode.lifecycle == "ready"
+        approved = await db.get(GenerationOperation, response["jobs"][0])
+        assert approved.actor_kind == "admin" and approved.actor_id == "owner"
+        assert not list((await db.scalars(select(ProviderAttempt))).all())
+    assert AnalystStore(tmp_path).published_editions("synthetic") == []
+    # Existing approved manual work remains usable through later stages and
+    # rollover, with real gateway accounting against an in-memory transport.
+    from tests.test_generation_gateway import BODY
+    from app.services.generation.gateway import Gateway
+    from app.services.generation.models import stamp
+    from app.services.generation.artifacts import save_artifact
+    from app.services.generation.features import ValidatedOutput
+    from app.services.generation.publication import drain
+    from app.services.generation.store import digest
+    model = json.loads(approved.policy_json)["policy"]["features"]["analyst"]["model"]
+    transport = FakeTransport(body=dump({**BODY, "model": model}))
+    async with maker.begin() as db:
+        job = await db.get(GenerationOperation, approved.id)
+        job.state, job.generation, job.lease_until = "running", 1, stamp() + 600
+        (await db.get(LeagueSeason, "synthetic")).latest_week = 5
+    gateway = Gateway(maker, transport, epoch="test-epoch")
+    enabled["recap_video"]["paused"] = True
+    with pytest.raises(Held, match="recap_feature_paused"):
+        await gateway.invoke(approved.id, 1, 1, {**REQUEST, "model": model})
+    assert transport.sends == 0
+    enabled["recap_video"]["paused"] = False
+    for stage in (1, 2):
+        assert (await gateway.invoke(approved.id, 1, stage, {**REQUEST, "model": model}))["id"] == BODY["id"]
+    assert transport.sends == 2
+    async with maker.begin() as db:
+        edition = {**json.loads(approved.payload_json)["edition"], "edition_type": "roast", "markdown": "Synthetic reviewed recap."}
+        artifact = await save_artifact(db, approved.id, 1, ValidatedOutput(
+            payload=edition, digest=digest(edition), snapshot_digest=approved.request_digest, stages=2))
+    await drain(maker, tmp_path)
+    assert AnalystStore(tmp_path).published_editions("synthetic")[0]["markdown"] == "Synthetic reviewed recap."
+    async with maker() as db:
+        assert (await db.get(RecapEpisode, episode.episode_id)).article_digest == artifact.digest
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("block,code", [("actor", "admin_permission_removed"),
+    ("rollover", "historical_approval_required"), ("recap_pause", "recap_feature_paused"),
+    ("global_pause", "owner_paused"), ("membership", "recap_authority_missing"),
+    ("incomplete", "schedule_incomplete"), ("changed", "recap_facts_changed"),
+    ("reason", "An audit reason is required")])
+async def test_failed_manual_authorization_never_admits(maker, enabled, block, code):
+    from app.db.models import User, LeagueMembership
+    from app.services.generation.commands import authorize_candidate
+    from app.services.generation.models import GenerationCandidate, GenerationControl
+    from app.services.generation.recap_models import RecapEpisode
+    from app.services.recap_video.readiness import observe_period, competitive_digest
+    from app.services.recap_video.contracts import EpisodeKey
+    await seed_job(maker)
+    enabled["recap_video"]["mode"] = "manual"
+    s, key = snapshot(), EpisodeKey("series", 2026, "4")
+    async with maker.begin() as db:
+        season = await db.get(LeagueSeason, "synthetic")
+        season.latest_week = 4
+        ident = await observe_period(db, key, s, 1000)
+        await observe_period(db, key, s, 4600)
+        db.add(GenerationCandidate(key="manual", series_id="series", league_id="synthetic", feature="analyst",
+            subject="recap", event="2026:week:04", digest="request", payload_json=dump({
+                "season": 2026, "week": 4, "recap_facts_digest": competitive_digest(s)})))
+        if block == "actor":
+            (await db.get(User, "owner")).is_admin = False
+        elif block == "rollover":
+            season.latest_week = 5
+        elif block == "recap_pause":
+            enabled["recap_video"]["paused"] = True
+        elif block == "global_pause":
+            (await db.get(GenerationControl, "global")).hold = "owner_paused"
+        elif block == "membership":
+            await db.delete(await db.scalar(select(LeagueMembership)))
+        elif block == "incomplete":
+            await observe_period(db, key, {**s, "observed_games": []}, 5500)
+        elif block == "changed":
+            revised = {**s, "schedule_revision": "new"}
+            await observe_period(db, key, revised, 5500)
+            await observe_period(db, key, revised, 9100)
+        with pytest.raises((Held, ValueError), match=code):
+            await authorize_candidate(db, "manual", actor_id="owner", actor_kind="admin",
+                reason="" if block == "reason" else "Attempt synthetic approval", authorization_key="manual")
+        assert (await db.get(RecapEpisode, ident)).admitted_at == 0
+        assert not await db.scalar(select(GenerationOperation).where(GenerationOperation.authorization_key == "manual"))
+        assert not list((await db.scalars(select(ProviderAttempt))).all())

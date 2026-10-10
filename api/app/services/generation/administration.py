@@ -202,7 +202,7 @@ async def apply_campaign(db, preview_id, expected_digest, actor, reason):
             raise Conflict("Saved content changed since the correction was proposed")
         if policy["revisions"] != item["policy_revisions"] or (head.artifact_id if head else "") != item["head"]:
             raise Conflict("Policy or saved content changed; preview again")
-        if candidate.hold not in ("", "historical_approval_required", "missed_event_approval_required"):
+        if candidate.hold not in REVIEWABLE_HOLDS:
             raise Held(candidate.hold)
         require_available(statuses[candidate.key])
         season = await db.get(LeagueSeason, candidate.league_id)

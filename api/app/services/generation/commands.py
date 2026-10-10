@@ -218,9 +218,12 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
         raise Held("feature_paused")
     if actor_kind == "scheduler" and feature["mode"] != "automatic":
         raise Held("manual_only")
+    recap_episode = None
     if candidate.feature == "analyst":
         from app.services.recap_video.readiness import require_readiness
-        await require_readiness(db, candidate.series_id, json.loads(candidate.payload_json), league_id=candidate.league_id)
+        recap_episode = await require_readiness(db, candidate.series_id, json.loads(candidate.payload_json),
+            league_id=candidate.league_id, allow_current_admission=actor_kind == "admin",
+            automatic=actor_kind == "scheduler")
     pending = await db.scalar(select(GenerationOperation).where(
         GenerationOperation.subject == candidate.subject,
         GenerationOperation.state.in_(("queued", "running", "held", "needs_attention"))))
@@ -248,6 +251,11 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
         connection_generation=connection.generation if connection else "",
         expected_artifact=head.artifact_id if head else "", epoch=control.epoch, reason=reason)
     await require_actor(db, row)
+    if recap_episode is not None and not recap_episode.admitted_at:
+        audit(db, actor_id, "recap_period_admitted", recap_episode.episode_id, reason,
+              after={"candidate": candidate.key, "facts_digest": recap_episode.facts_digest})
+        recap_episode.admitted_at = stamp()
+        recap_episode.lifecycle, recap_episode.hold = "ready", ""
     db.add(row)
     await db.flush()
     audit(db, actor_id or "scheduler", "generation_authorized", row.id, reason,

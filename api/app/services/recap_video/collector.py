@@ -218,13 +218,13 @@ async def _collect_recap(client, league_id, cache_dir, fence, now: int) -> bool:
         async with fence() as db:
             ident = await readiness.observe_period(db, EpisodeKey(series_id, season.season, period["period_id"]), snapshot, now)
             row = await db.get(RecapEpisode, ident)
-            if row.lifecycle == "ready":
+            if row.lifecycle == "ready" or (row.hold == "manual_approval_required" and readiness.source_ready(row, snapshot)):
                 store = AnalystStore(cache_dir)
                 with store.claim(league_id) as claimed:
                     if not claimed:
                         raise RuntimeError("recap_collection_failed: archive busy; retry")
                     if not store.edition_path(league_id, row.season, row.week).exists():
-                        store.save(league_id, edition_from_snapshot(snapshot, generated_at=row.admitted_at))
+                        store.save(league_id, edition_from_snapshot(snapshot, generated_at=row.admitted_at or row.observed_at))
         failure.extend(period_errors)
     if failure:
         raise RuntimeError("recap_collection_failed: " + "; ".join(dict.fromkeys(failure)))

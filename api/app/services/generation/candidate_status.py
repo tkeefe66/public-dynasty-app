@@ -26,7 +26,7 @@ from app.services.generation.models import (
 from app.services.generation.policy import paid_capabilities, supports_feature
 from app.services.generation.store import Held, resolve_policy
 
-REVIEWABLE_HOLDS = ("", "historical_approval_required", "missed_event_approval_required")
+REVIEWABLE_HOLDS = ("", "historical_approval_required", "missed_event_approval_required", "manual_approval_required")
 ACTIVE_STATES = ("queued", "running", "held", "needs_attention")
 
 
