@@ -46,6 +46,8 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # Hosts may install handlers after app import; protect those too.
+        redact_share_logs()
         from app.services.recap_video.elevenlabs import install_api
         install_api()
         from app.services.recap_video.qualification import install_api as install_qualification

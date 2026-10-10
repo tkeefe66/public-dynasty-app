@@ -140,6 +140,8 @@ async def recovery_audio(attempt_id: str, request: Request, worker=Depends(requi
                 raise Held("provider_recovery_identity_unresolved")
         key, size = await store_upload(request)
         async with get_sessionmaker().begin() as db:
+            from app.services.recap_video.retention import require_registerable
+            await require_registerable(db, key)
             attempt = await work._owned_attempt(db, attempt_id, worker.worker_id)
             count = await db.scalar(select(func.count()).select_from(RecapAsset).where(RecapAsset.stage_id == attempt.stage_id))
             if count >= 64:
@@ -284,6 +286,8 @@ async def upload(request: Request, worker=Depends(require_media_worker)):
         key, size = await store_upload(request)
         # No control/DB lock across network upload. Recheck all fences after transfer.
         async with get_sessionmaker().begin() as db:
+            from app.services.recap_video.retention import require_registerable
+            await require_registerable(db, key)
             row = await lease(db, body, worker)
             count = await db.scalar(select(func.count()).select_from(RecapAsset).where(RecapAsset.stage_id == row.id))
             if count >= 64:

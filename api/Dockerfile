@@ -21,4 +21,4 @@ EXPOSE 8000
 # where alembic.ini + migrations/ live; uvicorn runs from /app for the
 # `api.uvicorn_entry` module path. Bind IPv6 (::) so Railway private networking
 # (IPv6-only) can reach us; on Linux dual-stack this also accepts IPv4 traffic.
-CMD ["sh", "-c", "cd /app/api && alembic upgrade head && cd /app && uvicorn api.uvicorn_entry:app --host :: --port ${PORT:-8000}"]
+CMD ["sh", "-c", "cd /app/api && alembic upgrade head && cd /app && uvicorn api.uvicorn_entry:app --log-config /app/api/logging.json --host :: --port ${PORT:-8000}"]

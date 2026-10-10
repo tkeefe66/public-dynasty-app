@@ -99,14 +99,19 @@ async def control_action(db, body, actor):
         raise Conflict("Control state changed. Reload before applying this action.")
     before = data(control)
     if body.action == "pause":
-        if control.hold != "restore_quarantine":
+        if not control.hold.startswith('restore_'):
             control.hold = "owner_paused"
     elif body.action in ("activate", "resume"):
         epoch = get_settings().generation_execution_epoch
         if not epoch or not body.workers_stopped:
             raise Held("Confirm legacy workers stopped and configure the deployment execution epoch first")
-        if control.hold == "restore_quarantine" and control.epoch == epoch:
+        if control.hold.startswith('restore_') and control.epoch == epoch:
             raise Held("fresh_execution_epoch_required")
+        if control.hold.startswith('restore_'):
+            from app.services.generation.recovery import require_restore_report, financial_digest
+            report=await require_restore_report(db)
+            if json.loads(report.report_json)['financial_digest'] != await financial_digest(db):
+                raise Held('restore_financial_evidence_changed')
         if body.action == "resume" and control.epoch != epoch:
             raise Held("restore_quarantine")
         control.epoch, control.hold = epoch, ""

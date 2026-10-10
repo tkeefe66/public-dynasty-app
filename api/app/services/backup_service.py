@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import hashlib
 import io
 import json
 import logging
@@ -199,6 +200,106 @@ def build_manifest(
 
 
 RUN_PREFIX = "backups"
+RECOVERY_POINT_DAYS = 30  # Existing bucket lifecycle contract; never releases pins by age alone.
+
+
+def snapshot_inventory(blob):
+    """Derive media and authority from the EXACT dump, never a later DB read."""
+    objects, authority = {}, {'share_decisions':[], 'publications':[], 'publication_epochs':[], 'execution_epochs':[]}
+    for line in gzip.decompress(blob).splitlines():
+        item = json.loads(line)
+        row, table = item['row'], item['table']
+        if table == 'recap_assets':
+            objects[row['storage_key']] = {'sha256':row['digest'], 'size':row['size']}
+        elif table == 'recap_share_decisions':
+            authority['share_decisions'].append(row)
+        elif table == 'recap_publications':
+            authority['publications'].append(row)
+        elif table == 'recap_publication_control':
+            authority['publication_epochs'].append(row['epoch'])
+        elif table == 'generation_control':
+            authority['execution_epochs'].append(row['epoch'])
+    return objects, authority
+
+
+async def begin_snapshot(run_id, created_at):
+    from app.services.generation.recap_models import RecapBackupPoint, RecapObjectDeletion
+    from app.services.generation.store import Held, lock_control
+    async with session_scope() as db:
+        await lock_control(db)
+        if await db.get(RecapBackupPoint, run_id):
+            raise Held('backup_run_already_exists')
+        if await db.scalar(select(RecapObjectDeletion).where(RecapObjectDeletion.state == 'pending').limit(1)):
+            raise Held('backup_waiting_for_object_deletion')
+        db.add(RecapBackupPoint(run_id=run_id,state='snapshot',created_at=created_at,
+            expires_at=created_at+RECOVERY_POINT_DAYS*86400))
+
+
+async def pin_snapshot(run_id, objects, authority):
+    from app.services.generation.recap_models import RecapBackupPoint
+    from app.services.generation.store import dump, lock_control
+    async with session_scope() as db:
+        await lock_control(db)
+        row=await db.get(RecapBackupPoint,run_id)
+        if row.state != 'snapshot':
+            raise ValueError('Backup snapshot ownership changed')
+        row.objects_json, row.authority_json = dump(objects), dump(authority)
+        row.state='uploading'
+
+
+async def backup_state(run_id, state):
+    from app.services.generation.recap_models import RecapBackupPoint
+    from app.services.generation.store import lock_control
+    async with session_scope() as db:
+        await lock_control(db)
+        row=await db.get(RecapBackupPoint,run_id)
+        if not row or row.state not in ('snapshot','uploading'):
+            raise ValueError('Backup upload ownership changed; refuse publication')
+        row.state=state
+
+
+async def require_upload_owner(run_id):
+    from app.services.generation.recap_models import RecapBackupPoint
+    from app.services.generation.store import Held, lock_control
+    async with session_scope() as db:
+        await lock_control(db)
+        row=await db.get(RecapBackupPoint,run_id)
+        if not row or row.state != 'uploading':
+            raise Held('backup_upload_fenced')
+
+
+async def abandon_backup_point(db,run_id,*,uploader_stopped):
+    """Operator confirms original API process stopped, then fences its old owner."""
+    from app.services.generation.recap_models import RecapBackupPoint,RecapAsset
+    from app.services.generation.store import Held,dump,lock_control,audit
+    await lock_control(db)
+    row=await db.get(RecapBackupPoint,run_id,populate_existing=True)
+    if not row or row.state not in ('snapshot','uploading') or not uploader_stopped:
+        raise Held('backup_stop_original_uploader_first')
+    if row.state == 'snapshot':
+        # Unknown snapshot boundary remains conservative until prefix retirement.
+        row.objects_json=dump({a.storage_key:{'sha256':a.digest,'size':a.size}
+            for a in (await db.scalars(select(RecapAsset))).all()})
+    row.state='failed'
+    audit(db,'offline-operator','backup_upload_abandoned',run_id,'Original uploading process confirmed stopped; pins remain')
+
+
+async def retire_backup_point(db, run_id, *, absent_keys, listing_complete, uploader_stopped, now):
+    """Offline operator only, with independently observed fully paginated listing.
+
+    The API never lists/deletes backup history. Failed uploads and lifecycle
+    expiry require this explicit reconciliation before they cease pinning media.
+    """
+    from app.services.generation.recap_models import RecapBackupPoint
+    from app.services.generation.store import Held, audit, lock_control
+    await lock_control(db)
+    row=await db.get(RecapBackupPoint,run_id,populate_existing=True)
+    if (not row or row.state not in ('failed','complete') or not uploader_stopped
+            or not listing_complete or any(k.startswith(f'{RUN_PREFIX}/{run_id}/') for k in absent_keys)
+            or now < (row.expires_at if row.state == 'complete' else row.created_at+7*86400)):
+        raise Held('backup_retirement_unproven')
+    row.state='retired'
+    audit(db,'offline-operator','backup_pin_retired',run_id,'Stopped uploader and complete prefix absence verified')
 
 STATUS_OK_KEY = "backup.last_ok_at"
 STATUS_ERROR_KEY = "backup.last_error"
@@ -216,6 +317,7 @@ async def run_backup(
     _put_bytes=r2.put_bytes,
     _put_file=r2.put_file,
     _now=_utcnow,
+    _media_store=None,
 ) -> dict:
     """Dump both stores and upload one run to R2. Returns the manifest.
 
@@ -229,9 +331,22 @@ async def run_backup(
     run_id = now.strftime("%Y-%m-%dT%H-%M-%SZ")
     prefix = f"{RUN_PREFIX}/{run_id}"
 
+    await begin_snapshot(run_id, int(now.timestamp()))
+    try:
+        return await _upload_snapshot(run_id, prefix, now, cache_dir, settings,
+            _put_bytes, _put_file, _media_store)
+    except BaseException:
+        # Pins survive ambiguous uploads, including a manifest PUT timeout.
+        await backup_state(run_id, 'failed')
+        raise
+
+
+async def _upload_snapshot(run_id, prefix, now, cache_dir, settings, _put_bytes, _put_file, _media_store):
     async with session_scope() as db:
         blob, table_counts = await dump_database(db)
         revision = await alembic_revision(db)
+    objects, authority = snapshot_inventory(blob)
+    await pin_snapshot(run_id, objects, authority)
 
     with tempfile.TemporaryDirectory() as td:
         tar_path = Path(td) / "cache.tar.gz"
@@ -250,6 +365,14 @@ async def run_backup(
 
         await _put_bytes(*creds, f"{prefix}/postgres.jsonl.gz", blob)
         await _put_file(*creds, f"{prefix}/cache.tar.gz", tar_path)
+        if objects:
+            from app.services.recap_video.storage import configured_store
+            store = _media_store or configured_store()
+            for key, reference in objects.items():
+                payload = await asyncio.to_thread(store.read_range,key,0,reference['size']-1)
+                if len(payload) != reference['size'] or hashlib.sha256(payload).hexdigest() != reference['sha256']:
+                    raise ValueError('Backup private media hash/size mismatch')
+                await _put_bytes(*creds,f'{prefix}/media/{key}',payload)
 
         manifest = build_manifest(
             run_id=run_id,
@@ -260,10 +383,16 @@ async def run_backup(
             alembic_revision=revision,
             git_sha=git_sha(),
         )
+        manifest.update(media_objects=objects, authority=authority,
+            database_sha256=hashlib.sha256(blob).hexdigest(),
+            expires_at=int(now.timestamp())+RECOVERY_POINT_DAYS*86400)
         # LAST: the manifest is this run's commit marker.
+        await require_upload_owner(run_id)
         await _put_bytes(
             *creds, f"{prefix}/manifest.json", json.dumps(manifest).encode()
         )
+
+    await backup_state(run_id, 'complete')
 
     log.info("backup: run %s complete (%d cache files)", run_id, members)
     return manifest

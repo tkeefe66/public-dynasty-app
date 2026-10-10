@@ -191,6 +191,10 @@ async def test_full_backup_then_restore_pipeline_round_trips_db_and_cache(
     for table in Base.metadata.sorted_tables:
         source_rows = await _rows(maker, table)
         target_rows = await _rows(target_maker, table)
+        if table.name == 'recap_backup_points':
+            # Snapshot includes its committed barrier; live upload later completes.
+            assert source_rows[0]['state']=='complete'
+            source_rows[0].update(state='snapshot',objects_json='{}',authority_json='{}')
         assert source_rows == target_rows, table.name
 
     await target_engine.dispose()
@@ -207,6 +211,7 @@ async def test_full_backup_then_restore_pipeline_round_trips_db_and_cache(
         "users": 2, "league_memberships": 2, "app_settings": 1,
         "page_events": 2, "side_bets": 1,
         "recap_speech_reviews": 1,
+        "recap_backup_points": 1, "generation_control": 1,
         "yahoo_connections": 0, "yahoo_oauth_states": 0, "yahoo_league_grants": 0,
     }}
     assert manifest["cache"]["members"] == 3

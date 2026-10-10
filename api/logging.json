@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "filters": {"private_paths": {"()": "app.services.recap_video.public_logging.SharePathFilter"}},
+  "formatters": {
+    "default": {"format": "%(levelname)s %(name)s: %(message)s"},
+    "access": {"()": "uvicorn.logging.AccessFormatter", "fmt": "%(levelprefix)s %(client_addr)s - \"%(request_line)s\" %(status_code)s"}
+  },
+  "handlers": {
+    "default": {"class": "logging.StreamHandler", "stream": "ext://sys.stderr", "formatter": "default", "filters": ["private_paths"]},
+    "access": {"class": "logging.StreamHandler", "stream": "ext://sys.stdout", "formatter": "access", "filters": ["private_paths"]}
+  },
+  "root": {"level": "INFO", "handlers": ["default"]},
+  "loggers": {
+    "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": false},
+    "uvicorn.error": {"level": "INFO"},
+    "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": false}
+  }
+}

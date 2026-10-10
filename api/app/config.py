@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # External rollout/restore fence. Database mode NEVER falls back to files.
     recap_publication_mode: str = "legacy"
     recap_serving_epoch: str = ""
+    # Operator-owned deployment authority, NEVER recovered from the database.
+    recap_restore_epoch: str = ""
+    recap_restore_evidence_digest: str = ""
     # Exact approved voice stays in protected configuration, never a fixture ID.
     elevenlabs_voice_id: str = ""
     elevenlabs_account_identity_digest: str = ""

@@ -7,6 +7,25 @@ id-looking segments masked so a stray path can't explode `route` cardinality.
 from __future__ import annotations
 
 import re
+from urllib.parse import unquote
+
+_SHARE_PATH = re.compile(r'(/(?:api/public|share)/analyst/)[^/?\s\"\'<>]+([^?\s\"\'<>]*)(?:\?[^\s\"\'<>]*)?', re.IGNORECASE)
+
+
+def redact_share_path(path: str) -> str:
+    """Sanitize credential URLs anywhere in diagnostic text, including queries.
+
+    Decode repeatedly before matching: proxies and nested next= URLs may encode
+    separators more than once. Entire share URL tail is private, not just token.
+    """
+    decoded = path
+    for _ in range(8):
+        previous, decoded = decoded, unquote(decoded)
+        if previous == decoded:
+            break
+    if not _SHARE_PATH.search(decoded):
+        return path
+    return _SHARE_PATH.sub(r'\1[redacted]\2', decoded)
 
 # Exact, parameterless routes.
 _STATIC = {
@@ -27,6 +46,7 @@ def _looks_like_id(seg: str) -> bool:
 
 
 def normalize_route(path: str) -> tuple[str, str | None]:
+    path = redact_share_path(path)
     # Drop any query string / fragment and trailing slash (keep root "/").
     path = path.split("?", 1)[0].split("#", 1)[0]
     if len(path) > 1:

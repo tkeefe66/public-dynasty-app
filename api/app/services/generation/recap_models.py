@@ -352,3 +352,31 @@ class RecapRecoveryRequest(Base):
     error: Mapped[str] = mapped_column(String, default="")
     reason: Mapped[str] = mapped_column(String)
     created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class RecapBackupPoint(Base):
+    """Snapshot barrier, then exact object pins until recovery point retirement."""
+    __tablename__ = 'recap_backup_points'
+    run_id: Mapped[str] = mapped_column(String, primary_key=True)
+    state: Mapped[str] = mapped_column(String)
+    objects_json: Mapped[str] = mapped_column(String, default='{}')
+    authority_json: Mapped[str] = mapped_column(String, default='{}')
+    created_at: Mapped[int] = mapped_column(BigInteger)
+    expires_at: Mapped[int] = mapped_column(BigInteger)
+
+
+class RecapObjectDeletion(Base):
+    """Committed deletion claim fences registration while storage I/O runs."""
+    __tablename__ = 'recap_object_deletions'
+    storage_key: Mapped[str] = mapped_column(String, primary_key=True)
+    asset_json: Mapped[str] = mapped_column(String)
+    state: Mapped[str] = mapped_column(String, default='pending')
+    claimed_at: Mapped[int] = mapped_column(BigInteger)
+
+
+class RecapRestoreReport(Base):
+    __tablename__ = 'recap_restore_reports'
+    epoch: Mapped[str] = mapped_column(String, primary_key=True)
+    digest: Mapped[str] = mapped_column(String)
+    report_json: Mapped[str] = mapped_column(String)
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)

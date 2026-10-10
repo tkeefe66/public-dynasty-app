@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import PageEvent
-from app.services.route_normalize import normalize_route
+from app.services.route_normalize import normalize_route, redact_share_path
 
 
 def _now() -> datetime:
@@ -36,7 +36,7 @@ def _day_range(since: datetime, until: datetime) -> list[str]:
 async def record_event(db: AsyncSession, *, user_id: str, path: str) -> None:
     """Normalize a raw pathname and store one pageview. Query strings dropped."""
     route, league_id = normalize_route(path)
-    clean_path = path.split("?", 1)[0].split("#", 1)[0]
+    clean_path = redact_share_path(path).split("?", 1)[0].split("#", 1)[0]
     db.add(
         PageEvent(user_id=user_id, league_id=league_id, route=route, path=clean_path)
     )
@@ -114,7 +114,7 @@ async def user_activity(
     ).scalars().all()
     recent = [
         {
-            "path": e.path,
+            "path": redact_share_path(e.path),
             "route": e.route,
             "league_id": e.league_id,
             "created_at": e.created_at.isoformat(),

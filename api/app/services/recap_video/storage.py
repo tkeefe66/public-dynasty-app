@@ -147,24 +147,18 @@ def configured_store():
     raise Held("media_storage_unconfigured")
 
 
-async def cleanup_unregistered(db, store, now, *, grace_seconds=ORPHAN_GRACE_SECONDS):
+async def cleanup_unregistered(maker, store, now, *, grace_seconds=ORPHAN_GRACE_SECONDS):
     """API maintenance hook for Task10; no new scheduler or worker deletion route.
 
     Preserve every registered object, including unselected late receipt evidence.
     Only incomplete uploads without any DB reference age out, after seven days.
     """
-    from sqlalchemy import select
-    from app.services.generation.recap_models import RecapAsset
-    from app.services.generation.store import lock_control
+    from app.services.recap_video.retention import claim_deletions, finish_deletions
     import asyncio
     if grace_seconds < ORPHAN_GRACE_SECONDS:
         raise ValueError("Private media orphan grace must be at least seven days")
     candidates = await asyncio.to_thread(lambda: list(store.older_than(now - grace_seconds)))
-    await lock_control(db)
-    registered = set((await db.scalars(select(RecapAsset.storage_key))).all())
-    removed = 0
-    for key in candidates:
-        if key not in registered:
-            await asyncio.to_thread(store.delete_unreferenced, key)
-            removed += 1
-    return removed
+    async with maker.begin() as db:
+        await claim_deletions(db,[{'storage_key':key,'reason':'orphan','created_at':now-grace_seconds}
+            for key in candidates],now=now)
+    return await finish_deletions(maker,store)

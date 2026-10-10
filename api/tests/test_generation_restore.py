@@ -157,6 +157,14 @@ async def test_generation_rows_roundtrip_without_receipt_or_artifact_changes(mak
         db.add(RecapRecovery(episode_id='episode',stage_id='media-stage',action='resume_free',before_json='{"generation":1}',actor_id='owner',reason='synthetic'))
         db.add(RecapRecoveryRequest(attempt_id='synthetic-attempt',worker_id='worker',actor_id='owner',identity_json='{}',request_digest='synthetic',epoch='test-epoch',reason='synthetic'))
         db.add(RecapAttention(key='attention',episode_id='episode',state='held',reason='speech_verification_failed'))
+        from app.services.generation.recap_models import RecapBackupPoint,RecapObjectDeletion,RecapRestoreReport
+        db.add(RecapBackupPoint(run_id='synthetic-backup',state='complete',created_at=123,expires_at=999,
+            objects_json='{"synthetic-immutable-key":{"sha256":"media-digest","size":17}}',
+            authority_json='{"share_decisions":[{"scope":"edition:episode","revision":2,"allowed":false}]}'))
+        db.add(RecapObjectDeletion(storage_key='synthetic-retired-key',state='deleted',claimed_at=122,
+            asset_json='{"stage_id":"previous-stage","digest":"prior-byte-hash"}'))
+        db.add(RecapRestoreReport(epoch='synthetic-prior-restore',digest='report-hash',
+            report_json='{"reconciled":false,"current_authority_verified":false}',created_at=123))
     async with maker() as db:
         blob, counts = await dump_database(db)
     assert all(counts[t.name] for t in Base.metadata.sorted_tables if t.name not in

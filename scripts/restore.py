@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import io
+import hashlib
 import json
 import os
 import subprocess
@@ -156,7 +157,7 @@ async def _alembic_revision(database_url: str) -> str | None:
         await engine.dispose()
 
 
-async def _restore_db(database_url: str, blob: bytes) -> dict[str, int]:
+async def _restore_db(database_url: str, blob: bytes, manifest=None, objects=None) -> dict[str, int]:
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from app.services.generation.recovery import restore_database
@@ -166,10 +167,62 @@ async def _restore_db(database_url: str, blob: bytes) -> dict[str, int]:
     try:
         async with maker() as db:
             counts = await restore_database(db, blob)
+            if manifest is not None:
+                from app.services.generation.recovery import reconcile_restore
+                report=await reconcile_restore(db,manifest,objects or {})
+                print('  reconciliation: '+json.dumps(report,sort_keys=True))
             await db.commit()
         return counts
     finally:
         await engine.dispose()
+
+
+def verify_external_gate(api_url, expected_epoch, manifest=None):
+    """Read-only proof of responding API instance. Operator verifies ALL replicas."""
+    import httpx
+    from app.config import get_settings
+    from app.services.generation.recovery import require_external_quarantine
+    require_external_quarantine(manifest)
+    if not expected_epoch or get_settings().recap_restore_epoch != expected_epoch:
+        raise ValueError('Expected restore epoch does not match external deployment configuration')
+    response=httpx.get(api_url.rstrip('/')+'/api/health/restore-gate',timeout=10,follow_redirects=False)
+    response.raise_for_status()
+    if response.json() != {'quarantined':True,'epoch_sha256':hashlib.sha256(expected_epoch.encode()).hexdigest()}:
+        raise ValueError('API has not entered the expected restore quarantine; stop every instance before restore')
+
+
+def restore_media(client,bucket,prefix,manifest,destination,*,configured=False):
+    from app.services.recap_video.storage import LocalPrivateMediaStore,valid_key
+    objects={}
+    references=manifest.get('media_objects',{})
+    if references and not destination and not configured:
+        raise ValueError('Backup contains private media; --media-dir or --configured-media-store is required')
+    if configured:
+        from app.services.recap_video.storage import configured_store
+        store=configured_store()
+    else:
+        store=LocalPrivateMediaStore(destination) if references else None
+    for key,reference in references.items():
+        valid_key(key)
+        payload=_get(client,bucket,f'{prefix}/media/{key}')
+        measured={'sha256':hashlib.sha256(payload).hexdigest(),'size':len(payload)}
+        if measured != reference:
+            raise ValueError('Backup media hash/size mismatch; keep restore quarantined')
+        try:
+            store.put_verified(key,payload,reference['sha256'])
+        except Exception:
+            # Existing immutable keys (or ambiguous PUT completion) are usable
+            # only after independently reading and hashing their actual bytes.
+            # Readback below distinguishes an existing correct object from
+            # an actual write failure; no exception is accepted on its own.
+            pass
+        if store.head(key)['size'] != reference['size']:
+            raise ValueError('Existing private media differs from backup')
+        existing=store.read_range(key,0,reference['size']-1)
+        if len(existing)!=reference['size'] or hashlib.sha256(existing).hexdigest()!=reference['sha256']:
+            raise ValueError('Existing private media differs from backup')
+        objects[key]=measured
+    return objects
 
 
 def main() -> int:
@@ -178,6 +231,12 @@ def main() -> int:
                     help="SQLAlchemy async URL of the TARGET (must be migrated and empty)")
     ap.add_argument("--cache-dir", required=True, type=Path,
                     help="TARGET cache directory (must not exist or be empty)")
+    media=ap.add_mutually_exclusive_group()
+    media.add_argument('--media-dir',type=Path,help='Empty TARGET private media directory')
+    media.add_argument('--configured-media-store',action='store_true',help='Restore into configured private object store')
+    ap.add_argument('--quarantine-api-url',required=True,help='Already quarantined API; verifies responding instance only')
+    ap.add_argument('--expected-restore-epoch',required=True)
+    ap.add_argument('--current-authority',type=Path,help='Independent current authority export bound to deployment evidence digest')
     ap.add_argument("--run", default=None, help="run id; default = newest complete")
     ap.add_argument("--bucket", default=os.environ.get("R2_BUCKET", ""))
     ap.add_argument("--allow-production", action="store_true",
@@ -186,6 +245,14 @@ def main() -> int:
                     help="restore even when the code's alembic head is not the "
                          "revision the backup was taken at")
     args = ap.parse_args()
+
+    # This precedes migrations, cache creation and object writes. The CLI cannot
+    # rotate remote deployment configuration; operator must do that first.
+    try:
+        verify_external_gate(args.quarantine_api_url,args.expected_restore_epoch)
+    except Exception as exc:
+        print(f'refusing restore: external quarantine verification failed ({type(exc).__name__}); configure/restart all services first',file=sys.stderr)
+        return 2
 
     if not args.bucket:
         print("error: --bucket or R2_BUCKET is required", file=sys.stderr)
@@ -202,6 +269,9 @@ def main() -> int:
 
     if args.cache_dir.exists() and any(args.cache_dir.iterdir()):
         print(f"refusing: {args.cache_dir} is not empty", file=sys.stderr)
+        return 2
+    if args.media_dir and args.media_dir.exists() and any(args.media_dir.iterdir()):
+        print('refusing: private media target is not empty',file=sys.stderr)
         return 2
 
     populated = asyncio.run(_first_populated_table(args.database_url))
@@ -224,6 +294,11 @@ def main() -> int:
     print(f"restoring run {run}")
 
     manifest = json.loads(_get(client, args.bucket, f"{prefix}/manifest.json"))
+    verify_external_gate(args.quarantine_api_url,args.expected_restore_epoch,manifest)
+    # Never accept a purported current-authority payload embedded in a backup.
+    manifest.pop('current_authority',None)
+    if args.current_authority:
+        manifest['current_authority']=json.loads(args.current_authority.read_text())
 
     # --- Postgres ---
     print("  alembic upgrade head")
@@ -251,7 +326,12 @@ def main() -> int:
         return 1
 
     blob = _get(client, args.bucket, f"{prefix}/postgres.jsonl.gz")
-    counts = asyncio.run(_restore_db(args.database_url, blob))
+    if manifest.get('database_sha256') and hashlib.sha256(blob).hexdigest() != manifest['database_sha256']:
+        print('refusing: database dump hash mismatch',file=sys.stderr)
+        return 1
+    verify_external_gate(args.quarantine_api_url,args.expected_restore_epoch,manifest)
+    objects=restore_media(client,args.bucket,prefix,manifest,args.media_dir,configured=args.configured_media_store)
+    counts = asyncio.run(_restore_db(args.database_url, blob,manifest,objects))
     compatible_counts = ({k: counts.get(k) for k in manifest["tables"]} == manifest["tables"]
                          and all(v == 0 for k, v in counts.items() if k not in manifest["tables"]))
     if not compatible_counts:
@@ -259,7 +339,7 @@ def main() -> int:
               file=sys.stderr)
         return 1
     print(f"  database OK: {counts}")
-    print("  paid work quarantined: rotate the deployment epoch and reconcile before activation")
+    print('  execution and public serving quarantined: review reconciliation, explicitly reopen, then change deployment mode')
 
     # --- Cache volume ---
     args.cache_dir.mkdir(parents=True, exist_ok=True)

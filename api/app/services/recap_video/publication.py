@@ -31,7 +31,10 @@ PUBLIC_FIELDS = ('season', 'week', 'league_name', 'generated_at', 'markdown',
 
 
 def mode():
-    value = get_settings().recap_publication_mode
+    config = get_settings()
+    value = config.recap_publication_mode
+    if config.recap_restore_epoch and value == 'legacy':
+        raise Held('public_serving_quarantined')
     if value not in ('legacy', 'database'):
         raise Held('public_serving_quarantined')
     return value
@@ -40,6 +43,9 @@ def mode():
 async def serving_gate(db):
     """External epoch must match explicit reconciliation; never auto-bootstrap."""
     config = get_settings()
+    if config.recap_restore_epoch:
+        from app.services.generation.recovery import require_restore_report
+        await require_restore_report(db)
     row = await db.get(RecapPublicationControl, 'global', populate_existing=True)
     generation = await db.get(GenerationControl, 'global', populate_existing=True)
     if (config.recap_publication_mode != 'database' or not config.recap_serving_epoch
