@@ -9,6 +9,41 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 
+def acceptance_stage(directory):
+    """Offline exchange for a real API lease; only the supervisor sees /exchange.
+
+    Fake HTTP is confined to private byte transport. Production adapters, pinned
+    executables, namespace boundary and raw QA measurements run unchanged.
+    """
+    import httpx
+    import uuid
+    from media.adapters import install
+    from media.worker import run_stage, HANDLERS
+    from media.runtime import probe
+    root = Path(directory)
+    probe_root = Path('/scratch/acceptance-probe')
+    probe_root.mkdir()
+    boundary = probe(probe_root)
+    lease = json.loads((root/'lease.json').read_text())
+    incoming = json.loads((root/'assets.json').read_text())
+    uploaded = {}
+    async def respond(request):
+        if request.method == 'GET':
+            identity = request.url.path.rsplit('/', 1)[-1]
+            assert identity in lease['allowed_assets']
+            return httpx.Response(200, content=(root/incoming[identity]['file']).read_bytes())
+        identity = 'acceptance-' + uuid.uuid4().hex
+        body = await request.aread()
+        (root/identity).write_bytes(body)
+        uploaded[identity] = dict(file=identity, media_type=request.headers['content-type'])
+        return httpx.Response(200, json={'asset_id':identity})
+    async def exercise():
+        async with httpx.AsyncClient(base_url='https://synthetic.invalid', transport=httpx.MockTransport(respond)) as client:
+            install(client, HANDLERS)
+            return await run_stage(lease)
+    result = asyncio.run(exercise())
+    (root/'result.json').write_text(json.dumps(dict(result=result, assets=uploaded, boundary=boundary)))
+
 def tone(path, duration):
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
         "-ar", "44100", "-y", str(path)], check=True)
@@ -179,6 +214,9 @@ def failure_contract(root):
 
 if __name__ == "__main__":
     import sys
+    if '--acceptance-dir' in sys.argv:
+        acceptance_stage(sys.argv[sys.argv.index('--acceptance-dir')+1])
+        raise SystemExit(0)
     if "--expect-refusal" in sys.argv:
         from media.runtime import probe
         target = Path("/scratch/refusal")

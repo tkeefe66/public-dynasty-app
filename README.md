@@ -53,6 +53,21 @@ its undocumented news interface, so source availability is reported in the editi
 
 ---
 
+### Gated weekly recap video
+
+The weekly video workflow joins saved Tuesday readiness, managed written/script
+generation, restricted narration/render workers, finished-preview review and
+revocable public playback. Defaults are $3 video/$5 combined per episode and $15
+video/$25 combined per Denver month. All revisions and unknown provider outcomes
+count toward the same limits. Admin → AI writing → Settings exposes persisted
+league caps and exact recovery state.
+
+See [operator runbook and local acceptance commands](docs/recap-video-operations.md)
+for service ownership, migrations 0011–0019, private storage, restore quarantine,
+release gates and bounded calibration. Local fake-provider acceptance cannot
+qualify the actual voice, Railway isolation, physical phone or message preview;
+paid calibration and deployment require separate approval.
+
 ## Architecture
 
 Three-tier monorepo. The CLI and the web backend both import the same engine.

@@ -118,10 +118,9 @@ async def _collect_recap(client, league_id, cache_dir, fence, now: int, *, force
             return False
         series_id = season.series_id
         existing = list((await db.scalars(select(RecapEpisode).where(
-            RecapEpisode.league_id == league_id, RecapEpisode.lifecycle != "complete"))).all())
+            RecapEpisode.league_id == league_id, RecapEpisode.season == season.season,
+            RecapEpisode.lifecycle != "complete"))).all())
         due = [r for r in existing if force or r.next_observation_at <= now]
-        if existing and not due:
-            return True
     sources = {}
     async def fetch(name, path):
         try:
@@ -155,12 +154,19 @@ async def _collect_recap(client, league_id, cache_dir, fence, now: int, *, force
             try:
                 current = scoring_period(week, settings, bracket)
                 current_period_id = current["period_id"]
-                periods[current["period_id"]] = current
+                # Reconciliation cadence belongs to an episode, never discovery.
+                # Check current source identity even while yesterday's episode sleeps.
+                if force or current_period_id in periods or not any(
+                    r.period_id == current_period_id for r in existing
+                ):
+                    periods[current_period_id] = current
             except ValueError as exc:
                 if str(exc) != "season_finished":
                     errors.append(str(exc))
     if not isinstance(rosters, list) or not isinstance(users, list):
         errors.append("participant_inventory_unavailable")
+    if existing and not periods and not errors:
+        return True
     inventory = None
     try:
         inventory = await fetch_inventory(season.season)

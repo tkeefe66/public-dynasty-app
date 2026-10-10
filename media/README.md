@@ -1,5 +1,10 @@
 # Restricted recap media worker
 
+Start with the [operations runbook](../docs/recap-video-operations.md) for API/Web/
+worker ownership, exact configuration, private storage, restore gates and the
+PostgreSQL + Linux + authenticated browser acceptance command. Build the current
+source; older task images predate durable original-worker recovery polling.
+
 Media remains disabled until API qualification is explicitly installed. This package
 does not grant publication authority. API owns source, prose, immutable script,
 paid dispatch, object selection and publication; supervisor only receives dedicated

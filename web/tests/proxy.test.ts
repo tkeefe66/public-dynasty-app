@@ -101,3 +101,53 @@ describe("api proxy route handler", () => {
     expect(init.body).toBeDefined();
   });
 });
+
+describe('authenticated private recap preview streaming', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('preserves ranges and byte length through the authenticated proxy', async () => {
+    getBackendToken.mockResolvedValue('throwaway');
+    // jsdom's Headers silently forbids Range; this route runs in Node.
+    vi.stubGlobal('Headers', new Request('http://synthetic.invalid').headers.constructor);
+    const fetchSpy = vi.fn().mockResolvedValue(new Response('bytes', { status: 206, headers: {
+      'content-type': 'video/mp4', 'content-length': '5', 'content-range': 'bytes 5-9/20', 'accept-ranges': 'bytes',
+    } }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const path = ['admin', 'generation', 'recap-episodes', 'synthetic', 'preview', 'media', 'video.mp4'];
+    const request = new Request('http://web/api/' + path.join('/'), { headers: { Range: 'bytes=5-9', 'If-Range': 'synthetic-etag' } });
+    const response = await GET(request, ctx(path));
+    expect(fetchSpy.mock.calls[0][1].headers.get('range')).toBe('bytes=5-9');
+    expect(fetchSpy.mock.calls[0][1].headers.get('if-range')).toBe('synthetic-etag');
+    expect(fetchSpy.mock.calls[0][1].signal).toBe(request.signal);
+    expect(response.headers.get('content-length')).toBe('5');
+    expect(response.headers.get('content-range')).toBe('bytes 5-9/20');
+    expect(await response.text()).toBe('bytes');
+  });
+});
+
+it('HEAD keeps private preview byte metadata and has no body', async () => {
+  const { HEAD } = await import('../app/api/[...path]/route');
+  getBackendToken.mockResolvedValue('throwaway');
+  vi.stubGlobal('Headers', new Request('http://synthetic.invalid').headers.constructor);
+  const fetchSpy = vi.fn().mockResolvedValue(new Response(null, { headers: { 'content-length': '42', 'accept-ranges': 'bytes' } }));
+  vi.stubGlobal('fetch', fetchSpy);
+  try {
+    const path = ['admin','generation','recap-episodes','synthetic','preview','media','video.mp4'];
+    const response = await HEAD(new Request('http://web/api/' + path.join('/'), { method: 'HEAD' }), ctx(path));
+    expect(fetchSpy.mock.calls[0][1].method).toBe('HEAD');
+    expect(response.headers.get('content-length')).toBe('42');
+    expect(response.headers.get('accept-ranges')).toBe('bytes');
+    expect(await response.text()).toBe('');
+  } finally { vi.unstubAllGlobals(); }
+});
+
+it('preserves unsatisfiable preview range status and total length', async () => {
+  getBackendToken.mockResolvedValue('throwaway');
+  vi.stubGlobal('Headers', new Request('http://synthetic.invalid').headers.constructor);
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 416, headers: { 'content-range': 'bytes */42' } })));
+  try {
+    const path = ['admin','generation','recap-episodes','synthetic','preview','media','video.mp4'];
+    const response = await GET(new Request('http://web/api/' + path.join('/'), { headers: { Range: 'bytes=100-200' } }), ctx(path));
+    expect(response.status).toBe(416);
+    expect(response.headers.get('content-range')).toBe('bytes */42');
+  } finally { vi.unstubAllGlobals(); }
+});

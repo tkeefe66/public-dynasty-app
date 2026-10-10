@@ -1,61 +1,45 @@
 # Shareable recap episodes
 
-An episode attaches to one published recap revision. The existing
-`/share/analyst/<token>` URL shows its video above the article, with captions and
-MP4/MP3 downloads. Send link and Copy link continue to share this one URL.
-The poster supplies the Open Graph and large Twitter card image for message
-previews. Actual preview appearance depends on the receiving message client.
+A selected episode attaches to one published recap revision. The existing
+`/share/analyst/<token>` page shows video, captions, MP4/MP3 downloads and article.
+The poster supplies Open Graph/message-preview metadata; real recipient rendering
+requires separate device evidence.
 
-## Produce and publish
+The [weekly operations runbook](recap-video-operations.md) is the authoritative
+workflow: Tuesday readiness → managed article → reviewed narration script →
+restricted worker → speech/render QA → finished-preview approval → public selection.
+It includes exact routes/configuration, cap enforcement, service lifecycle,
+migrations, private storage, backup/restore, local acceptance and release gates.
 
-1. Save the verified league facts, complete script, selected voice, provider
-   settings and generation receipt together outside Git. Cover the full week's
-   matchups. Preserve approved voice choices and previous takes. Generate once;
-   inspect the saved result before considering another provider request.
-2. Export a complete bundle: `video.mp4` (H.264/AAC, faststart), `audio.mp3`,
-   `poster.jpg` and `captions.vtt`. Align captions and scene changes to the actual
-   narration. Verify audio/video decoding, score accuracy and mobile legibility.
-3. Copy the reviewed bundle to the API host through the operator's existing
-   Railway workflow. Keep source identifiers in environment/configuration.
-4. From the API environment, attach to the current **published** article revision:
+## Publication and migration
 
-```sh
-python -m app.publish_recap_media \
-  --cache-dir "$TRADE_GRADER_CACHE_DIR" \
-  --league-id "$RECAP_LEAGUE_ID" --season "$RECAP_SEASON" --week "$RECAP_WEEK" \
-  --revision "$RECAP_ARTICLE_REVISION" --duration-seconds "$RECAP_DURATION" \
-  --bundle "$RECAP_BUNDLE_DIR"
-```
+New publication requires an existing checked media stage and persisted scoped
+admin approval. `python -m app.publish_recap_media --help` documents the current
+stage/approval CLI; an arbitrary four-file folder is not publication authority.
+Use authenticated Admin → AI writing episode controls to review a finished preview.
+Member article sharing does not grant media approval or standing future consent.
 
-This command validates the required files, size limits and format signatures,
-copies an immutable bundle, then atomically publishes its manifest. It does not
-decode media; step 2 remains necessary. It does not create or enable a share
-link. Existing links immediately pick up the newly attached episode. Use the
-edition's **Share recap** control when a link is needed.
+Existing legacy bundles and tokens migrate byte-identically through the dry-run
+reconciliation command in the runbook. Keep the explicit legacy serving mode until
+reconciliation is reviewed. After database activation, missing authority, outage,
+withdrawal or restore quarantine never falls back to stale filesystem content.
+Do not use the old folder-copy workflow to create new unchecked publication.
 
-5. Verify the production link while signed out: video loads and seeks, the poster
-   is accessible, and both downloads complete. Check a text-message preview on
-   an actual recipient device. Use a disposable test edition to verify revocation;
-   do not revoke a link people already use merely to test it.
+## Storage and reader behavior
 
-## Storage and access
+New immutable media lives in API-owned private storage. Worker access is limited
+to leased assets; the worker has no bucket, database or publication credentials.
+Only `video.mp4`, `audio.mp3`, `poster.jpg` and `captions.vtt` are public derivatives.
+Every GET/HEAD/range checks current token, revision and publication authority.
+Next streams bytes without buffering and preserves seeking metadata. Scripts,
+facts, transcripts, raw receipts and diagnostics stay private.
 
-Media lives beside the archive on the API's persistent cache volume, in
-`analyst/<league>/media/<season-week>/`. No public static directory, provider demo
-URL or expiring provider asset is used. Every GET/HEAD resolves the active share
-token and the current published article revision. Streaming supports HTTP byte
-ranges for seeking. Responses are private/no-store; the web proxy streams without
-buffering or dropping Content-Length/Content-Range.
+Corrections withdraw stale content; share revocation blocks subsequent requests.
+Explicit restore rotates the token and retains the old tombstone. Neither action
+can recall downloaded bytes, buffered playback or cached recipient previews.
+Revocation is not deletion consent. Retention and backup pins remain governed by
+the runbook, with manual offline verification before backup pins can be retired.
 
-Replacing a bundle retires previous asset URLs while retaining files for operator
-recovery. Correcting the article hides previous media until an episode is attached
-to the new revision. Disabling a share link blocks subsequent page and media
-requests; it cannot recall already downloaded files, buffered playback, or cached
-message previews. Private results packets cannot receive public media.
-
-This uses the existing one-API-replica/shared-volume assumption. Before scaling
-replicas or publishing substantially larger catalogs, move the `AnalystMedia`
-storage boundary to a private object store. Keep token/revision checks and avoid
-durable public asset URLs. Bundles have no automated deletion policy; monitor the
-volume and retain reviewed generation receipts. No weekly provider spend or
-automatic publication is scheduled by this feature.
+This is a gated implementation. Local synthetic tests grant no production voice,
+physical-phone, message-preview or Railway runtime qualification. No automatic
+paid activation follows from running the acceptance suite.

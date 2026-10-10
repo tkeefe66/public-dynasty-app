@@ -1,0 +1,64 @@
+import { test, expect } from '@playwright/test';
+import { forgeSessionCookie } from './fixtures/session';
+
+// Real Next middleware, server-side JWT proxy and real disposable API. No route mocks.
+test('phone admin saves caps; authenticated preview streams; signed-out public playback', async ({ page, context, baseURL }) => {
+  page.on('pageerror', error => console.error('Browser error:', error.message));
+  await page.goto('/admin');
+  await expect(page).toHaveURL(/\/login/);
+  await context.addCookies([await forgeSessionCookie({ baseURL: baseURL! })]);
+  await page.goto('/admin');
+  await expect(page.getByRole('heading', { name: 'AI writing', exact: true })).toBeVisible();
+  await page.getByText('Settings', { exact: true }).click();
+  await page.getByLabel('Apply settings to').selectOption('series:series');
+  const cap = page.getByLabel('Video per episode ($)', { exact: true });
+  await expect(cap).toHaveValue('3.00', { timeout: 30_000 });
+  await cap.fill('0.01');
+  await page.getByLabel('Reason for budget change').fill('Synthetic acceptance: lower next admission ceiling');
+  await page.getByRole('button', { name: 'Save recap limits', exact: true }).tap();
+  await expect(page.getByText('Recap limits saved and reloaded.', { exact: true }).first()).toBeVisible();
+  await page.reload();
+  await page.getByText('Settings', { exact: true }).click();
+  await page.getByLabel('Apply settings to').selectOption('series:series');
+  await expect(cap).toHaveValue('0.01');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.screenshot({ path: `${process.env.RECAP_ACCEPTANCE_OUTPUT}/admin-390.png`, fullPage: true });
+  await cap.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${process.env.RECAP_ACCEPTANCE_OUTPUT}/admin-cap-390.png` });
+  const preview = `/api/admin/generation/recap-episodes/${process.env.RECAP_ACCEPTANCE_EPISODE}/preview/${process.env.RECAP_ACCEPTANCE_MEDIA}/video.mp4`;
+  const full = await context.request.get(preview);
+  expect(full.status()).toBe(200);
+  const partial = await context.request.get(preview, { headers: { Range: 'bytes=5-19' } });
+  expect(partial.status()).toBe(206);
+  expect(await partial.body()).toEqual((await full.body()).subarray(5, 20));
+  const head = await context.request.head(preview);
+  expect(head.status()).toBe(200);
+  expect(Number(head.headers()['content-length'])).toBe((await full.body()).length);
+  expect((await head.body()).length).toBe(0);
+  expect(partial.headers()['accept-ranges']).toBe('bytes');
+  expect(partial.headers()['content-range']).toBe(`bytes 5-19/${(await full.body()).length}`);
+  const unsatisfied = await context.request.get(preview, { headers: { Range: 'bytes=999999999-' } });
+  expect(unsatisfied.status()).toBe(416);
+  expect(unsatisfied.headers()['content-range']).toBe(`bytes */${(await full.body()).length}`);
+  // Let the browser itself decode and seek through the authenticated proxy.
+  await page.evaluate((src) => {
+    const v = document.createElement('video');
+    v.id = 'acceptance-preview'; v.src = src; v.controls = true;
+    document.body.appendChild(v);
+  }, preview);
+  const privateVideo = page.locator('#acceptance-preview');
+  await expect.poll(() => privateVideo.evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThan(0);
+  await privateVideo.evaluate((v: HTMLVideoElement) => { v.currentTime = v.duration / 2; });
+  await expect.poll(() => privateVideo.evaluate((v: HTMLVideoElement) => !v.seeking && v.currentTime > 0)).toBeTruthy();
+  await context.clearCookies();
+  expect((await context.request.get(preview)).status()).toBe(401);
+  await page.goto(`/share/analyst/${process.env.RECAP_ACCEPTANCE_TOKEN}`);
+  const video = page.locator('video');
+  await expect(video).toBeVisible();
+  await video.evaluate(async (element: HTMLVideoElement) => { element.muted = true; await element.play(); });
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThan(0);
+  await video.evaluate((v: HTMLVideoElement) => { v.pause(); v.currentTime = v.duration / 2; });
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.seeking && v.currentTime > 0)).toBeTruthy();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.screenshot({ path: `${process.env.RECAP_ACCEPTANCE_OUTPUT}/public-390.png`, fullPage: true });
+});

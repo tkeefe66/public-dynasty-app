@@ -549,3 +549,13 @@ describe("Generation controls", () => {
     expect(screen.queryByRole("button", { name: "Resume remaining work" })).not.toBeInTheDocument();
   });
 });
+
+it('keeps episode and budget panels independently keyed while league settings resolve', async () => {
+  // Duplicate sibling keys remount both panels continuously when episode selection updates.
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  render(<GenerationControl />);
+  fireEvent.click(await screen.findByText('Settings', { selector: 'summary' }));
+  fireEvent.change(await screen.findByLabelText('Apply settings to'), { target: { value: 'series:series-one' } });
+  await screen.findByLabelText('Video per episode ($)');
+  expect(errors.mock.calls.filter(args => args.join(' ').includes('same key'))).toHaveLength(0);
+});

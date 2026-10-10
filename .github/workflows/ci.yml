@@ -35,9 +35,8 @@ jobs:
         run: npx vitest --config tests/vitest.config.ts run
       - name: Typecheck
         run: npx tsc --noEmit
-      # The build does not gate on lint by design (ignoreDuringBuilds), so lint
-      # is not run here — there is known, tracked debt (AGATE_FOLLOWUPS C11) and
-      # failing CI on it would only teach people to ignore CI.
+      - name: Lint (existing nonfatal Dashboard ref warning retained)
+        run: npm run lint
       - name: Build
         run: npm run build
         env:
@@ -87,9 +86,18 @@ jobs:
   recap-media:
     name: recap — isolated Linux render and decode
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: local-recap-acceptance
+          POSTGRES_DB: recap_tests
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -f media/Dockerfile -t recap-media-contract .
+      - run: docker build -f media/Dockerfile --build-arg VCS_REF=${{ github.sha }} -t recap-media-contract .
       - name: Namespace boundary, cancellation and actual media failures
         run: >-
           docker run --rm --network none --memory 2g --tmpfs /scratch:size=4g
@@ -101,3 +109,36 @@ jobs:
         run: >-
           docker run --rm --network none --memory 2g --tmpfs /scratch:size=4g
           recap-media-contract python scripts/check_recap_media_runtime.py --expect-refusal
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.8"
+      - run: uv sync --frozen --all-packages --all-extras
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - name: Disposable PostgreSQL, real Linux stages and authenticated phone browser
+        working-directory: api
+        run: uv run --frozen pytest tests/test_recap_video_end_to_end.py -q --basetemp=/tmp/recap-acceptance
+        env:
+          RECAP_ACCEPTANCE: "1"
+          RECAP_ACCEPTANCE_IMAGE: recap-media-contract
+          GENERATION_TEST_DATABASE_URL: postgresql+asyncpg://postgres:local-recap-acceptance@127.0.0.1:5432/recap_tests
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-recap-acceptance
+          path: |
+            /tmp/recap-acceptance/**/acceptance-evidence.json
+            /tmp/recap-acceptance/**/browser/*.png
+            /tmp/recap-acceptance/**/browser.log
+            /tmp/recap-acceptance/**/next.log
+          retention-days: 7

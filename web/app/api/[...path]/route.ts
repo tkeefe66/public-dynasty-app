@@ -21,6 +21,7 @@ async function proxy(req: Request, path: string[]): Promise<Response> {
     return new Response("Invalid API path", { status: 400 });
   }
   const route = path.join("/");
+  const recapPreview = /^admin\/generation\/recap-episodes\/[^/]+\/preview\/[^/]+\/(video\.mp4|audio\.mp3|poster\.jpg|captions\.vtt)$/.test(route);
   // Only the dedicated browser-bound OAuth handlers may call these endpoints.
   if (route === "me/yahoo/start" || route === "me/yahoo/complete") {
     return new Response("Not found", { status: 404 });
@@ -46,12 +47,20 @@ async function proxy(req: Request, path: string[]): Promise<Response> {
   if (ct) headers.set("content-type", ct);
   const accept = req.headers.get("accept");
   if (accept) headers.set("accept", accept);
+  if (recapPreview) {
+    headers.set("accept-encoding", "identity");
+    const range = req.headers.get("range");
+    const ifRange = req.headers.get("if-range");
+    if (range) headers.set("range", range);
+    if (ifRange) headers.set("if-range", ifRange);
+  }
 
   const init: RequestInit = {
     method: req.method,
     headers,
     redirect: "manual",
     cache: "no-store",
+    signal: req.signal,
   };
   if (req.method !== "GET" && req.method !== "HEAD") {
     init.body = await req.arrayBuffer();
@@ -64,7 +73,7 @@ async function proxy(req: Request, path: string[]): Promise<Response> {
   // with .text()/.json(), or the refresh progress stream hangs until close.
   const respHeaders = new Headers();
   upstream.headers.forEach((value, key) => {
-    if (!STRIP_RESPONSE_HEADERS.has(key.toLowerCase())) {
+    if (!STRIP_RESPONSE_HEADERS.has(key.toLowerCase()) || (recapPreview && key.toLowerCase() === "content-length")) {
       respHeaders.set(key, value);
     }
   });
@@ -74,7 +83,7 @@ async function proxy(req: Request, path: string[]): Promise<Response> {
     respHeaders.set("x-accel-buffering", "no");
   }
 
-  return new Response(upstream.body, {
+  return new Response(req.method === "HEAD" ? null : upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers: respHeaders,
@@ -84,6 +93,9 @@ async function proxy(req: Request, path: string[]): Promise<Response> {
 type Ctx = { params: { path: string[] } };
 
 export async function GET(req: Request, { params }: Ctx) {
+  return proxy(req, params.path);
+}
+export async function HEAD(req: Request, { params }: Ctx) {
   return proxy(req, params.path);
 }
 export async function POST(req: Request, { params }: Ctx) {

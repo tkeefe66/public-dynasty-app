@@ -178,20 +178,21 @@ async def test_postgres_budget_migration_roundtrip(pgmaker, monkeypatch):
     from alembic.config import Config
     from pathlib import Path
     from sqlalchemy import text
+    from app.db.base import Base
+    monkeypatch.setenv("TRADE_GRADER_DATABASE_URL", pgmaker.kw["bind"].url.render_as_string(hide_password=False))
+    api = Path(__file__).resolve().parents[1]
+    config = Config(str(api / "alembic.ini"))
+    config.set_main_option("script_location", str(api / "migrations"))
     async with pgmaker.kw["bind"].begin() as db:
-        await db.execute(text("DROP TABLE recap_budget_policies"))
+        await db.run_sync(Base.metadata.drop_all)
         await db.execute(text("DROP TABLE IF EXISTS alembic_version"))
-        await db.execute(text("CREATE TABLE alembic_version (version_num varchar(32) PRIMARY KEY)"))
-        await db.execute(text("INSERT INTO alembic_version VALUES ('0010_generation_submissions')"))
+    await asyncio.to_thread(command.upgrade, config, "0010_generation_submissions")
+    async with pgmaker.kw["bind"].begin() as db:
         await db.execute(text("INSERT INTO users (id,google_sub,email,is_admin,created_at,updated_at) VALUES ('preserved','preserved','test@local',false,now(),now())"))
         await db.execute(text("INSERT INTO league_memberships (id,user_id,league_id,added_at) VALUES ('membership','preserved','synthetic',now())"))
         await db.execute(text("INSERT INTO provider_attempts (id,operation_id,stage,generation,request_digest,request_json,model,state,usage_state,usage_json,pricing_json,provider_request_id,error_code,created_at,settled_at) VALUES ('receipt','old',1,1,'hash','{}','synthetic','unknown','unknown','{}','{}','','',1,0)"))
         before = {table: (await db.execute(text(f"SELECT * FROM {table}"))).all()
                   for table in ("users", "league_memberships", "provider_attempts")}
-    monkeypatch.setenv("TRADE_GRADER_DATABASE_URL", pgmaker.kw["bind"].url.render_as_string(hide_password=False))
-    api = Path(__file__).resolve().parents[1]
-    config = Config(str(api / "alembic.ini"))
-    config.set_main_option("script_location", str(api / "migrations"))
     await asyncio.to_thread(command.upgrade, config, "0011_recap_budget")
     await asyncio.to_thread(command.downgrade, config, "0010_generation_submissions")
     await asyncio.to_thread(command.upgrade, config, "0011_recap_budget")

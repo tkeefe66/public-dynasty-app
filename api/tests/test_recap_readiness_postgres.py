@@ -28,15 +28,23 @@ async def test_workflow_migration_preserves_receipts_and_registered_schema(pgmak
     config.set_main_option("script_location", str(api / "migrations"))
     await asyncio.to_thread(command.upgrade, config, "0012_recap_budget_ledger")
     async with pgmaker.begin() as db:
-        db.add(ProviderAttempt(id="historic", operation_id="historic", stage=1, generation=1,
-            request_digest="historic", request_json="{}", model="synthetic", state="unknown"))
-    await asyncio.to_thread(command.upgrade, config, "head")
-    async with pgmaker() as db:
-        assert (await db.get(ProviderAttempt, "historic")).state == "unknown"
-        assert not list((await db.scalars(select(RecapEpisode))).all())
-        assert not list((await db.scalars(select(RecapObservation))).all())
+        # Seed the historical schema, not today's ORM (provider/account arrived later).
+        await db.execute(text("INSERT INTO provider_attempts (id,operation_id,stage,generation,request_digest,request_json,model,state,usage_state,usage_json,pricing_json,provider_request_id,error_code,created_at,settled_at) VALUES ('historic','historic',1,1,'historic','{}','synthetic','unknown','unknown','{}','{}','','',1,0)"))
+    # Round-trip only this reversible migration; later authority migrations
+    # deliberately forbid downgrade and must never be bypassed by this fixture.
+    await asyncio.to_thread(command.upgrade, config, "0013_recap_workflow")
     await asyncio.to_thread(command.downgrade, config, "0012_recap_budget_ledger")
     await asyncio.to_thread(command.upgrade, config, "head")
+    async with pgmaker() as db:
+        receipt = await db.get(ProviderAttempt, "historic")
+        assert (receipt.state, receipt.usage_state, receipt.request_digest, receipt.request_json,
+            receipt.usage_json, receipt.pricing_json, receipt.created_at, receipt.settled_at) == (
+            'unknown', 'unknown', 'historic', '{}', '{}', '{}', 1, 0)
+        assert receipt.provider == 'anthropic' and receipt.account_key == 'primary'
+        assert not list((await db.scalars(select(RecapEpisode))).all())
+        assert not list((await db.scalars(select(RecapObservation))).all())
+    with pytest.raises(RuntimeError, match='archival review'):
+        await asyncio.to_thread(command.downgrade, config, "0012_recap_budget_ledger")
     async with pgmaker() as db:
         assert (await db.get(ProviderAttempt, "historic")).state == "unknown"
 

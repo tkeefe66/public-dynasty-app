@@ -24,10 +24,12 @@ def enabled(monkeypatch):
 class Sources:
     fail_bracket = False
     fail_matchups = False
+    season = 2026
+    week = 5
 
     async def get_recap_source(self, path):
         if path.endswith("/state/nfl"):
-            data = {"season": "2026", "week": 5, "season_type": "regular"}
+            data = {"season": str(self.season), "week": self.week, "season_type": "regular"}
         elif path.endswith("/users"):
             data = [{"user_id": f"owner-{i}", "display_name": f"Owner {i}"} for i in (1, 2)]
         elif path.endswith("/rosters"):
@@ -41,7 +43,7 @@ class Sources:
                 return {"ok": False, "error": "timeout", "source": path}
             data = copy.deepcopy(snapshot()["scores"]["4"])
         else:
-            data = {"season": "2026", "name": "Synthetic League", "roster_positions": ["QB", "RB", "BN"], "settings": {
+            data = {"season": str(self.season), "name": "Synthetic League", "roster_positions": ["QB", "RB", "BN"], "settings": {
                 "playoff_week_start": 15, "playoff_round_type": 0, "playoff_teams": 6}}
         return {"ok": True, "data": data, "raw": dump(data), "source": path, "provider_timestamp": "synthetic"}
 
@@ -49,7 +51,7 @@ class Sources:
 @pytest.fixture
 def free_sources(monkeypatch):
     async def inventory(season):
-        return {"season": season, "version": "synthetic-v1", "revision": "qualified-v1", "games": [{
+        return {"season": season, "version": f"synthetic-v1-{season}", "revision": "qualified-v1", "games": [{
             "event_id": "synthetic-game", "source_id": "synthetic-source", "home": "BUF", "away": "NE",
             "week": 4, "gameday": "2026-10-11", "kickoff": "2026-10-11T17:00:00Z"}],
             "source_bytes": {}, "provenance": {"qualification": "synthetic-test"}}
@@ -375,3 +377,45 @@ async def test_failed_manual_authorization_never_admits(maker, enabled, block, c
         assert (await db.get(RecapEpisode, ident)).admitted_at == 0
         assert not await db.scalar(select(GenerationOperation).where(GenerationOperation.authorization_key == "manual"))
         assert not list((await db.scalars(select(ProviderAttempt))).all())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('transition', ['next_tuesday', 'new_season', 'explicit_refresh'])
+async def test_reconciliation_cadence_never_suppresses_period_discovery(maker, tmp_path, enabled, free_sources, transition):
+    # Removing current-period discovery while a prior episode is not due hides a new Tuesday.
+    from app.services.recap_video.collector import collect_recap
+    from app.services.generation.recap_models import RecapEpisode, RecapObservation
+    await seed_job(maker)
+    @asynccontextmanager
+    async def fence():
+        async with maker.begin() as db:
+            yield db
+    # Friday reconciliation moves to daily cadence. Monday's 15:00 check must
+    # not suppress a newly discovered period at Tuesday's 14:00 release.
+    start = int(datetime(2026, 10, 16, 14, tzinfo=timezone.utc).timestamp())
+    await collect_recap(free_sources, 'synthetic', tmp_path, fence, start)
+    check = start + 30
+    if transition == 'next_tuesday':
+        monday = int(datetime(2026, 10, 19, 15, tzinfo=timezone.utc).timestamp())
+        await collect_recap(free_sources, 'synthetic', tmp_path, fence, monday)
+        check = int(datetime(2026, 10, 20, 14, tzinfo=timezone.utc).timestamp())
+    async with maker.begin() as db:
+        old = await db.scalar(select(RecapEpisode))
+        if transition != 'next_tuesday':
+            old.next_observation_at = start + 86400
+        assert old.next_observation_at > check
+        before = old.latest_observation_id
+        if transition == 'new_season':
+            (await db.get(LeagueSeason, 'synthetic')).season = 2027
+            free_sources.season = 2027
+        elif transition == 'next_tuesday':
+            free_sources.week = 6
+    await collect_recap(free_sources, 'synthetic', tmp_path, fence, check,
+        force=transition == 'explicit_refresh')
+    async with maker() as db:
+        rows = list((await db.scalars(select(RecapEpisode))).all())
+        if transition == 'explicit_refresh':
+            assert rows[0].latest_observation_id != before
+        else:
+            expected = (2027, '4') if transition == 'new_season' else (2026, '5')
+            assert expected in {(r.season, r.period_id) for r in rows}
