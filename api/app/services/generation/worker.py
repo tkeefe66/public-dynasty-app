@@ -149,7 +149,9 @@ class Worker:
     async def tick(self):
         await self.gateway.reconcile_receipts()
         from app.services.generation.publication import drain
-        await drain(self.maker, self.cache_dir)
+        await drain(self.maker, self.cache_dir, execution_role="api-projector")
+        from app.services.recap_video.workflow import advance_media
+        await advance_media(self.maker)
         async with self.maker.begin() as db:
             job = await claim_operation(db, self.id)
         if job is None:

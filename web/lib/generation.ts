@@ -35,7 +35,11 @@ export interface ControlState {
   provider_hold: string;
   breakers_json: string;
 }
+export interface ProviderControl {
+  provider: string; account_key: string; hold: string; cooldown_until: number; revision: number; max_concurrency: number;
+}
 export interface GenerationOverview {
+  providers?: ProviderControl[];
   control: ControlState;
   effective: EffectivePolicy;
   jobs: Record<string, number>;

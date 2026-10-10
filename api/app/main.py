@@ -141,6 +141,8 @@ def create_app() -> FastAPI:
     app.include_router(generation_admin.router)
     from app.routes import recap_admin
     app.include_router(recap_admin.router)
+    from app.routes import media_worker
+    app.include_router(media_worker.router)
     return app
 
 

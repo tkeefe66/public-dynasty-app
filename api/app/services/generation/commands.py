@@ -122,7 +122,7 @@ async def submit_refresh(db, league_id: str, actor_id: str, *,
     return await remember(row)
 
 
-async def claim_operation(db, worker_id: str, *, now: int | None = None):
+async def claim_operation(db, worker_id: str, *, now: int | None = None, capabilities=frozenset({"refresh", "analyst_refresh", "generation"})):
     now = stamp() if now is None else now
     control = await lock_control(db)
     expired = list((await db.scalars(select(GenerationOperation).where(
@@ -141,13 +141,16 @@ async def claim_operation(db, worker_id: str, *, now: int | None = None):
             job.state = "queued"
         job.updated_at = now
     await db.flush()
-    query = select(GenerationOperation).where(GenerationOperation.state == "queued")
+    allowed = set(capabilities) & {"refresh", "analyst_refresh", "generation"}
+    query = select(GenerationOperation).where(GenerationOperation.state == "queued", GenerationOperation.kind.in_(allowed))
     free_running = await db.scalar(select(GenerationOperation.id).where(
         GenerationOperation.state == "running",
         GenerationOperation.kind.in_(("refresh", "analyst_refresh"))).limit(1))
     if free_running:
         query = query.where(GenerationOperation.kind == "generation")
-    if control.hold or control.provider_hold or control.cooldown_until > now:
+    from app.services.generation.provider_control import account_alias, account_control
+    provider = await account_control(db, "anthropic", account_alias("anthropic"))
+    if control.hold or provider.hold or provider.cooldown_until > now:
         query = query.where(GenerationOperation.kind.in_(("refresh", "analyst_refresh")))
     job = await db.scalar(query.order_by(GenerationOperation.created_at).with_for_update(skip_locked=True).limit(1))
     if job:
@@ -213,6 +216,8 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
     settings = await resolve_policy(db, candidate.series_id)
     if settings["blocked_by"]:
         raise Held(settings["blocked_by"][0])
+    from app.services.generation.provider_control import account_alias, require_provider_ready
+    await require_provider_ready(db, "anthropic", account_alias("anthropic"), stamp())
     feature = settings["policy"]["features"][candidate.feature]
     if feature["paused"] or feature["mode"] == "disabled":
         raise Held("feature_paused")
@@ -220,6 +225,8 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
         raise Held("manual_only")
     recap_episode = None
     if candidate.feature == "recap_video":
+        from app.services.recap_video.workflow import require_script_preflight
+        await require_script_preflight(db, json.loads(candidate.payload_json))
         from app.services.recap_video.contracts import require_script_inputs
         await require_script_inputs(db, candidate.series_id, candidate.league_id, json.loads(candidate.payload_json))
     if candidate.feature == "analyst":
@@ -254,6 +261,10 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
         connection_generation=connection.generation if connection else "",
         expected_artifact=head.artifact_id if head else "", epoch=control.epoch, reason=reason)
     await require_actor(db, row)
+    if candidate.feature == "recap_video":
+        from app.services.generation.recap_models import RecapEpisode
+        episode = await db.get(RecapEpisode, json.loads(candidate.payload_json)["episode_id"])
+        episode.lifecycle = "scripting"
     if recap_episode is not None and not recap_episode.admitted_at:
         audit(db, actor_id, "recap_period_admitted", recap_episode.episode_id, reason,
               after={"candidate": candidate.key, "facts_digest": recap_episode.facts_digest})

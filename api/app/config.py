@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     # holds generation; activation requires rotating the deployment value.
     generation_execution_epoch: str = ""
     generation_emergency_pause: bool = False
+    anthropic_account_alias: str = "primary"
+    elevenlabs_account_alias: str = "primary"
+    # Separate opaque credential, never a backend JWT. Server fixes permissions.
+    media_worker_token: str = ""
+    media_worker_id: str = "media-worker"
+    media_worker_capabilities: str = "render,speech_check,media_check"
+    media_asset_root: Path | None = None
     # LLM-regeneration throttle: within this window since the last LLM pass, the
     # 3h auto-refresh reuses cached stories/blurbs verbatim (new trades still get
     # generated) rather than re-evaluating hashes. Caps regen to ~once/day on top

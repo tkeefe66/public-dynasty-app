@@ -112,9 +112,7 @@ async def control_action(db, body, actor):
         control.epoch, control.hold = epoch, ""
         await hold_backlog(db)
     elif body.action == "clear_provider":
-        if await db.scalar(select(ProviderAttempt.id).where(ProviderAttempt.state.in_(UNRESOLVED)).limit(1)):
-            raise Held("Resolve outstanding provider uncertainty before clearing this hold")
-        control.provider_hold, control.cooldown_until = "", 0
+        raise Held("Choose the affected provider and account alias in provider recovery controls")
     elif body.action == "reset_breaker":
         breakers = json.loads(control.breakers_json)
         if body.feature not in ("trade_story", "gm_rating_blurb", "franchise_blurb", "analyst"):

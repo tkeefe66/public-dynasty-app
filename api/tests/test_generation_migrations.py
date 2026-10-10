@@ -26,7 +26,17 @@ async def test_additive_migrations_preserve_identity_and_seed_paused(pgmaker, mo
         db.add(User(id="preserved", google_sub="preserved", email="preserved@test.local"))
     async with pgmaker() as db:
         before = (await db.execute(select(User.__table__))).mappings().all()
+    await asyncio.to_thread(command.upgrade, config, "0013_recap_workflow")
+    async with pgmaker.begin() as db:
+        await db.execute(text("UPDATE generation_control SET provider_hold='provider_auth_failed', cooldown_until=12345"))
+    monkeypatch.setenv("TRADE_GRADER_ANTHROPIC_ACCOUNT_ALIAS", "synthetic-account")
     await asyncio.to_thread(command.upgrade, config, "head")
     async with pgmaker() as db:
         assert (await db.execute(select(User.__table__))).mappings().all() == before
         assert (await db.get(GenerationControl, "global")).hold == "activation_required"
+        from app.services.generation.recap_models import ProviderAccountControl
+        account = await db.get(ProviderAccountControl, ("anthropic", "synthetic-account"))
+        assert account.hold == "provider_auth_failed" and account.cooldown_until == 12345
+        assert (await db.get(GenerationControl, "global")).provider_hold == ""
+        for table in ("recap_stages", "recap_provider_attempts", "recap_assets"):
+            assert await db.scalar(text(f"SELECT count(*) FROM {table}")) == 0

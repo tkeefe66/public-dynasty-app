@@ -86,6 +86,9 @@ def _bearer_token(request: Request) -> str:
 def _decode(request: Request) -> dict:
     """Verify the bearer token and return its claims, or 401."""
     token = _bearer_token(request)
+    from app.auth.media_worker import is_media_credential
+    if is_media_credential(token):
+        raise HTTPException(403, "Media worker cannot access user or publication actions")
     try:
         return decode_backend_token(token)
     except TokenError as exc:

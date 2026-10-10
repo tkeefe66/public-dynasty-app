@@ -86,8 +86,6 @@ async def resolve_policy(db, series_id: str = "", *, profile: str = "") -> dict:
     result["epoch"] = control.epoch if control else ""
     if not control or control.hold:
         result["blocked_by"].append(control.hold if control else "activation_required")
-    if control and control.provider_hold:
-        result["blocked_by"].append(control.provider_hold)
     if series:
         if series.lifecycle != "active":
             result["blocked_by"].append("series_" + series.lifecycle)

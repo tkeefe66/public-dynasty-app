@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.services.generation.accounting import price_usage, pricing, validate_request_shape
 from app.services.generation.recap_budget import admit_provider_allocation, settle_attempt
@@ -27,6 +27,7 @@ from app.services.generation.store import (
     resolve_policy,
 )
 from app.services.generation.transport import Receipt
+from app.services.generation.provider_control import account_alias, active_attempts, require_provider_ready, record_failure
 
 log = logging.getLogger(__name__)
 
@@ -55,13 +56,14 @@ class Gateway:
                 raise Held(config["blocked_by"][0])
             if not self.epoch or control.epoch != self.epoch or job.epoch != self.epoch:
                 raise Held("restore_quarantine")
-            if control.cooldown_until > stamp():
-                raise Held("provider_cooldown")
+            await require_provider_ready(db, "anthropic", account_alias("anthropic"), stamp())
             from app.config import get_settings
             if get_settings().generation_emergency_pause:
                 raise Held("emergency_pause")
             await require_actor(db, job)
             if job.feature == "recap_video":
+                from app.services.recap_video.workflow import require_script_preflight
+                await require_script_preflight(db, json.loads(job.payload_json))
                 from app.services.recap_video.contracts import require_script_inputs
                 await require_script_inputs(db, job.series_id, job.league_id, json.loads(job.payload_json))
             if job.feature == "analyst":
@@ -101,20 +103,16 @@ class Gateway:
             snapshot = pricing(allowed_model)
             if hasattr(self.transport, "check_ready"):
                 self.transport.check_ready()
-            pending = await db.scalar(select(func.count()).select_from(ProviderAttempt).where(
-                ProviderAttempt.state.in_(UNRESOLVED)))
+            pending = await active_attempts(db, provider="anthropic", account_key=account_alias("anthropic"))
             if pending >= config["policy"]["max_concurrency"]:
                 raise Held("concurrency_busy")
-            series_pending = await db.scalar(select(func.count()).select_from(ProviderAttempt).join(
-                GenerationOperation, GenerationOperation.id == ProviderAttempt.operation_id).where(
-                    GenerationOperation.series_id == job.series_id,
-                    ProviderAttempt.state.in_(UNRESOLVED)))
+            series_pending = await active_attempts(db, series_id=job.series_id)
             if series_pending:
                 raise Held("series_concurrency_busy")
             allocation = await admit_provider_allocation(db, job, stage, request, saved, feature, stamp())
             # Settle from the admitted immutable rates, including later stages.
             snapshot = json.loads(allocation.rate_json)
-            attempt = ProviderAttempt(operation_id=job.id, stage=stage, generation=generation,
+            attempt = ProviderAttempt(provider="anthropic", account_key=account_alias("anthropic"), operation_id=job.id, stage=stage, generation=generation,
                 request_digest=request_hash, request_json=dump(request), model=allowed_model,
                 pricing_json=dump(snapshot))
             db.add(attempt)
@@ -196,16 +194,16 @@ class Gateway:
                 row.error_code = "provider_rejected" if receipt.status < 500 else "provider_outcome_unknown"
                 row.state = "rejected" if receipt.status < 500 else "unknown"
                 if receipt.status in (401, 403):
-                    control.provider_hold = "provider_auth_failed"
+                    await record_failure(db, row.provider, row.account_key, receipt.status, stamp())
                 if receipt.status == 429:
                     try:
                         delay = max(60, min(86400, int(receipt.headers.get("retry-after", "60"))))
                     except ValueError:
                         delay = 60
-                    control.cooldown_until = stamp() + delay
+                    await record_failure(db, row.provider, row.account_key, receipt.status, stamp(), delay=delay)
             elif usage_state != "known":
                 row.error_code = "response_invalid" if usage_state == "unknown" else "pricing_unknown"
-                control.provider_hold = "accounting_attention"
+                await record_failure(db, row.provider, row.account_key, receipt.status, stamp(), accounting_unknown=True)
             audit(db, "provider", "attempt_settled", attempt_id, "Saved receipt settled provider outcome",
                 before, {"state": row.state, "error_code": row.error_code,
                     "usage_state": row.usage_state, "cost_microusd": amount})
@@ -215,7 +213,8 @@ class Gateway:
                         "model": row.model, "usage": usage, "cost_microusd": amount})))
             await settle_attempt(db, row, {"attempt_id": attempt_id, "receipt_digest": digest(row.receipt_json),
                                            "usage_state": usage_state, "status": receipt.status})
-            if control.provider_hold == "reservation_exceeded":
+            from app.services.generation.provider_control import account_control
+            if (await account_control(db, row.provider, row.account_key)).hold == "reservation_exceeded":
                 row.error_code = "reservation_exceeded"
             log.info("provider receipt attempt=%s status=%s usage=%s", attempt_id, receipt.status, usage_state)
 

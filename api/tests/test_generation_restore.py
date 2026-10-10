@@ -114,6 +114,16 @@ async def test_generation_rows_roundtrip_without_receipt_or_artifact_changes(mak
             snapshot_json='{"score":"100.0100"}', snapshot_digest="raw", facts_digest="facts", decision="ready"))
         db.add(RecapScheduleInventory(version="source", season=2026, revision="schedule",
             qualified_at=123, inventory_json='{"source_bytes":"synthetic"}'))
+        from app.services.generation.recap_models import ProviderAccountControl, RecapStage, RecapProviderAttempt, RecapAsset
+        db.add(ProviderAccountControl(provider="elevenlabs", account_key="synthetic", hold="provider_auth_failed"))
+        db.add(RecapStage(id="media-stage", episode_id="episode", revision=3, kind="narrate", script_id="script",
+            operation_id="job", input_json="{}", input_digest="inputs", policy_digest="policy"))
+        db.add(RecapProviderAttempt(id="media-attempt", stage_id="media-stage", episode_id="episode", series_id="series",
+            operation_id="job", provider="elevenlabs", account_key="synthetic", worker_id="worker", generation=1,
+            epoch="test-epoch", request_digest="request", request_json="{}", pricing_json="{}", authority_digest="authority",
+            receipt_json='{"status":200}', state="received", cost_microusd=17))
+        db.add(RecapAsset(stage_id="media-stage", generation=1, digest="media-digest", size=17,
+            media_type="audio/wav", storage_key="synthetic-immutable-key"))
     async with maker() as db:
         blob, counts = await dump_database(db)
     assert all(counts[t.name] for t in Base.metadata.sorted_tables if t.name not in

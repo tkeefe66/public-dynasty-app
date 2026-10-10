@@ -105,16 +105,20 @@ async def execute(command):
 
 @router.get("")
 async def overview(db: DB):
+    from app.services.generation.recap_models import ProviderAccountControl, RecapProviderAttempt
     control = await db.get(GenerationControl, "global")
     rows = (await db.execute(select(GenerationOperation.state, func.count()).group_by(
         GenerationOperation.state))).all()
     known = await db.scalar(select(func.coalesce(func.sum(ProviderAttempt.cost_microusd), 0)))
     unknown = await db.scalar(select(func.count()).select_from(ProviderAttempt).where(
         ProviderAttempt.cost_microusd.is_(None)))
-    return {"control": data(control) if control else {"id": "global", "revision": 0,
+    media_known = await db.scalar(select(func.coalesce(func.sum(RecapProviderAttempt.cost_microusd), 0)))
+    media_unknown = await db.scalar(select(func.count()).select_from(RecapProviderAttempt).where(RecapProviderAttempt.cost_microusd.is_(None)))
+    providers = [data(row) for row in (await db.scalars(select(ProviderAccountControl))).all()]
+    return {"providers": providers, "control": data(control) if control else {"id": "global", "revision": 0,
         "hold": "activation_required", "epoch": "", "provider_hold": "", "breakers_json": "{}"},
         "effective": await resolve_policy(db), "jobs": dict(rows),
-        "known_cost_microusd": known, "unknown_cost_attempts": unknown,
+        "known_cost_microusd": int(known + media_known), "unknown_cost_attempts": unknown + media_unknown,
         "execution_epoch_configured": bool(get_settings().generation_execution_epoch),
         "emergency_paused": get_settings().generation_emergency_pause}
 
@@ -270,3 +274,15 @@ async def correction(ident: str, body: Correction, db: DB, owner: Owner):
 @router.post("/campaigns/apply")
 async def apply(body: Apply, db: DB, owner: Owner):
     return await execute(commands.apply_campaign(db, body.preview_id, body.digest, owner.id, body.reason))
+
+
+class ProviderReset(Reason):
+    provider: Literal["anthropic", "elevenlabs"]
+    account_key: str = Field(min_length=1, max_length=64, pattern="^[A-Za-z0-9_-]+$")
+    expected_revision: int = Field(ge=1)
+
+
+@router.post("/provider/reset")
+async def reset_provider(body: ProviderReset, db: DB, owner: Owner):
+    from app.services.generation.provider_control import reset_provider as reset
+    return await execute(reset(db, body.provider, body.account_key, body.expected_revision, owner.id, body.reason))

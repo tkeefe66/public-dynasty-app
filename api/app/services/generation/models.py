@@ -113,11 +113,18 @@ class GenerationOperation(Base):
     updated_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
 
 
+def configured_anthropic_alias():
+    from app.config import get_settings
+    return get_settings().anthropic_account_alias
+
+
 class ProviderAttempt(Base):
     """Physical request plus immutable receipt = one durable stage checkpoint."""
     __tablename__ = "provider_attempts"
     __table_args__ = (UniqueConstraint("operation_id", "stage", name="uq_generation_stage"),)
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    provider: Mapped[str] = mapped_column(String, default="anthropic")
+    account_key: Mapped[str] = mapped_column(String, default=configured_anthropic_alias)
     operation_id: Mapped[str] = mapped_column(String, index=True)
     stage: Mapped[int] = mapped_column(Integer)
     generation: Mapped[int] = mapped_column(Integer)

@@ -34,6 +34,11 @@ async def seed(maker, tmp_path, monkeypatch):
     monkeypatch.setenv("TRADE_GRADER_ADMIN_EMAILS", "owner@test.local")
     monkeypatch.setenv("TRADE_GRADER_CACHE_DIR", str(tmp_path))
     await seed_job(maker)
+    from app.services.recap_video import workflow
+    async def qualified(db, episode_id):
+        return dict(episode_id=episode_id, account_alias="primary", voice_digest="synthetic-voice",
+            rate_digest="synthetic-rate", qualification_revision="synthetic-qualification")
+    monkeypatch.setattr(workflow, "require_media_preflight", qualified)
     source = snapshot()
     source.update(build_participants(source["participants"], source["scores"], source["bracket"], source))
     source["player_metadata"] = {"available": False}
@@ -58,6 +63,7 @@ async def seed(maker, tmp_path, monkeypatch):
     from app.services.recap_video.contracts import prepare_script
     async with maker.begin() as db:
         saved = await prepare_script(db, ident, cache_dir=tmp_path)
+        saved["media_qualification_digest"] = digest(await qualified(db, ident))
         job = await db.get(GenerationOperation, "job")
         job.feature, job.max_calls, job.subject = "recap_video", 4, "video-subject"
         job.payload_json, job.request_digest = dump(saved), digest(saved)

@@ -147,6 +147,7 @@ async def observe_period(db, key: EpisodeKey, snapshot: dict, now: int) -> str:
         old = await db.get(RecapObservation, row.latest_observation_id)
         previous = {**json.loads(old.snapshot_json), "observed_at": row.stable_since}
     saved = {**snapshot, "observed_at": now}
+    previous_lifecycle, previous_hold, previous_facts = row.lifecycle, row.hold, row.facts_digest
     decision = evaluate_readiness(saved, previous, now)
     admission = (await _authority_reason(db, key, snapshot["league_id"]) if row.admitted_at
                  else await _admission_reason(db, key, snapshot))
@@ -157,6 +158,21 @@ async def observe_period(db, key: EpisodeKey, snapshot: dict, now: int) -> str:
     row.stable_since = (row.stable_since if same else now) if valid else 0
     row.lifecycle = "ready" if decision.ready and not admission else "held"
     row.hold = (admission or ("" if decision.ready else decision.code)) if valid else decision.code
+    progressed = {"waiting_for_article", "scripting", "narration", "speech_check", "rendering", "media_check", "review", "published", "withdrawn", "correction"}
+    if previous_lifecycle in progressed and previous_facts == decision.facts_digest and decision.ready and not admission:
+        row.lifecycle, row.hold = previous_lifecycle, previous_hold
+    elif previous_facts and previous_facts != decision.facts_digest:
+        # Invalidate selection immediately; retained receipts still settle money.
+        from app.services.generation.recap_models import RecapStage, RecapProviderAttempt
+        stages = (await db.scalars(select(RecapStage).where(RecapStage.episode_id == ident))).all()
+        for stage in stages:
+            stage.state, stage.reason, stage.lease_until = "held", "recap_facts_changed", 0
+            stage.generation += 1
+        if stages:
+            row.lifecycle, row.hold = "held", "recap_facts_changed"
+        for attempt in (await db.scalars(select(RecapProviderAttempt).where(
+                RecapProviderAttempt.episode_id == ident, RecapProviderAttempt.state == "dispatching"))).all():
+            attempt.state = "unknown"
     row.eligible_at, row.observed_at, row.facts_digest = decision.eligible_at, now, decision.facts_digest
     row.source_digest = digest(saved)
     row.next_observation_at = now + 900
@@ -178,7 +194,7 @@ def source_ready(row: RecapEpisode, snapshot: dict) -> bool:
 
 
 async def require_readiness(db, series_id: str, payload: dict, *, league_id=None,
-                            allow_current_admission=False, automatic=False) -> RecapEpisode | None:
+                            allow_current_admission=False, automatic=False, media_checkpoint=False) -> RecapEpisode | None:
     """Current persisted evidence must match the immutable operation snapshot."""
     if not await workflow_enabled(db, series_id) and not payload.get("recap_facts_digest"):
         return None
@@ -209,7 +225,10 @@ async def require_readiness(db, series_id: str, payload: dict, *, league_id=None
         # Read-only validation here. The command records admission only after
         # actor checks and all other authorization checks have succeeded.
         return row
-    if row.lifecycle != "ready" or row.hold:
+    # Media progress does not revoke settled source facts for written recaps.
+    # Media failures stay on RecapStage; row.hold is source/admission authority.
+    allowed = {"ready", "waiting_for_article", "scripting", "narration", "speech_check", "rendering", "media_check", "review", "published"}
+    if row.lifecycle not in allowed or row.hold:
         raise Held(row.hold or "recap_not_ready")
     if not row.admitted_at:
         raise Held("recap_readiness_missing")

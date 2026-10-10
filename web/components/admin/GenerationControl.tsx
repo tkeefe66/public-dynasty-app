@@ -27,6 +27,7 @@ export function GenerationControl() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [action, setAction] = useState("");
+  const [providerKey, setProviderKey] = useState("");
   const [feature, setFeature] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [budgetSeriesId, setBudgetSeriesId] = useState<string>();
@@ -96,6 +97,7 @@ export function GenerationControl() {
           <button className={secondary} disabled={blocked} onClick={() => setAction(action === "pause" ? "" : "pause")}>Pause all AI writing</button>
         </div>
         {overview.emergency_paused && <p className="mt-3 text-prose text-neg-strong">The deployment safety switch is on. Turn off the emergency pause in Railway before activating AI here.</p>}
+        {(overview.providers || []).filter(provider => provider.hold || provider.cooldown_until > Date.now() / 1000).map(provider => <p key={provider.provider + ":" + provider.account_key} className="mt-3 text-prose text-warn-strong">{provider.provider} / {provider.account_key} is blocked: {provider.hold ? readable(provider.hold) : "rate limited"}. Review this account under Advanced → Activation and recovery.</p>)}
         {globallyPaused && overview.effective.blocked_by.length > 0 && <ul className="mt-3 space-y-1 text-prose">{overview.effective.blocked_by.map(reason => <li key={reason}>{pauseReasons[reason] || `Writing is blocked: ${readable(reason)}.`}</li>)}</ul>}
         {(Object.keys(FEATURE_LABELS) as GenerationFeature[]).filter(f => breakers[f]?.open).map(f => <p key={f} className="mt-3 text-prose text-warn-strong">{FEATURE_LABELS[f]} is stopped after repeated failures. Review the failed work, then reset its safety stop under Advanced → Activation and recovery.</p>)}
         <div className="mt-4 border-t border-rule pt-3 text-prose"><p>Tracked AI spend: <strong className="font-mono">{money(overview.known_cost_microusd)}</strong></p><p className="mt-1 text-dim">Total recorded by these controls, across all leagues. Excludes earlier spending and unrecorded charges.</p>
@@ -132,9 +134,14 @@ export function GenerationControl() {
         {advancedOpen && <>
           <details className="mt-3"><summary className={summaryClass}>Activation and recovery</summary><p className="max-w-2xl text-prose text-dim">Use after resolving a provider or deployment problem. Activation requires a configured deployment ID, stopped legacy workers, and completed receipt checks. Missed work stays held for separate approval.</p>
             {!overview.execution_epoch_configured && <p className="mt-2 text-prose text-warn-strong">Setup required in Railway: configure the generation execution epoch before activation.</p>}
-            <div className="mt-3 flex flex-wrap gap-2"><button className={secondary} disabled={blocked || !overview.execution_epoch_configured || overview.emergency_paused} onClick={() => setAction("activate")}>Activate AI execution</button><button className={secondary} disabled={blocked || !overview.control.provider_hold} onClick={() => setAction("clear_provider")}>Clear provider hold</button>
+            <div className="mt-3 flex flex-wrap gap-2"><button className={secondary} disabled={blocked || !overview.execution_epoch_configured || overview.emergency_paused} onClick={() => setAction("activate")}>Activate AI execution</button>
               {(Object.keys(FEATURE_LABELS) as GenerationFeature[]).filter(f => breakers[f]?.open).map(f => <button key={f} className={secondary} disabled={blocked} onClick={() => { setFeature(f); setAction("reset_breaker"); }}>Reset {FEATURE_LABELS[f]} safety stop</button>)}
             </div>
+            {(overview.providers || []).map(provider => <div key={provider.provider + ":" + provider.account_key} className="mt-3 text-prose">
+              <p>{provider.provider} / {provider.account_key}: {provider.hold ? readable(provider.hold) : provider.cooldown_until > Date.now() / 1000 ? "Rate limited" : "Available"}</p>
+              {(provider.hold || provider.cooldown_until > Date.now() / 1000) && <button className={secondary} disabled={blocked} onClick={() => setProviderKey(provider.provider + ":" + provider.account_key)}>Review {provider.provider} / {provider.account_key} recovery</button>}
+              {providerKey === provider.provider + ":" + provider.account_key && <ActionForm title={`Reset ${provider.provider} / ${provider.account_key}`} description="Resolve this account's failed or uncertain requests first. Resetting does not authorize a replacement take." submitLabel="Reset provider account" busy={blocked} onCancel={() => setProviderKey("")} onSubmit={reason => run(() => generationRequest("/provider/reset", { provider: provider.provider, account_key: provider.account_key, expected_revision: provider.revision, reason }), "Provider account controls updated.")} />}
+            </div>)}
             {action && action !== "pause" && <ActionForm key={action + feature} title="Update AI recovery controls" description="Confirm the underlying problem is resolved. Existing policy limits still apply after this change." submitLabel="Confirm recovery" busy={blocked} requireStopped={action === "activate"} onCancel={() => setAction("")} onSubmit={(reason, workersStopped) => run(() => generationRequest("/control", { action, feature: action === "reset_breaker" ? feature : "", expected_revision: overview.control.revision, reason, workers_stopped: workersStopped }), "Recovery controls updated. Check AI status above.")} />}
             <TechnicalDetails value={overview} label="Control state and deployment details" />
           </details>

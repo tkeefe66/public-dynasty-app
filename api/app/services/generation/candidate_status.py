@@ -106,6 +106,9 @@ async def classify_candidates(db, rows, *, actor_id):
     seasons = {season.league_id: season for season in (await db.scalars(select(LeagueSeason).where(
         LeagueSeason.league_id.in_(league_ids)))).all()}
     control = await db.get(GenerationControl, "global")
+    from app.services.generation.provider_control import account_alias
+    from app.services.generation.recap_models import ProviderAccountControl
+    provider = await db.get(ProviderAccountControl, ("anthropic", account_alias("anthropic")))
     policies, permissions, eligibility = {}, {}, {}
     result = {}
     for row in rows:
@@ -124,7 +127,7 @@ async def classify_candidates(db, rows, *, actor_id):
             result[row.key] = _status("completed")
             continue
         blocks = []
-        if not payload.get("facts"):
+        if not payload.get("facts") and row.feature != "recap_video":
             blocks.append("facts_unavailable")
         if row.hold not in REVIEWABLE_HOLDS:
             blocks.append(row.hold)
@@ -148,6 +151,20 @@ async def classify_candidates(db, rows, *, actor_id):
             blocks.append("emergency_pause")
         if control and control.cooldown_until > stamp():
             blocks.append("provider_cooldown")
+        if control and control.provider_hold:
+            blocks.append(control.provider_hold)  # Legacy restore, before scoped migration.
+        if provider and provider.hold:
+            blocks.append(provider.hold)
+        if provider and provider.cooldown_until > stamp():
+            blocks.append("provider_cooldown")
+        if row.feature == "recap_video":
+            try:
+                from app.services.recap_video.workflow import require_script_preflight
+                from app.services.recap_video.contracts import require_script_inputs
+                await require_script_preflight(db, payload)
+                await require_script_inputs(db, row.series_id, row.league_id, payload)
+            except Held as exc:
+                blocks.append(exc.code)
         if control and json.loads(control.breakers_json).get(row.feature, {}).get("open"):
             blocks.append("feature_breaker_open")
         if not blocks:

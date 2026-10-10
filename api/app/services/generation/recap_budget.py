@@ -16,7 +16,7 @@ from sqlalchemy import select
 from app.repositories.app_settings import get_monthly_budget
 from app.services.generation.models import GenerationOperation, LeagueSeries, ProviderAttempt
 from app.services.generation.policy import StrictModel
-from app.services.generation.recap_models import RecapBudgetAllocation, RecapBudgetPlan, RecapBudgetPolicy
+from app.services.generation.recap_models import RecapBudgetAllocation, RecapBudgetPlan, RecapBudgetPolicy, RecapProviderAttempt
 from app.services.generation.store import Conflict, Held, audit, digest, dump, lock_control
 
 SAFE_INTEGER = 9_007_199_254_740_991
@@ -90,7 +90,9 @@ async def _obligations(db):
     from app.services.generation.commands import UNRESOLVED_OUTCOMES
     attempts = (await db.execute(select(ProviderAttempt, GenerationOperation).outerjoin(
         GenerationOperation, GenerationOperation.id == ProviderAttempt.operation_id))).all()
+    media = (await db.scalars(select(RecapProviderAttempt))).all()
     attempts_by_id = {attempt.id: attempt for attempt, _ in attempts}
+    attempts_by_id.update({attempt.id: attempt for attempt in media})
 
     def unresolved_outcome(attempt):
         return (attempt.state in UNRESOLVED_OUTCOMES or
@@ -137,6 +139,13 @@ async def _obligations(db):
             known=known or 0, reserved=exposure, unknown=known is None and a.state != "not_sent",
             outcome_unknown=unresolved_outcome(a),
             unbounded=unbounded, attempt_id=a.id, state="historical_unknown" if known is None else "settled"))
+    for a in media:
+        if a.id not in bound:
+            result.append(dict(series=a.series_id, episode=a.episode_id, category="video",
+                month=month_key(a.created_at), app_month=month_key(a.created_at, UTC),
+                known=a.cost_microusd or 0, reserved=0, unknown=a.cost_microusd is None,
+                outcome_unknown=unresolved_outcome(a), unbounded=a.cost_microusd is None,
+                attempt_id=a.id, state=a.state))
     return result
 
 
@@ -266,6 +275,17 @@ async def reserve_plan(db, episode_id: str, series_id: str, plan_key: str,
     return await _reserve(db, episode_id, series_id, plan_key, allocations, now)
 
 
+async def require_episode_budget(db, episode_id, series_id, now):
+    """Recheck current caps and independent outcome uncertainty before each send."""
+    await lock_control(db)
+    policy = await _policy_lock(db, series_id)
+    rows = await _obligations(db)
+    _check_balances(rows, series_id, episode_id, _caps(policy), now)
+    if any(r["episode"] == episode_id and (r["unknown"] or r["outcome_unknown"]) for r in rows):
+        raise Held("recap_provider_outcome_unknown")
+    await _check_app(db, rows, now)
+
+
 async def _reserve(db, episode_id, series_id, plan_key, allocations, now, *, managed=False):
     await lock_control(db)
     if not await db.get(LeagueSeries, series_id):
@@ -342,7 +362,15 @@ async def settle_allocation(db, allocation_id: str, actual_microusd: int | None,
         row.state = "settled"
         if actual_microusd > row.max_microusd:
             row.state = "overrun"
-            control.provider_hold = "reservation_exceeded"
+            attempt = await db.get(RecapProviderAttempt, row.attempt_id) if row.attempt_id else None
+            if not attempt and row.attempt_id:
+                attempt = await db.get(ProviderAttempt, row.attempt_id)
+            if attempt:
+                from app.services.generation.provider_control import account_control
+                account = await account_control(db, attempt.provider, attempt.account_key)
+                account.hold = "reservation_exceeded"
+            else:
+                control.hold = "reservation_exceeded"
     audit(db, "accounting", "budget_settled", allocation_id, "Provider evidence reconciled",
         after={"actual_microusd": actual_microusd, "state": row.state, "evidence": evidence})
     await db.flush()
@@ -461,15 +489,20 @@ async def reconcile_allocation(db, allocation_id, actual_microusd, evidence, act
     row = await db.get(RecapBudgetAllocation, allocation_id)
     if row is None:
         raise InvalidBudgetRequest("Budget allocation not found")
-    await settle_allocation(db, allocation_id, actual_microusd,
-        {"financial_reconciliation": evidence, "actor_id": actor_id, "reason": reason})
+    attempt = None
     if row.attempt_id:
-        attempt = await db.get(ProviderAttempt, row.attempt_id)
+        attempt = await db.get(ProviderAttempt, row.attempt_id) or await db.get(RecapProviderAttempt, row.attempt_id)
+        if attempt is None:
+            raise Held("budget_attempt_missing")
         if attempt.cost_microusd is not None and attempt.cost_microusd != actual_microusd:
             raise Conflict("Financial reconciliation contradicts saved provider usage")
+    await settle_allocation(db, allocation_id, actual_microusd,
+        {"financial_reconciliation": evidence, "actor_id": actor_id, "reason": reason})
+    if attempt is not None:
         if attempt.cost_microusd is None:
             attempt.cost_microusd = actual_microusd
-            attempt.usage_state = "financially_reconciled"
+            if isinstance(attempt, ProviderAttempt):
+                attempt.usage_state = "financially_reconciled"
     audit(db, actor_id, "budget_financial_reconciliation", allocation_id, reason,
         after={"actual_microusd": actual_microusd, "evidence": evidence})
     await db.flush()

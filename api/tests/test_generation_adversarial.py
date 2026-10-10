@@ -1,3 +1,4 @@
+from app.services.generation.recap_models import ProviderAccountControl
 import json
 from types import SimpleNamespace
 
@@ -113,7 +114,7 @@ async def test_transport_has_no_hidden_retry_and_429_cooldown_is_shared(maker, m
         await Gateway(maker,AnthropicTransport(),epoch="test-epoch").invoke("job",1,2,REQUEST)
     assert retries==[0] and len(calls)==1
     async with maker() as db:
-        assert (await db.get(GenerationControl,"global")).cooldown_until>stamp()
+        assert (await db.get(ProviderAccountControl, ("anthropic", "primary"))).cooldown_until>stamp()
         assert (await db.scalar(select(ProviderAttempt))).receipt_json
 
 
@@ -169,7 +170,7 @@ async def test_unknown_model_price_retains_receipt_and_stops_other_work(maker):
     async with maker() as db:
         row=await db.scalar(select(ProviderAttempt))
         assert row.receipt_json and row.cost_microusd is None
-        assert (await db.get(GenerationControl,"global")).provider_hold=="accounting_attention"
+        assert (await db.get(ProviderAccountControl, ("anthropic", "primary"))).hold=="accounting_attention"
 
 
 @pytest.mark.asyncio

@@ -62,6 +62,8 @@ async def test_unrelated_managed_work_shares_last_app_allowance(pgmaker):
     async with pgmaker.begin() as db:
         await set_monthly_budget(db, 0.1)
         (await db.get(GenerationPolicy, "app")).value_json = dump({"paused": False, "max_concurrency": 4})
+        from app.services.generation.provider_control import account_control
+        (await account_control(db, "anthropic", "primary")).max_concurrency = 4
         original = await db.get(GenerationOperation, "job")
         db.add(LeagueSeries(id="other-series", lifecycle="active", hold=""))
         db.add(LeagueMembership(user_id="owner", league_id="other"))
@@ -101,8 +103,14 @@ async def test_ledger_migration_roundtrip_preserves_existing_policy_and_receipts
     await asyncio.to_thread(command.upgrade, config, "0011_recap_budget")
     async with pgmaker.begin() as db:
         db.add(RecapBudgetPolicy(series_id="series", caps_json=dump(budget.RecapCaps().model_dump())))
-        db.add(ProviderAttempt(operation_id="old", stage=1, generation=1, request_digest="old",
-            request_json="{}", model="unknown", state="unknown"))
+        # Historical schema intentionally predates provider/account columns. Use
+        # its persisted shape rather than today's expanded ORM mapping.
+        await db.execute(text("""INSERT INTO provider_attempts
+            (id, operation_id, stage, generation, request_digest, request_json, model,
+             state, usage_state, receipt_json, usage_json, pricing_json, cost_microusd,
+             provider_request_id, status_code, error_code, created_at, settled_at)
+            VALUES ('synthetic-old', 'old', 1, 1, 'old', '{}', 'unknown', 'unknown',
+                    'unknown', NULL, '{}', '{}', NULL, '', NULL, '', 123, 0)"""))
     async with pgmaker() as db:
         before = {table: (await db.execute(text(f"SELECT * FROM {table}"))).all()
                   for table in ("recap_budget_policies", "provider_attempts")}

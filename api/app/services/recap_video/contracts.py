@@ -118,7 +118,7 @@ async def prepare_script(db, episode_id, *, cache_dir, published_script_ids=()):
     return payload
 
 
-async def require_script_inputs(db, series_id, league_id, payload, *, cache_dir=None, automatic=False):
+async def require_script_inputs(db, series_id, league_id, payload, *, cache_dir=None, automatic=False, media_checkpoint=True):
     """Fence competitive changes, article corrections and relevant metadata changes.
 
     Observation timestamps may advance. Exact original snapshot remains bound for audit.
@@ -129,7 +129,7 @@ async def require_script_inputs(db, series_id, league_id, payload, *, cache_dir=
     from app.services.generation.store import Held, digest
     from app.services.recap_video.readiness import require_readiness, competitive_digest
     from sleeper_dynasty.engine.recap_video_claims import compile_claims
-    row = await require_readiness(db, series_id, payload, league_id=league_id, automatic=automatic)
+    row = await require_readiness(db, series_id, payload, league_id=league_id, automatic=automatic, media_checkpoint=media_checkpoint)
     if not row or payload.get("episode_id") != row.episode_id:
         raise Held("recap_readiness_missing")
     original = await db.get(RecapObservation, payload.get("observation_id", ""))

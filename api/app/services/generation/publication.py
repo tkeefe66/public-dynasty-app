@@ -40,7 +40,9 @@ def project_analyst(cache_dir, row, previous):
         store._write_once(target, data)
 
 
-async def drain(maker, cache_dir):
+async def drain(maker, cache_dir, *, execution_role="api-projector"):
+    if execution_role != "api-projector":
+        raise Held("api_projector_required")
     async with maker() as db:
         ids = list((await db.scalars(select(GenerationOutbox.id).where(
             GenerationOutbox.delivered.is_(False), GenerationOutbox.error == ""

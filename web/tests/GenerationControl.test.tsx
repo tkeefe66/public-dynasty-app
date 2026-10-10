@@ -40,6 +40,26 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Generation controls", () => {
+  it("names affected provider account and submits only scoped recovery", async () => {
+    // Mutation: use global clear_provider or omit alias/revision in provider reset.
+    const normal = request.getMockImplementation()!;
+    request.mockImplementation(async (path = "", ...args) => path === "" ? {
+      ...await normal(path, ...args), providers: [{ provider: "elevenlabs", account_key: "synthetic-voice",
+        hold: "provider_auth_failed", cooldown_until: 0, max_concurrency: 1, revision: 7 }],
+    } : normal(path, ...args));
+    render(<GenerationControl />);
+    await screen.findByRole("heading", { name: "Waiting for your approval" });
+    fireEvent.click(screen.getByText("Advanced", { selector: "summary" }));
+    fireEvent.click(await screen.findByText("Activation and recovery", { selector: "summary" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review elevenlabs / synthetic-voice recovery" }));
+    const form = screen.getByRole("button", { name: "Reset provider account" }).closest("form")!;
+    fireEvent.change(within(form).getByRole("textbox"), { target: { value: "Synthetic account credentials corrected" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Reset provider account" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/provider/reset", {
+      provider: "elevenlabs", account_key: "synthetic-voice", expected_revision: 7,
+      reason: "Synthetic account credentials corrected",
+    }));
+  });
   it("opens a held job's selected-league recap limits without approving requests", async () => {
     // Mutation: navigate to app defaults rather than the held job's league budget.
     const normal = request.getMockImplementation()!;

@@ -1,3 +1,4 @@
+from app.services.generation.recap_models import ProviderAccountControl
 """Budget obligations persist across cancellation, revisions and billing windows."""
 import json
 from datetime import datetime
@@ -256,7 +257,7 @@ async def test_receipt_over_reservation_records_honest_cost_and_holds_provider(m
     async with maker() as db:
         row = await db.scalar(select(RecapBudgetAllocation))
         assert row.actual_microusd == 100_025 and row.state == "overrun"
-        assert (await db.get(GenerationControl, "global")).provider_hold == "reservation_exceeded"
+        assert (await db.get(ProviderAccountControl, ("anthropic", "primary"))).hold == "reservation_exceeded"
     with pytest.raises(Held, match="reservation_exceeded"):
         await gateway.invoke("job", 1, 2, REQUEST)
     assert transport.sends == 1

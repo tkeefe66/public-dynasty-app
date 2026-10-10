@@ -29,6 +29,14 @@ async def quarantine(db):
     for attempt in (await db.scalars(select(ProviderAttempt).where(
             ProviderAttempt.state == "dispatching"))).all():
         attempt.state = "unknown"
+    from app.services.generation.recap_models import RecapStage, RecapProviderAttempt
+    for stage in (await db.scalars(select(RecapStage).where(RecapStage.state != "succeeded"))).all():
+        stage.generation += 1
+        stage.lease_until = 0
+        stage.state, stage.reason = "held", "restore_reapproval_required"
+    for attempt in (await db.scalars(select(RecapProviderAttempt).where(
+            RecapProviderAttempt.state == "dispatching"))).all():
+        attempt.state = "unknown"
     audit(db, "restore", "restore_quarantined", "global",
         "Restore cannot prove which post-snapshot requests executed; rotate epoch and reconcile before activation",
         after={"old_epoch": control.epoch, "held_jobs": len(jobs)})

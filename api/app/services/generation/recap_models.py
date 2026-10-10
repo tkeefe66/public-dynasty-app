@@ -88,3 +88,77 @@ class RecapScheduleInventory(Base):
     revision: Mapped[str] = mapped_column(String)
     qualified_at: Mapped[int] = mapped_column(BigInteger)
     inventory_json: Mapped[str] = mapped_column(String)
+
+
+class ProviderAccountControl(Base):
+    __tablename__ = "provider_account_controls"
+    provider: Mapped[str] = mapped_column(String, primary_key=True)
+    account_key: Mapped[str] = mapped_column(String, primary_key=True)
+    hold: Mapped[str] = mapped_column(String, default="")
+    cooldown_until: Mapped[int] = mapped_column(BigInteger, default=0)
+    max_concurrency: Mapped[int] = mapped_column(Integer, default=1)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class RecapStage(Base):
+    """API-created subordinate checkpoint, never an independent scheduler job."""
+    __tablename__ = "recap_stages"
+    __table_args__ = (UniqueConstraint("episode_id", "revision", "kind", "chunk", name="uq_recap_stage"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    episode_id: Mapped[str] = mapped_column(String, index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String)
+    chunk: Mapped[int] = mapped_column(Integer, default=0)
+    script_id: Mapped[str] = mapped_column(String)
+    operation_id: Mapped[str] = mapped_column(String, index=True)
+    predecessor_id: Mapped[str] = mapped_column(String, default="")
+    input_json: Mapped[str] = mapped_column(String)
+    input_digest: Mapped[str] = mapped_column(String)
+    policy_digest: Mapped[str] = mapped_column(String)
+    state: Mapped[str] = mapped_column(String, default="queued", index=True)
+    reason: Mapped[str] = mapped_column(String, default="")
+    worker_id: Mapped[str] = mapped_column(String, default="")
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+    epoch: Mapped[str] = mapped_column(String, default="")
+    lease_until: Mapped[int] = mapped_column(BigInteger, default=0)
+    next_attempt_at: Mapped[int] = mapped_column(BigInteger, default=0)
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+    result_json: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class RecapProviderAttempt(Base):
+    """One physical send authority; UUID identity preserves numeric prose ledger."""
+    __tablename__ = "recap_provider_attempts"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    stage_id: Mapped[str] = mapped_column(String, unique=True)
+    episode_id: Mapped[str] = mapped_column(String, index=True)
+    series_id: Mapped[str] = mapped_column(String, index=True)
+    operation_id: Mapped[str] = mapped_column(String, index=True)
+    provider: Mapped[str] = mapped_column(String)
+    account_key: Mapped[str] = mapped_column(String)
+    worker_id: Mapped[str] = mapped_column(String)
+    generation: Mapped[int] = mapped_column(Integer)
+    epoch: Mapped[str] = mapped_column(String)
+    request_digest: Mapped[str] = mapped_column(String)
+    request_json: Mapped[str] = mapped_column(String)
+    pricing_json: Mapped[str] = mapped_column(String)
+    authority_digest: Mapped[str] = mapped_column(String)
+    state: Mapped[str] = mapped_column(String, default="dispatching", index=True)
+    error_code: Mapped[str] = mapped_column(String, default="")
+    receipt_json: Mapped[str | None] = mapped_column(String, nullable=True)
+    cost_microusd: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+    settled_at: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class RecapAsset(Base):
+    __tablename__ = "recap_assets"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    stage_id: Mapped[str] = mapped_column(String, index=True)
+    generation: Mapped[int] = mapped_column(Integer)
+    digest: Mapped[str] = mapped_column(String)
+    size: Mapped[int] = mapped_column(BigInteger)
+    media_type: Mapped[str] = mapped_column(String)
+    storage_key: Mapped[str] = mapped_column(String, unique=True)
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)

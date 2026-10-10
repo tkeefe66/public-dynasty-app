@@ -76,6 +76,8 @@ async def automatic_eligibility(db, season, feature, payload, now):
         from app.services.recap_video.contracts import require_script_inputs
         from app.services.generation.store import Held
         try:
+            from app.services.recap_video.workflow import require_script_preflight
+            await require_script_preflight(db, payload)
             await require_script_inputs(db, season.series_id, season.league_id, payload, automatic=True)
             return ""
         except Held as exc:
