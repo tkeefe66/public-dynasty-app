@@ -94,6 +94,16 @@ async def validate_check(db, stage, result):
         if report['render']!=json.loads(render_data):
             raise ValueError()
         require_media_measurements(report, episode, assets)
+        from media.public_package import DERIVATIVES, evidence_issues, captions_vtt
+        if any(name in assets for name in DERIVATIVES):
+            if not all(name in assets and assets[name].media_type == mime for name,mime in DERIVATIVES.items()):
+                raise ValueError()
+            if evidence_issues(report.get('public_derivatives', {}), episode,
+                    {name:assets[name].digest for name in DERIVATIVES}):
+                raise ValueError()
+            _, captions = await read(db, assets['captions.vtt'].id, stage=prior, mime='text/vtt')
+            if captions.decode('utf-8') != captions_vtt(episode):
+                raise ValueError()
         for frame in report["measurements"]["representative_frames"]:
             asset, _ = await read(db, frames[frame["file"]], stage=stage, mime="image/png")
             if asset.digest != frame["sha256"]:

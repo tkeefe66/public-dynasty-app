@@ -129,7 +129,20 @@ async def test_generation_rows_roundtrip_without_receipt_or_artifact_changes(mak
             entity_kind="owner", entity_id="synthetic-owner", canonical_name="Avery",
             canonical_token="avery", reusable=True, aliases_json='["averie"]',
             script_id="script", script_digest="synthetic-script-digest", script_revision=3,
-            reviewer_id="owner", reason="Reviewed synthetic spelling", created_at=123))
+                reviewer_id="owner", reason="Reviewed synthetic spelling", created_at=123))
+        from app.services.generation.recap_models import (RecapPublicationControl, RecapPublication,
+            RecapPublicationApproval, RecapPublicationSelection, RecapShareDecision)
+        db.add(RecapPublicationControl(id='global', epoch='synthetic-serving-epoch',
+            reconciliation_digest='synthetic-reconciled-inventory', quarantined=True))
+        db.add(RecapPublication(episode_id='episode', series_id='series', league_id='synthetic', season=2026, week=2,
+            article_id='artifact', article_revision=3, article_digest='content-hash', article_json='{"markdown":"Saved correction"}',
+            facts_digest='facts', media_id='media-stage', media_json='{"id":"retained-bundle"}', script_id='script',
+            approval_id='publication-approval', policy_digest='policy', share_revision=2,
+            authority_revision=4, projected_revision=3, epoch='synthetic-serving-epoch', withdrawn=True))
+        db.add(RecapPublicationApproval(id='publication-approval', episode_id='episode',
+            scope_json='{"article_revision":3}', reviewer_id='owner', reason='Reviewed synthetic preview', consumed=True))
+        db.add(RecapPublicationSelection(episode_id='episode',series_id='series',script_id='script',authority_revision=3))
+        db.add(RecapShareDecision(scope='edition:episode',revision=2,allowed=False,opted_out=True,token=None,token_digest=None))
     async with maker() as db:
         blob, counts = await dump_database(db)
     assert all(counts[t.name] for t in Base.metadata.sorted_tables if t.name not in

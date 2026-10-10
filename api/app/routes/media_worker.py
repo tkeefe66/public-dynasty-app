@@ -245,7 +245,7 @@ async def store_upload(request):
 async def upload(request: Request, worker=Depends(require_media_worker)):
     body = fence_header(request)
     media_type = request.headers.get("content-type", "")
-    if media_type not in ("audio/wav", "audio/mpeg", "video/mp4", "image/png", "application/json"):
+    if media_type not in ("audio/wav", "audio/mpeg", "video/mp4", "image/png", "image/jpeg", "text/vtt", "application/json"):
         raise HTTPException(422, "Unsupported media asset type")
     try:
         async with get_sessionmaker().begin() as db:

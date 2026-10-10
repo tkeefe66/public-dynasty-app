@@ -34,6 +34,9 @@ class AnalystMedia:
 
     def attach(self, league_id, season, week, source: Path, *, revision, duration_seconds):
         """Publish a complete, reviewed bundle. Does not enable public sharing."""
+        from app.config import get_settings
+        if get_settings().recap_publication_mode != 'legacy':
+            raise ValueError('DB authority requires a checked media stage and scoped publication approval.')
         edition = self.shares.edition(league_id, season, week)
         if edition is None:
             raise ValueError("A published recap is required before attaching media.")

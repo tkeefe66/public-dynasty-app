@@ -14,5 +14,6 @@ export const publicAnalyst = cache(async (token: string) => {
     edition_type?: "roast" | "results";
     sources?: AnalystSource[]; context_note?: string | null;
     media?: RecapMediaInfo | null;
+    status?: "published" | "withdrawn";
   }>;
 });

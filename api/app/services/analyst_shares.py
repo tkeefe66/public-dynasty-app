@@ -14,7 +14,7 @@ import secrets
 import tempfile
 from contextlib import contextmanager
 
-from app.services.analyst_store import AnalystStore
+from app.services.analyst_store import AnalystEdition, AnalystStore
 
 
 class AnalystShares:
@@ -54,8 +54,20 @@ class AnalystShares:
         return json.loads(path.read_text()) if path.exists() else {"token": None}
 
     def edition(self, league_id, season, week):
-        return next((e for e in self.archive.published_editions(league_id)
-                     if e["season"] == season and e["week"] == week), None)
+        # One malformed edition cannot hold every other share in this league.
+        path = self.archive.edition_path(league_id, season, week)
+        if not path.exists():
+            return None
+        original = AnalystEdition.model_validate_json(path.read_text()).model_dump()
+        revisions = sorted((path.parent/'revisions'/path.stem).glob('*.json'))
+        edition = AnalystEdition.model_validate_json(revisions[-1].read_text()).model_dump() if revisions else original
+        if (edition['season'], edition['week']) != (season, week):
+            raise ValueError('Analyst revision belongs to a different edition')
+        if edition['edition_type'] != 'roast':
+            return None
+        if revisions:
+            edition['original_markdown'] = original['markdown'] if original['edition_type'] == 'roast' else None
+        return edition
 
     def create(self, league_id, season, week):
         if self.edition(league_id, season, week) is None:

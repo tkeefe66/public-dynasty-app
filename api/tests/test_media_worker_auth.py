@@ -28,7 +28,8 @@ async def test_worker_cannot_supply_identity_or_capabilities(app, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_streamed_upload_bounds_digest_and_foreign_assets(app, maker, tmp_path, monkeypatch):
+@pytest.mark.parametrize('content_type', ['video/mp4', 'image/jpeg', 'text/vtt'])
+async def test_streamed_upload_bounds_digest_and_foreign_assets(app, maker, tmp_path, monkeypatch, content_type):
     # Mutation: trust Content-Length/digest; expose another checkpoint's assets.
     from app.routes import media_worker as routes
     from app.services.generation.recap_models import RecapAsset
@@ -43,7 +44,7 @@ async def test_streamed_upload_bounds_digest_and_foreign_assets(app, maker, tmp_
         db.add(RecapAsset(id="foreign", stage_id="other-stage", generation=1, digest="x", size=1,
             media_type="video/mp4", storage_key="not-readable"))
     headers = {"Authorization": "Bearer " + "synthetic-worker-secret-" * 3,
-        "x-media-lease": json.dumps(fence(leased)), "content-type": "video/mp4",
+        "x-media-lease": json.dumps(fence(leased)), "content-type": content_type,
         "x-content-sha256": hashlib.sha256(b"test").hexdigest()}
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         uploaded = await client.post("/api/internal/media/assets", headers=headers, content=b"test")

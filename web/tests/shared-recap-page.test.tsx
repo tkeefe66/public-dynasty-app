@@ -26,3 +26,12 @@ it("keeps text-only editions readable without advertising absent media", async (
   expect(screen.queryByLabelText("Week 4 video recap")).not.toBeInTheDocument();
   expect(screen.getByText("Text only")).toBeInTheDocument();
 });
+
+it("shows correction status at the same URL without stale article or media", async () => {
+  // Mutation: ignore DB withdrawal and render retained article/media projections.
+  load.mockResolvedValue({ season: 2026, week: 4, league_name: "Test league", status: "withdrawn", markdown: "Stale score", media: null });
+  render(await Page({ params: { token: "a".repeat(43) } }));
+  expect(screen.getByRole("heading", { name: "This recap is being corrected." })).toBeInTheDocument();
+  expect(screen.queryByText("Stale score")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Week 4 video recap")).not.toBeInTheDocument();
+});

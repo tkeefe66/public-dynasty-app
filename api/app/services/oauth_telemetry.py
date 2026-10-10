@@ -10,6 +10,8 @@ def is_oauth(value) -> bool:
             "/api/me/yahoo",
             "/api/auth/callback/yahoo",
             "/api/yahoo/connect",
+            "/api/public/analyst/",
+            "/share/analyst/",
         )
     )
 

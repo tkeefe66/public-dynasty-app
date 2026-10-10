@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     media_asset_root: Path | None = None
     media_bucket: str = ""
     media_bucket_endpoint: str = ""
+    # External rollout/restore fence. Database mode NEVER falls back to files.
+    recap_publication_mode: str = "legacy"
+    recap_serving_epoch: str = ""
     # Exact approved voice stays in protected configuration, never a fixture ID.
     elevenlabs_voice_id: str = ""
     elevenlabs_account_identity_digest: str = ""

@@ -80,4 +80,8 @@ it("suppresses credential-bearing telemetry", async () => {
   expect(redactOAuthEvent({ type: undefined, request: { url: "https://example.test/api/auth/callback/yahoo?code=secret" } })).toBeNull();
   const event = redactOAuthEvent({ type: undefined, breadcrumbs: [{ data: { url: "https://api.login.yahoo.com/oauth2/request_auth?state=secret" } }, { message: "safe" }] });
   expect(event?.breadcrumbs).toEqual([{ message: "safe" }]);
+  for (const path of ["/share/analyst/", "/api/public/analyst/"]) {
+    expect(redactOAuthEvent({ type: undefined, request: { url: `https://example.test${path}${"a".repeat(43)}` } })).toBeNull();
+    expect(redactOAuthEvent({ type: undefined, breadcrumbs: [{ data: { url: `${path}${"a".repeat(43)}` } }, { message: "safe" }] })?.breadcrumbs).toEqual([{ message: "safe" }]);
+  }
 });

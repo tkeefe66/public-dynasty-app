@@ -186,3 +186,74 @@ class RecapSpeechReview(Base):
     reviewer_id: Mapped[str] = mapped_column(String)
     reason: Mapped[str] = mapped_column(String)
     created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class RecapPublicationControl(Base):
+    __tablename__ = "recap_publication_control"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default="global")
+    epoch: Mapped[str] = mapped_column(String)
+    reconciliation_digest: Mapped[str] = mapped_column(String)
+    quarantined: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class RecapShareDecision(Base):
+    """Edition tombstones and league future permission use separate scope keys."""
+    __tablename__ = "recap_share_decisions"
+    scope: Mapped[str] = mapped_column(String, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    opted_out: Mapped[bool] = mapped_column(Boolean, default=False)
+    token: Mapped[str | None] = mapped_column(String, nullable=True)
+    token_digest: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)
+
+
+class RecapPublication(Base):
+    __tablename__ = "recap_publications"
+    __table_args__ = (UniqueConstraint("league_id", "season", "week", name="uq_recap_public_edition"),)
+    episode_id: Mapped[str] = mapped_column(String, primary_key=True)
+    series_id: Mapped[str] = mapped_column(String, index=True)
+    league_id: Mapped[str] = mapped_column(String)
+    season: Mapped[int] = mapped_column(Integer)
+    week: Mapped[int] = mapped_column(Integer)
+    article_id: Mapped[str] = mapped_column(String, default="")
+    article_revision: Mapped[int] = mapped_column(Integer)
+    article_digest: Mapped[str] = mapped_column(String)
+    article_json: Mapped[str] = mapped_column(String)
+    facts_digest: Mapped[str] = mapped_column(String)
+    media_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    media_json: Mapped[str] = mapped_column(String, default="{}")
+    script_id: Mapped[str] = mapped_column(String, default="")
+    approval_id: Mapped[str] = mapped_column(String, default="")
+    policy_digest: Mapped[str] = mapped_column(String, default="")
+    share_revision: Mapped[int] = mapped_column(Integer)
+    authority_revision: Mapped[int] = mapped_column(Integer, default=1)
+    projected_revision: Mapped[int] = mapped_column(Integer, default=0)
+    epoch: Mapped[str] = mapped_column(String)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    withdrawn: Mapped[bool] = mapped_column(Boolean, default=False)
+    hold: Mapped[str] = mapped_column(String, default="")
+    published_at: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class RecapPublicationApproval(Base):
+    """API-recorded finished-preview review, bound to all current authorities."""
+    __tablename__ = "recap_publication_approvals"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    episode_id: Mapped[str] = mapped_column(String, index=True)
+    scope_json: Mapped[str] = mapped_column(String)
+    reviewer_id: Mapped[str] = mapped_column(String)
+    reason: Mapped[str] = mapped_column(String)
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+    consumed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class RecapPublicationSelection(Base):
+    """Delivered selections survive later unpublished corrections/withdrawal."""
+    __tablename__ = "recap_publication_selections"
+    __table_args__ = (UniqueConstraint("episode_id", "authority_revision", name="uq_recap_delivered_selection"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    episode_id: Mapped[str] = mapped_column(String)
+    series_id: Mapped[str] = mapped_column(String, index=True)
+    script_id: Mapped[str] = mapped_column(String)
+    authority_revision: Mapped[int] = mapped_column(Integer)
+    published_at: Mapped[int] = mapped_column(BigInteger, default=stamp)

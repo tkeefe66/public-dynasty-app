@@ -26,6 +26,7 @@ export default async function SharedAnalyst({ params }: { params: { token: strin
   try { edition = await publicAnalyst(params.token); }
   catch { return <main className="mx-auto max-w-[72ch] px-5 py-12"><h1 className="font-display text-title font-bold">The recap could not be loaded.</h1><p className="mt-4">Please reload this page to try again.</p></main>; }
   if (!edition) notFound();
+  if (edition.status === "withdrawn") return <main className="mx-auto max-w-[72ch] px-5 py-12"><h1 className="font-display text-title font-bold">This recap is being corrected.</h1><p className="mt-4">The article and media have been withdrawn while updated facts are reviewed. Check this same link for the corrected edition.</p></main>;
   return <main className="mx-auto max-w-[76ch] px-5 py-8 sm:px-8 sm:py-12">
     <header className="mb-8 border-b border-rule pb-6">
       <p className="text-sm text-dim">Weekly recap · {edition.season}</p>

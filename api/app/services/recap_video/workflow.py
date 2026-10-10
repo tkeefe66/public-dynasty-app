@@ -26,7 +26,8 @@ PREFLIGHT_CONFIG = None  # () -> exact nonsecret provider/voice/config snapshot
 MEDIA_PLAN_BUILDER = None  # async (db, script_artifact, evidence) -> bounded stage specs
 RESULT_VALIDATORS = {}  # kind -> async (db, stage, result) -> None; rejects by raising Held
 RECEIPT_SETTLERS = {}  # provider -> (saved_request, immutable_rate, receipt) -> (state, cost, error)
-PUBLISHED_SCRIPT_SELECTIONS = None  # Task9: async (db, series_id) -> actual selected script IDs
+from app.services.recap_video.publication import published_script_selections
+PUBLISHED_SCRIPT_SELECTIONS = published_script_selections
 
 
 def worker_can_claim(capabilities: set[str], kind: str) -> bool:

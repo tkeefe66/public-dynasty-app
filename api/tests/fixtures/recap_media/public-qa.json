@@ -1,0 +1,14 @@
+{
+  "audio_codec": "mp3",
+  "audio_duration": 2.037551,
+  "poster_codec": "mjpeg",
+  "width": 1280,
+  "height": 720,
+  "source_sha256": "0e81ec7a7a006e1b532150c2c2b0931ba674f68ee914aafa263f778be8df041d",
+  "hashes": {
+    "audio.mp3": "3b640c6521844fdcc3a99241a9b40a5cdf9a049c25ee6a75c12f15a3e7c417f3",
+    "poster.jpg": "faee4d833cc045524c9754e602383d7b2bf42fffb9e810c09d72ee7dffbba0c9",
+    "captions.vtt": "249f0adc2dfaa62a8be3ba8385a3de0c4502d241d49a3ea57ceb8e6137f75a67"
+  },
+  "captions": "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nEvery matchup. Every final score.\n\n"
+}

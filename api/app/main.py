@@ -24,6 +24,8 @@ log = logging.getLogger(__name__)
 def create_app() -> FastAPI:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level)
+    from app.services.recap_video.public_logging import install as redact_share_logs
+    redact_share_logs()
 
     # Error monitoring (inert unless TRADE_GRADER_SENTRY_DSN is set). The SDK
     # auto-instruments FastAPI/Starlette, so unhandled errors are captured.

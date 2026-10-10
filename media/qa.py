@@ -115,6 +115,14 @@ def measure_bundle(bundle_dir: Path, episode: dict) -> dict:
             m["representative_frames"].append(dict(file=name, time=frame["time"], sha256=digest_file(root/name)))
     except (OSError, KeyError, ValueError, IndexError, subprocess.SubprocessError):
         issues.append("decode_failed")
+    from media.public_package import DERIVATIVES, measure, evidence_issues
+    if any((root/name).exists() for name in DERIVATIVES):
+        try:
+            report['public_derivatives'] = measure(root, episode)
+            issues.extend(evidence_issues(report['public_derivatives'], episode,
+                {name:digest_file(root/name) for name in DERIVATIVES}))
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+            issues.append('public_derivatives_invalid')
     report["issues"] = sorted(set(issues))
     return report
 

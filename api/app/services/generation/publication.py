@@ -58,7 +58,10 @@ async def drain(maker, cache_dir, *, execution_role="api-projector"):
                 continue
             try:
                 payload = json.loads(item.payload_json)
-                if item.kind == "artifact":
+                if item.kind == "recap_publication":
+                    from app.services.recap_video.publication import project_publication
+                    await project_publication(db, item, cache_dir)
+                elif item.kind == "artifact":
                     row = await db.get(ContentArtifact, payload["artifact_id"])
                     if row.feature == "recap_video":
                         raise Held("private_script_not_reader_content")
@@ -82,7 +85,8 @@ async def drain(maker, cache_dir, *, execution_role="api-projector"):
                 item.delivered = True
             except Held as exc:
                 if exc.code not in ("archive_busy", "schedule_incomplete", "source_error", "games_unresolved",
-                        "facts_unstable", "release_not_due", "schedule_inventory_unqualified", "bracket_unavailable"):
+                        "facts_unstable", "release_not_due", "schedule_inventory_unqualified", "bracket_unavailable",
+                        "publication_paused", "public_serving_quarantined"):
                     item.error = exc.code
                 log.warning("publication held id=%s reason=%s", ident, exc.code)
             except Exception:

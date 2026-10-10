@@ -83,7 +83,9 @@ def install(client, handlers):
                     assets.append(await upload(client,lease,root/"geometry-error.json","application/json"))
                 return {"status":"input_failure", "asset_ids":assets,
                     "report":{"issues":["render_failed"], "diagnostic_asset_id":identity}}
-            files = {"video.mp4":"video/mp4", "audio.wav":"audio/wav", "episode.json":"application/json", "render.json":"application/json"}
+            await run(["/opt/venv/bin/python", "-m", "media.public_package", "/work"], root, 120)
+            from media.public_package import DERIVATIVES
+            files = {"video.mp4":"video/mp4", "audio.wav":"audio/wav", "episode.json":"application/json", "render.json":"application/json", **DERIVATIVES}
             rendered = json.loads((root/"render.json").read_text())
             files.update({frame["file"]:"image/png" for frame in rendered["representative_frames"]})
             if len(files) > 63:
@@ -102,6 +104,10 @@ def install(client, handlers):
             files = manifest["files"]
             for name in ("video.mp4", "audio.wav", "episode.json", "render.json"):
                 await download(client, lease, files[name], root/name)
+            from media.public_package import DERIVATIVES
+            for name in DERIVATIVES:
+                if name in files:
+                    await download(client, lease, files[name], root/name)
             try:
                 await run(["/opt/venv/bin/python", "-m", "media.qa", "/work"], root)
             except MediaProcessFailure as exc:
