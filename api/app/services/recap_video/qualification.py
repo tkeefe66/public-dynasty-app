@@ -30,8 +30,8 @@ def current_versions():
     from sleeper_dynasty.engine import recap_video_claims
     from sleeper_dynasty.llm import recap_video_writer
     from media import timeline, geometry, qa, audio_seams
-    from app.services.recap_video import audio, rendering, elevenlabs
-    modules = (recap_video_claims, recap_video_writer, timeline, geometry, qa, audio_seams, audio, rendering, elevenlabs)
+    from app.services.recap_video import audio, rendering, elevenlabs, periods, readiness
+    modules = (recap_video_claims, recap_video_writer, timeline, geometry, qa, audio_seams, audio, rendering, elevenlabs, periods, readiness)
     result={module.__name__: hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest() for module in modules}
     root=Path(timeline.__file__).parent
     for name in ('render/render.cjs','render/scene.js','render/style.css','render/index.html','Dockerfile','requirements.lock','package-lock.json'):
@@ -205,20 +205,46 @@ async def record_preview_approval(db, episode_id: str, expected_revision: int, a
     return proof
 
 
+async def require_standing_format(db, episode):
+    """Recognize the saved authoritative format, including qualified postseason."""
+    from app.services.generation.recap_models import RecapObservation
+    from app.services.recap_video.periods import scoring_period
+    from app.services.recap_video.readiness import source_ready, competitive_digest
+    observation = await db.get(RecapObservation,episode.latest_observation_id)
+    source = json.loads(observation.snapshot_json) if observation else {}
+    if source.get('phase') == 'regular' and episode.round is None and source.get('round') is None:
+        return
+    try:
+        recognized = scoring_period(episode.week,source.get('rules',{}),source.get('bracket',{}))
+    except (ValueError,TypeError,KeyError):
+        raise Held('recap_format_review_required') from None
+    if (recognized['phase'] != 'post' or source.get('phase') != 'post'
+            or any(source.get(key) != recognized.get(key) for key in ('period_id','week','round','round_type','nfl_weeks'))
+            or (episode.period_id,episode.week,episode.round,json.loads(episode.nfl_weeks_json))
+                != (recognized['period_id'],recognized['week'],recognized['round'],recognized['nfl_weeks'])
+            or episode.facts_digest != competitive_digest(source) or not source_ready(episode,source)):
+        raise Held('recap_format_review_required')
+
+
 async def record_standing_approval(db, episode_id, expected_revision, media_id):
     from app.services.recap_video import publication
     media, script_id = await publication.verified_media(db, episode_id, media_id)
     await lock_control(db)
     episode = await db.get(RecapEpisode, episode_id)
     status = await qualification_status(db, episode.series_id, episode.season)
-    # New postseason formats always retain the initial explicit review gate.
-    if not status['automatic'] or episode.round is not None:
+    if not status['automatic']:
         raise Held('recap_standing_review_required')
-    # A revised article always needs explicit reviewed media reattachment.
-    existing = await publication.authority_for_episode(db, episode)
-    if existing:
-        raise Held('recap_revision_review_required')
+    await require_standing_format(db,episode)
     scope = await publication.current_scope(db, episode_id, expected_revision, media_id)
+    # Initial same-revision article-only sharing is not a media approval. The
+    # independent standing grant can attach its first video; revisions/retakes
+    # still require an explicit finished-preview review.
+    existing = await publication.authority_for_episode(db, episode)
+    article = scope['article']
+    if (article['revision'] != 1 or existing and (existing.withdrawn or existing.hold or existing.media_id
+            or existing.article_revision != 1 or existing.article_id != article['artifact_id']
+            or existing.article_digest != article['digest'])):
+        raise Held('recap_revision_review_required')
     scope.update(media_digest=digest(media), script_id=script_id)
     row = RecapPublicationApproval(episode_id=episode_id, scope_json=dump(scope), reviewer_id='',
         reason='Current standing policy authorization', authorization_kind='standing', authorization_id=status['standing_id'])
@@ -233,8 +259,9 @@ async def require_standing_proof(db, proof):
         return
     episode = await db.get(RecapEpisode, proof.episode_id)
     status = await qualification_status(db, episode.series_id, episode.season)
-    if not status['automatic'] or status['standing_id'] != proof.authorization_id or episode.round is not None:
+    if not status['automatic'] or status['standing_id'] != proof.authorization_id:
         raise Held('recap_standing_authorization_changed')
+    await require_standing_format(db,episode)
 
 
 def install_api():
@@ -259,9 +286,12 @@ async def advance_qualified_publication(maker):
                 if not finished:
                     continue
                 media_id=finished.id
-                proof=await record_standing_approval(db,ident,0,media_id)
+                from app.services.recap_video.publication import authority_for_episode
+                authority=await authority_for_episode(db,await db.get(RecapEpisode,ident))
+                expected_revision=authority.authority_revision if authority else 0
+                proof=await record_standing_approval(db,ident,expected_revision,media_id)
             async with maker.begin() as db:
-                await select_publication(db,ident,0,media_id,proof)
+                await select_publication(db,ident,expected_revision,media_id,proof)
                 (await db.get(RecapEpisode,ident)).lifecycle='published'
         except (Held,Conflict) as exc:
             async with maker.begin() as db:

@@ -110,3 +110,112 @@ async def test_manual_first_episode_calibration_reader_needs_no_rollout_approval
         value=await q.qualification_reader(db,ident)
         assert value['revision']=='calibration' and value['config']=={'voice':'synthetic-v8'}
         assert (await q.qualification_status(db,'series',2026))['passed']==0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('existing',['none','member_article','revised','previous_media','revoked','future_disabled','revoked_after_approval'])
+async def test_standing_policy_attaches_initial_article_but_never_reverses_review_or_consent(maker,tmp_path,monkeypatch,existing):
+    # Mutation: reject every existing article, allow revised media, or ignore consent CAS.
+    from app.services.recap_video import publication as p,qualification as q,workflow
+    from app.services.generation import recap_models as m
+    from app.services.generation.models import ContentArtifact
+    from app.services.generation.store import digest,resolve_policy
+    ident,mid=await qualified_series(maker,tmp_path,monkeypatch)
+    async def verified(*args):return {'id':'synthetic-new-media'},'script'
+    monkeypatch.setattr(p,'verified_media',verified)
+    async with maker.begin() as db:
+        policy=await resolve_policy(db,'series')
+        evidence=await workflow.require_media_preflight(db,ident)
+        stage=await db.get(m.RecapStage,mid)
+        stage.policy_digest=digest([policy['policy']['features']['recap_video'],policy['revisions'],evidence])
+        episode=await db.get(m.RecapEpisode,ident)
+        if existing!='none':
+            # Use actual member article-only share bootstrap and current authority revision.
+            share=await p.change_share(db,enabled=True,actor_id='member',league_id='synthetic',season=2026,week=4)
+            authority=await p.authority_for_episode(db,episode)
+            assert authority.media_id is None
+            if existing=='revised':authority.article_revision=2
+            if existing=='previous_media':authority.media_id='previously-reviewed'
+            if existing=='revoked':await p.change_share(db,enabled=False,actor_id='member',league_id='synthetic',season=2026,week=4)
+            if existing=='future_disabled':await p.set_future_sharing(db,'series',allowed=False,actor_id='owner')
+            expected=authority.authority_revision
+        else:expected=0
+    async with maker.begin() as db:
+        if existing in ('revised','previous_media','revoked','future_disabled'):
+            with pytest.raises(Held):await q.record_standing_approval(db,ident,expected,mid)
+            return
+        proof=await q.record_standing_approval(db,ident,expected,mid)
+        saved=await db.get(m.RecapPublicationApproval,proof['approval_id'])
+        assert saved.authorization_kind=='standing' and not saved.reviewer_id and saved.authorization_id=='standing'
+    if existing=='revoked_after_approval':
+        async with maker.begin() as db:
+            await p.change_share(db,enabled=False,actor_id='member',league_id='synthetic',season=2026,week=4)
+        from app.services.generation.store import Conflict
+        async with maker.begin() as db:
+            with pytest.raises((Held,Conflict)):
+                await p.select_publication(db,ident,expected,mid,proof)
+        return
+    async with maker.begin() as db:
+        selected=await p.select_publication(db,ident,expected,mid,proof)
+        assert selected['authority_revision']==expected+1
+        assert (await p.authority_for_episode(db,await db.get(m.RecapEpisode,ident))).media_id==mid
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('format_change',['known','unknown_rules','unknown_teams','unresolved','identity_mismatch'])
+async def test_standing_postseason_uses_saved_authoritative_format(maker,tmp_path,monkeypatch,format_change):
+    from tests.test_recap_readiness import snapshot,playoff_fixture
+    from app.services.recap_video import qualification as q,publication as p
+    from app.services.recap_video.periods import build_participants,scoring_period
+    from app.services.recap_video.readiness import competitive_digest
+    from app.services.generation import recap_models as m
+    await qualified_series(maker,tmp_path,monkeypatch)
+    rosters,bracket,rows=playoff_fixture()
+    rules={'playoff_week_start':15,'playoff_round_type':0,'playoff_teams':6}
+    period=scoring_period(15,rules,bracket)
+    source={**snapshot(),**period,'rules':rules}
+    source.update(build_participants(rosters,{'15':rows},bracket,source))
+    if format_change=='unknown_rules':source['rules']['playoff_round_type']=9
+    if format_change=='unknown_teams':source['rules']['playoff_teams']=10
+    if format_change=='unresolved':source['bracket']['ok']=False
+    if format_change=='identity_mismatch':source['round']=2
+    async with maker.begin() as db:
+        episode=m.RecapEpisode(episode_id='playoff',series_id='series',season=2026,period_id='playoff:1',week=15,
+            league_id='synthetic',round=1,nfl_weeks_json='[15]',facts_digest=competitive_digest(source),
+            stable_since=1,observed_at=4600,latest_observation_id='post-observation')
+        db.add(episode)
+        db.add(m.RecapObservation(id='post-observation',episode_id='playoff',observed_at=4600,snapshot_json=dump(source),
+            snapshot_digest='synthetic',facts_digest=episode.facts_digest,decision='ready'))
+    async def verified(*args):return {'id':'post-media'},'post-script'
+    async def scope(*args):return {'article':{'artifact_id':'post-article','revision':1,'digest':'post-article-digest'}}
+    monkeypatch.setattr(p,'verified_media',verified)
+    monkeypatch.setattr(p,'current_scope',scope)  # Task9 bindings exercised by initial-article test above.
+    async with maker.begin() as db:
+        if format_change!='known':
+            with pytest.raises(Held,match='recap_format_review_required'):
+                await q.record_standing_approval(db,'playoff',0,'post-media')
+        else:
+            proof=await q.record_standing_approval(db,'playoff',0,'post-media')
+            await q.require_standing_proof(db,await db.get(m.RecapPublicationApproval,proof['approval_id']))
+
+
+@pytest.mark.asyncio
+async def test_automatic_projector_carries_member_article_revision_through_selection(maker,tmp_path,monkeypatch):
+    from app.services.recap_video import publication as p,qualification as q,workflow
+    from app.services.generation import recap_models as m
+    from app.services.generation.store import digest,resolve_policy
+    ident,mid=await qualified_series(maker,tmp_path,monkeypatch)
+    async def verified(*args):return {'id':'synthetic-media'},'script'
+    monkeypatch.setattr(p,'verified_media',verified)
+    async with maker.begin() as db:
+        config=await resolve_policy(db,'series')
+        stage=await db.get(m.RecapStage,mid)
+        stage.policy_digest=digest([config['policy']['features']['recap_video'],config['revisions'],await workflow.require_media_preflight(db,ident)])
+        (await db.get(m.RecapEpisode,ident)).lifecycle='review'
+        await p.change_share(db,enabled=True,actor_id='member',league_id='synthetic',season=2026,week=4)
+        assert (await p.authority_for_episode(db,await db.get(m.RecapEpisode,ident))).authority_revision==1
+    await q.advance_qualified_publication(maker)
+    async with maker() as db:
+        authority=await p.authority_for_episode(db,await db.get(m.RecapEpisode,ident))
+        assert authority.authority_revision==2 and authority.media_id==mid
+        assert (await db.get(m.RecapEpisode,ident)).lifecycle=='published'
