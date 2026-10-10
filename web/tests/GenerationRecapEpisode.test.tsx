@@ -20,7 +20,7 @@ it('selects actual episode and names exact stage evidence and free action',async
   expect(screen.getByText(/spoken_score_mismatch/)).toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Resume free work'})).toBeInTheDocument();
   expect(screen.queryByRole('button',{name:/Retry/})).not.toBeInTheDocument();
-  expect(changed).toHaveBeenCalledWith('episode');
+  expect(changed).toHaveBeenCalledWith('episode', 'Week 4 · 2026');
 });
 
 it('submits free recovery with exact episode and generation fences',async()=>{

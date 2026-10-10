@@ -409,10 +409,9 @@ async def test_fresh_identical_preflight_reuses_completed_script_and_checkpoints
     # Mutation: proof renewal changes compatibility digest or leaves free continuation stranded.
     real_gate = work.require_media_preflight
     episode_id, render_id = await seed_media(maker, tmp_path, monkeypatch)
+    evidence = await work.require_media_preflight(None, episode_id)
     monkeypatch.setattr(work, "require_media_preflight", real_gate)
     monkeypatch.setattr(work, "PREFLIGHT_CONFIG", lambda: {"voice": "synthetic-voice"})
-    evidence = dict(episode_id=episode_id, account_alias="primary", voice_digest="synthetic-voice",
-        rate_digest="synthetic-rate", qualification_revision="synthetic-qualification")
     async def validate(db, stage, result):
         assert result["report"] == {"metadata": "exact"}
         return evidence

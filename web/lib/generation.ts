@@ -92,7 +92,7 @@ export const FEATURE_LABELS: Record<GenerationFeature, string> = {
   trade_story: "Trade stories", gm_rating_blurb: "GM profiles",
   franchise_blurb: "Franchise outlooks", analyst: "Weekly Analyst", recap_video: "Weekly recap script",
 };
-export interface RecapEpisodeSummary { episode_id: string; season: number; week: number; lifecycle: string; hold: string }
+export interface RecapEpisodeSummary { episode_id: string; season: number; week: number; round?: number | null; lifecycle: string; hold: string }
 export interface RecapEpisodeStage { id: string; kind: string; state: string; generation: number; reason: string; result_json: string; evidence_json?: string }
 export interface RecapEpisodeView {
   configured_worker_id?: string;

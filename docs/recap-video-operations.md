@@ -14,6 +14,69 @@ Tom must confirm all three targets before the first deployment. Do not infer the
 from local directory names. No push, deployment, provider purchase, credential
 creation, production access or live publication is authorized by this document.
 
+## Final review workflow boundaries
+
+Before the first paid video-script request, one immutable plan reserves every
+allowed script call plus the qualified one-take narration maximum. The initial
+envelope is **6,000 submitted characters**, including opening, closing, delivery
+tags and join spaces, with at most 2,000 characters per request and 63 chunks.
+This is a billing maximum, not a duration target or a replacement for spending
+caps. Required owner/matchup coverage remains mandatory; oversized complete
+scripts may use the existing bounded repair, never truncation or extra calls.
+At 80 micro-USD per character, default script bounds plus narration reserve
+2,909,952 micro-USD. Unknown or higher rates and intersecting written/video/app
+obligations can prevent the first script send. Written publication remains
+independent. Script success retains narration allowance; exact immutable chunks
+replace it under the same admission lock and savepoint. A failed binding leaves
+the envelope intact. Cancellation releases only never-submitted work. Original
+envelope/rate/config and concrete-binding evidence remain in the financial
+restore inventory; no applied migration or historical receipt is rewritten.
+
+Reservation timestamps/months record provenance. Each physical request's durable
+first dispatch-admission timestamp separately determines Denver recap spending
+and UTC app spending. Binding captures time after lock acquisition and rechecks
+both windows atomically. Unsent and unresolved exposure carries forward; late
+receipts remain attributed to their original dispatch month.
+
+An admitted episode can renew expired free metadata verification through
+**Renew free voice verification**, including a finished preview reviewed after
+an hour or a week rollover. Standing-policy orchestration reaches progressed
+episodes too. Renewal checks current actor, policy, facts and configuration,
+without treating the already admitted period as a new historical request.
+Compatible paid checkpoints are reused; renewal itself never sends narration
+or creates a new dispatch authority.
+
+An explicitly scoped replacement can receive a new manual finished review once
+all original and replacement charges reconcile. The disposed original remains
+abandoned with its receipts; current/active/unrelated unknown outcomes still
+hold publication. Selection and projection recheck the exact replacement
+disposition and new manual review. Replacement episodes receive **no credit**
+toward the three-episode automatic-rollout threshold. Their manual publication
+does not relax rollout qualification. Budget panels show the selected week,
+season and playoff round; the unchanged episode digest remains in technical
+details.
+
+The final fix report records the exact commit, fresh verification commands,
+image identity and retained warnings for this candidate. Earlier task-12
+measurements below remain chronological evidence, not verification of later
+product changes. The eight external release gates remain unchanged.
+
+1. Real ElevenLabs exact voice/account/model entitlement, metadata compatibility
+   and all-in API billing rate.
+2. Approved Cal Mercer delivery, profanity/humor, real multi-chunk continuity
+   and real ASR ambiguity rates through bounded calibration and finished review.
+3. Railway enforcement of user/mount/PID/network namespaces, cgroup and tmpfs
+   limits for the confirmed target services.
+4. Production private bucket/IAM, immutability/lifecycle/egress and ingress/log
+   token redaction.
+5. Actual configured league schedules, brackets and rules against live upstream
+   regular/postseason evidence.
+6. Physical phone playback/download/seeking and actual recipient message previews.
+7. External quarantine of every production replica during restore and latest
+   independently held consent/financial recovery evidence.
+8. Real inference/infrastructure/subscription cost and production-scale render/
+   idle performance. Local synthetic tests do not establish these measurements.
+
 ## Ownership and durable flow
 
 The existing API scheduler collects free period evidence. Release is no earlier
@@ -450,7 +513,22 @@ moves from AGENTS.md. Scope test: this description/body would not be safe in an
 unrelated repository, so it belongs here rather than global skills. The runbook
 remains directly usable without creating a skill.
 
-## Local candidate evidence (2026-10-10)
+## Final-review fix verification (2026-10-10)
+
+The integrated product fixes passed 1,348 root tests, 1,566 normal API tests
+(57 environment-gated skips), all 969 Web tests across 100 files, and 69
+sequential disposable PostgreSQL tests. Sixteen targeted boundary tests include
+late dispatch/receipts in both calendars, atomic envelope conversion,
+cross-episode reservation competition, delayed finished review after renewal,
+and the actual authorized replacement through publication. Two deliberate
+mutations were killed and source restored byte-for-byte. TypeScript, Web lint
+and production build exited zero; the existing Dashboard ref warning and Python
+dependency warnings remain. No Python linter is configured. Publication scan
+found no leaks; all 324 pilot hashes were unchanged. The final-fix report binds
+these checks and the subsequent exact-image Linux/browser acceptance to their
+actual commit/image identity. These are local synthetic measurements only.
+
+## Earlier Task12 candidate evidence (2026-10-10)
 
 The Task12 candidate was verified locally with root Python 3.12, existing Node/
 Playwright and installed macOS Chrome, PostgreSQL 16, and the pinned Linux media

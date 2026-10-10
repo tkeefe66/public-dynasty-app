@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { generationRequest } from "@/lib/api";
 import { RecapBalance, RecapBudgetOvercommit, RecapBudgetView, RecapCapKey, RecapCaps } from "@/lib/generation";
 import { Button } from "@/components/furniture/Button";
-import { ActionProps, controlClass, money, secondary } from "./GenerationShared";
+import { ActionProps, controlClass, money, secondary, TechnicalDetails } from "./GenerationShared";
 
 const labels: Record<RecapCapKey, string> = {
   video_episode_microusd: "Video per episode ($)", video_month_microusd: "Video per month ($)",
@@ -37,7 +37,7 @@ function Spending({ balance, label }: { balance: RecapBalance; label: string }) 
   </div>;
 }
 
-export function GenerationRecapBudget({ seriesId, episodeId, busy, version, run }: ActionProps & { seriesId: string; episodeId?: string; version: number }) {
+export function GenerationRecapBudget({ seriesId, episodeId, episodeLabel, busy, version, run }: ActionProps & { seriesId: string; episodeId?: string; episodeLabel?: string; version: number }) {
   const [view, setView] = useState<RecapBudgetView | null>(null);
   const [draft, setDraft] = useState<Record<RecapCapKey, string> | null>(null);
   const [reason, setReason] = useState("");
@@ -86,7 +86,8 @@ export function GenerationRecapBudget({ seriesId, episodeId, busy, version, run 
     {notice && <p role="status" className="mt-3 text-prose text-pos-strong">{notice}</p>}
     {view && draft && <>
       <p className="mt-2 text-prose">Recap month: {monthDates(view.month_key)}</p>
-      <p className="mt-1 break-words text-prose">{view.episode_id ? `Episode: ${view.episode_id}` : "Select an episode to see episode spending. Episode balances are unavailable until an episode is selected."}</p>
+      <p className="mt-1 text-prose">{view.episode_id ? `Episode: ${episodeLabel || 'Selected episode'}` : "Select an episode to see episode spending. Episode balances are unavailable until an episode is selected."}</p>
+      {view.episode_id && <TechnicalDetails value={{episode_id:view.episode_id}} label="Technical episode identity" />}
       <p className="mt-1 text-prose text-dim">{view.enforcement_state.active ? "Budget enforcement is active." : "Budget enforcement is inactive."} {view.media_automation_enabled ? "Media automation is enabled." : "Media automation is not enabled. Saving limits does not enable it."}</p>
       {view.enforcement_state.reason === "historical_accounting_attention" && <p className="mt-1 text-prose text-warn-strong">Earlier accounting needs review. Outstanding obligations still count toward limits.</p>}
       <form className="mt-3" onSubmit={async event => {

@@ -111,6 +111,10 @@ async def replacement_dispositions(db, stage):
         attempt=await db.get(RecapProviderAttempt,ident)
         if not attempt or attempt.episode_id != stage.episode_id or attempt.state == 'dispatching':
             raise Held('replacement_disposition_changed')
+        original = await db.get(RecapStage, attempt.stage_id)
+        if (not original or original.script_id != stage.script_id
+                or original.execution_revision >= stage.execution_revision):
+            raise Held('replacement_disposition_changed')
         if attempt.state in ('abandoned','unknown') or (attempt.state == 'received' and attempt.error_code == 'response_invalid'):
             approved.add(ident)
     return frozenset(approved)
@@ -149,6 +153,8 @@ async def episode_view(db, episode_id):
         actions.append('bounded_replacement')
     else:
         actions.append('prepare_preview')
+    if episode.admitted_at and not episode.hold:
+        actions.append('renew_preflight')
     if episode.hold.startswith('recap_'):
         actions.insert(0,'review_correction')
     values = dict(episode=data(episode), authority_revision=public.authority_revision if public else 0,
@@ -239,6 +245,11 @@ async def apply_action(db, episode_id, *, actor_id, expected_revision, action, r
         from app.services.recap_video.workflow import cancel_media
         await cancel_media(db,episode_id,actor_id,reason)
         episode.lifecycle = 'video_skipped'
+    elif action == 'renew_preflight':
+        from app.services.recap_video.workflow import prepare_preflight
+        if not episode.admitted_at or episode.hold:
+            raise Held(episode.hold or 'recap_not_admitted')
+        await prepare_preflight(db,episode_id,actor_id=actor_id,reason=reason)
     elif action == 'prepare_preview':
         from app.services.recap_video.workflow import prepare_preflight
         from app.services.recap_video.readiness import source_ready, _admission_reason, EpisodeKey

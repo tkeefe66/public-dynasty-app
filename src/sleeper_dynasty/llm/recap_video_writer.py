@@ -8,6 +8,7 @@ from importlib import resources
 from pydantic import BaseModel, ConfigDict, Field
 
 from sleeper_dynasty.engine.recap_video_claims import validate_script
+from sleeper_dynasty.engine.recap_narration import narration_chunks
 from sleeper_dynasty.llm.managed import DeniedClient
 
 log = logging.getLogger(__name__)
@@ -116,6 +117,11 @@ class RecapVideoWriter:
         for stage in (2, 4):
             issues = [{"code": e, "segment_id": "script", "quote": "validation", "evidence": e}
                       for e in validate_script(script, claims, published_article)]
+            try:
+                narration_chunks(script)
+            except ValueError as exc:
+                issues.append({'code': str(exc), 'segment_id': 'script', 'quote': 'complete narration',
+                    'evidence': 'At most 6000 submitted characters including opening, closing, tags and join spaces; each segment at most 2000. Preserve full owner coverage.'})
             normalize = lambda value: " ".join(value.casefold().split())
             past = {normalize(p["premise"]) for episode in evidence["recent_premises"] for p in episode["premises"]}
             for premise in script["premises"]:

@@ -212,6 +212,8 @@ def require_approved_script(payload, saved, attempts):
         script = payload["script"]
         reviews = script["reviews"]
         normalized = Script.model_validate({k: v for k, v in script.items() if k != "reviews"}).model_dump()
+        from sleeper_dynasty.engine.recap_narration import narration_chunks
+        narration_chunks(normalized)
         final = Review.model_validate(reviews[-1]).model_dump()
         if (len(attempts) not in (2, 4) or len(reviews) != len(attempts) // 2
                 or not final["approved"] or final["issues"] or not all(final["checks"].values())

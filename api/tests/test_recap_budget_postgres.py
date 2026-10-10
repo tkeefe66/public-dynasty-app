@@ -121,3 +121,30 @@ async def test_ledger_migration_roundtrip_preserves_existing_policy_and_receipts
         for table, records in before.items():
             assert (await db.execute(text(f"SELECT * FROM {table}"))).all() == records
         assert (await db.execute(select(RecapBudgetPolicy))).scalar_one().series_id == "series"
+
+
+@pytest.mark.asyncio
+async def test_complete_video_envelopes_compete_for_month_before_any_script(pgmaker, tmp_path, monkeypatch):
+    # Mutation: monthly admission omits the future narration envelope or loses its serialization lock.
+    from tests.test_recap_video_script import seed as seed_script
+    from app.services.generation.models import GenerationOperation
+    from app.services.generation.accounting import bounded_plan
+    from app.services.recap_video.narration_budget import envelope_allocation
+    import json
+    await seed_script(pgmaker, tmp_path, monkeypatch)
+    async with pgmaker.begin() as db:
+        await budget.save_caps(db, 'series', budget.RecapCaps(video_month_microusd=4_900_000), 0, 'owner', 'Two script plans fit, two complete video plans do not', False)
+        job = await db.get(GenerationOperation, 'job')
+        feature = json.loads(job.policy_json)['policy']['features']['recap_video']
+        plan = bounded_plan(job.id, job.feature, feature, feature, job.max_calls)
+        plan.append(await envelope_allocation(db, job))
+    async def reserve(index):
+        try:
+            async with pgmaker.begin() as db:
+                await budget.reserve_plan(db, 'episode-'+str(index), 'series', 'complete-'+str(index), plan, NOW)
+                await asyncio.sleep(.02)
+            return 'admitted'
+        except Held as exc:
+            assert exc.code == 'recap_budget_video_month'
+            return 'held'
+    assert sorted(await asyncio.gather(reserve(1), reserve(2))) == ['admitted', 'held']

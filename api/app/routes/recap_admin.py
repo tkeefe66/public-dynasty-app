@@ -58,7 +58,7 @@ class SpellingReview(StrictModel):
 
 
 class EpisodeAction(StrictModel):
-    action: Literal['resume_free','resume_recovered_audio','reconcile_request','reassign_worker','skip_video','restore_access','disable_future_sharing','prepare_preview','review_correction']
+    action: Literal['resume_free','resume_recovered_audio','reconcile_request','reassign_worker','skip_video','restore_access','disable_future_sharing','prepare_preview','renew_preflight','review_correction']
     expected_revision: str = Field(min_length=64, max_length=64)
     reason: str = Field(min_length=1,max_length=1000)
     stage_id: str = ''

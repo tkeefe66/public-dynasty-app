@@ -59,7 +59,7 @@ def _evidence(evidence, episode_id):
 
 async def _preflight_current(db, stage):
     from app.db.models import User
-    from app.services.recap_video.readiness import _authority_reason
+    from app.services.recap_video.readiness import _authority_reason, require_readiness
     from app.services.recap_video.contracts import EpisodeKey
     episode = await db.get(RecapEpisode, stage.episode_id)
     job = await db.get(GenerationOperation, stage.operation_id)
@@ -72,6 +72,8 @@ async def _preflight_current(db, stage):
     reason = await _authority_reason(db, EpisodeKey(episode.series_id, episode.season, episode.period_id), episode.league_id)
     if reason:
         raise Held(reason)
+    await require_readiness(db, episode.series_id, dict(season=episode.season, week=episode.week,
+        period_id=episode.period_id, recap_facts_digest=episode.facts_digest), league_id=episode.league_id, media_checkpoint=True)
     config = await resolve_policy(db, episode.series_id)
     inputs = {"episode_id": episode.episode_id, "facts_digest": episode.facts_digest, "config": _preflight_config()}
     if not episode.admitted_at or stage.input_digest != digest(inputs) or stage.input_json != dump(inputs):
@@ -403,6 +405,13 @@ async def complete_stage(db, stage_id: str, generation: int, epoch: str, input_d
 
 async def cancel_media(db, episode_id, actor, reason):
     await lock_control(db)
+    from app.services.generation.recap_models import RecapBudgetPlan
+    from app.services.generation.recap_budget import release_unsubmitted
+    envelopes = (await db.scalars(select(RecapBudgetAllocation).join(RecapBudgetPlan,
+        RecapBudgetPlan.id == RecapBudgetAllocation.plan_id).where(RecapBudgetPlan.episode_id == episode_id,
+        RecapBudgetAllocation.key == 'narration-envelope'))).all()
+    for envelope in envelopes:
+        await release_unsubmitted(db, envelope.operation_id, 'media_cancelled')
     for row in (await db.scalars(select(RecapStage).where(RecapStage.episode_id == episode_id,
             RecapStage.state != "succeeded"))).all():
         row.state, row.reason, row.lease_until = "cancelled", "owner_cancelled", 0
@@ -449,7 +458,12 @@ async def authorize_dispatch(db, stage_id, generation, epoch, input_digest, *, w
         allocations.append(dict(key=stage.id, category="video", operation_id=stage.id,
             max_microusd=paid["max_microusd"], rate_snapshot=paid["rate_snapshot"]))
     plan_key = "media:" + row.script_id + (":" + str(row.execution_revision) if row.execution_revision > 1 else "")
-    plan = await reserve_plan(db, row.episode_id, episode.series_id, plan_key, allocations, now)
+    if row.execution_revision == 1:
+        from app.services.recap_video.narration_budget import bind_chunks
+        plan = await bind_chunks(db, row.script_id, row.operation_id, row.episode_id, episode.series_id,
+            allocations, [json.loads(stage.input_json)['paid']['request'] for stage in narration], now)
+    else:
+        plan = await reserve_plan(db, row.episode_id, episode.series_id, plan_key, allocations, now)
     await require_episode_budget(db, row.episode_id, episode.series_id, now, dispositioned=dispositioned)
     allocation = await db.scalar(select(RecapBudgetAllocation).where(RecapBudgetAllocation.plan_id == plan,
         RecapBudgetAllocation.key == row.id))
@@ -463,7 +477,8 @@ async def authorize_dispatch(db, stage_id, generation, epoch, input_digest, *, w
         pricing_json=allocation.rate_json, authority_digest=hashlib.sha256(authority.encode()).hexdigest())
     db.add(attempt)
     await db.flush()
-    allocation.attempt_id = attempt.id
+    from app.services.generation.recap_budget import bind_dispatch_allocation
+    await bind_dispatch_allocation(db, allocation, attempt)
     audit(db, worker_id, "media_dispatch_admitted", row.id, "One physical provider request authorized")
     return {"attempt_id": attempt.id, "dispatch_authority": authority, "request": paid["request"]}
 
@@ -645,7 +660,8 @@ async def advance_media(maker):
     await reconcile_media_receipts(maker)
     async with maker.begin() as db:
         await lock_control(db)
-        episodes = (await db.scalars(select(RecapEpisode).where(RecapEpisode.lifecycle.in_(("ready", "waiting_for_article")),
+        episodes = (await db.scalars(select(RecapEpisode).where(RecapEpisode.lifecycle.in_(("ready", "waiting_for_article",
+            "scripting", "narration", "speech_check", "rendering", "media_check", "review")),
             RecapEpisode.hold == "", RecapEpisode.admitted_at > 0).order_by(RecapEpisode.observed_at.desc()).limit(50))).all()
         for episode in episodes:
             try:
@@ -660,6 +676,8 @@ async def advance_media(maker):
                 # A queued free preflight is useful durable progress. Waiting for
                 # its result must not roll that stage back with script admission.
                 async with db.begin_nested():
+                    if episode.lifecycle not in ('ready', 'waiting_for_article'):
+                        continue
                     await require_media_preflight(db, episode.episode_id)
                     selections = await PUBLISHED_SCRIPT_SELECTIONS(db, episode.series_id) if PUBLISHED_SCRIPT_SELECTIONS else ()
                     await prepare_episode_script(db, episode.episode_id, cache_dir=get_settings().cache_dir,

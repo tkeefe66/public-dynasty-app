@@ -56,12 +56,32 @@ def test_approved_complete_script_retains_numbers_and_prompt_contract():
     from sleeper_dynasty.llm.recap_video_writer import RecapVideoWriter
     claims = compile_claims(snapshot())
     script = script_for(claims)
-    script["segments"][0]["text"] = "What a damned football league. " * 1000
+    script["segments"][0]["text"] = "What a damned football league. " * 60
     client = Client([script, review(script)])
     result = RecapVideoWriter(client=client).write(claims, {"digest": "published-revision-2", "markdown": "Roast"})
     assert result["segments"][0]["text"] == script["segments"][0]["text"]
     prompt = client.requests[0]["system"]
     assert all(term in prompt for term in ("Cal Mercer", "AM-radio", "profanity", "callback", "not a hard"))
+
+
+@pytest.mark.parametrize('max_calls', [2, 4])
+def test_oversized_complete_script_uses_only_existing_repair_allowance(max_calls):
+    # Mutation: truncate missing owners, ignore the paid envelope, or buy an extra repair.
+    from sleeper_dynasty.engine.recap_video_claims import compile_claims
+    from sleeper_dynasty.llm.recap_video_writer import RecapVideoWriter, ScriptHold
+    claims = compile_claims(snapshot())
+    script = script_for(claims)
+    oversized = deepcopy(script)
+    oversized['segments'][0]['text'] = 'What a damned football league. ' * 1000
+    client = Client([oversized, review(oversized), script, review(script)])
+    writer = RecapVideoWriter(client=client, max_calls=max_calls)
+    if max_calls == 2:
+        with pytest.raises(ScriptHold, match='narration_segment_exceeds_envelope'):
+            writer.write(claims, {'digest': 'published-revision-2'})
+    else:
+        result = writer.write(claims, {'digest': 'published-revision-2'})
+        assert result['segments'] == script['segments']
+    assert len(client.requests) == max_calls
 
 
 @pytest.mark.parametrize("code", ["article_disagreement", "unsupported_injury", "invented_anecdote", "meaningless_owner_coverage"])

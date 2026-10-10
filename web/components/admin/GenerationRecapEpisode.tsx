@@ -7,7 +7,7 @@ const labels: Record<string,string> = {
   reassign_worker:'Reassign recovery worker', resume_recovered_audio:'Resume free work with recovered audio',
   review_publish:'Review finished preview', resume_free:'Resume free work', reconcile_request:'Reconcile request',
   bounded_replacement:'Review bounded replacement', skip_video:'Skip video', restore_access:'Restore edition access',
-  disable_future_sharing:'Disable future sharing', prepare_preview:'Prepare episode preview', review_correction:'Review correction',
+  disable_future_sharing:'Disable future sharing', prepare_preview:'Prepare episode preview', renew_preflight:'Renew free voice verification', review_correction:'Review correction',
 };
 const explanations: Record<string,string> = {
   recap_facts_changed:'Week facts changed; public edition withdrawn. Review corrected facts before proposing paid repair.',
@@ -19,11 +19,14 @@ const explanations: Record<string,string> = {
   media_calibration_changed:'Voice, provider, source or renderer changed. Requalification is required.',
 };
 interface Preview { digest: string; article: { markdown: string }; media: unknown }
+export function episodeLabel(row: RecapEpisodeSummary) {
+  return `${row.round ? `Round ${row.round} · Week ${row.week}` : `Week ${row.week}`} · ${row.season}`;
+}
 interface Replacement { digest: string; requests: number; maximum_microusd: number; original_requests: unknown }
 const checks = { factual_coverage:'Facts and every league member', performance:'Complete voice performance', physical_phone:'Physical phone playback', message_preview:'Real message preview' };
 
 export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisodeChange }: ActionProps & {
-  seriesId:string; version:number; onEpisodeChange:(episodeId:string | undefined)=>void;
+  seriesId:string; version:number; onEpisodeChange:(episodeId:string | undefined, label?:string)=>void;
 }) {
   const [records,setRecords]=useState<RecapEpisodeSummary[]>([]);
   const [selected,setSelected]=useState('');
@@ -51,7 +54,7 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
     generationRequest<{records:RecapEpisodeSummary[]}>(`/recap-episodes?series_id=${encodeURIComponent(seriesId)}`).then(value=>{
       if(!current)return;
       const rows=value.records || [];
-      setRecords(rows);setSelected(rows[0]?.episode_id || '');callback.current(rows[0]?.episode_id);
+      setRecords(rows);setSelected(rows[0]?.episode_id || '');callback.current(rows[0]?.episode_id, rows[0] ? episodeLabel(rows[0]) : undefined);
       if(!rows.length)setLoading(false);
     }).catch(err=>{if(current){setError(err.message || 'Episodes could not load. Reload status.');setLoading(false);}});
     return()=>{current=false;};
@@ -101,8 +104,8 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
   return <section className="mt-5 border-t border-rule pt-4" aria-label="Recap episode recovery">
     <h4 className="font-display text-name font-bold">Weekly recap episode</h4>
     {records.length>0 && <label className="mt-3 block text-prose">Episode<select className={controlClass+' mt-1'} value={selected} disabled={blocked}
-      onChange={event=>{setSelected(event.target.value);callback.current(event.target.value);}}>
-      {records.map(row=><option key={row.episode_id} value={row.episode_id}>Week {row.week} · {row.season}</option>)}
+      onChange={event=>{const row=records.find(row=>row.episode_id===event.target.value);setSelected(event.target.value);callback.current(event.target.value,row ? episodeLabel(row) : undefined);}}>
+      {records.map(row=><option key={row.episode_id} value={row.episode_id}>{episodeLabel(row)}</option>)}
     </select></label>}
     {loading && <p role="status" className="mt-3 text-prose text-dim">Loading saved episode evidence…</p>}
     {!loading && !records.length && <p className="mt-3 text-prose text-dim">No saved recap episodes for this league.</p>}

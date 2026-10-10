@@ -119,7 +119,8 @@ class Gateway:
             job.calls += 1
             await db.flush()
             attempt_id = attempt.id
-            allocation.attempt_id = attempt.id
+            from app.services.generation.recap_budget import bind_dispatch_allocation
+            await bind_dispatch_allocation(db, allocation, attempt)
         log.info("provider admitted operation=%s attempt=%s stage=%s", operation_id, attempt_id, stage)
         # No cancellation, restart or exception path repeats this submission.
         try:

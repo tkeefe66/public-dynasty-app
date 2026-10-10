@@ -105,8 +105,12 @@ async def _obligations(db):
     for a, plan in rows:
         if a.attempt_id:
             bound.add(a.attempt_id)
+        attempt = attempts_by_id.get(a.attempt_id)
+        # Reservation provenance never moves. Physical exposure belongs to the
+        # durable first dispatch admission, including receipts received later.
+        dispatched_at = attempt.created_at if attempt else a.created_at
         result.append(dict(series=plan.series_id, episode=plan.episode_id, category=a.category,
-            month=a.month_key, app_month=month_key(a.created_at, UTC),
+            month=month_key(dispatched_at) if attempt else a.month_key, app_month=month_key(dispatched_at, UTC),
             known=a.actual_microusd or 0, reserved=a.outstanding_microusd,
             unknown=a.actual_microusd is None and (a.attempt_id is not None or a.state in ("unknown", "unbounded")),
             outcome_unknown=bool(a.attempt_id and (a.attempt_id not in attempts_by_id or
@@ -390,6 +394,8 @@ async def release_unsubmitted(db, operation_id: str, reason: str):
         RecapBudgetAllocation.attempt_id.is_(None), RecapBudgetAllocation.actual_microusd.is_(None)
     ).order_by(RecapBudgetAllocation.id))).all())
     for row in rows:
+        if reason == 'operation_completed' and row.key == 'narration-envelope':
+            continue  # Script completion retains its already purchased continuation allowance.
         await settle_allocation(db, row.id, 0, {"non_submission": reason, "operation_id": operation_id})
 
 
@@ -452,6 +458,9 @@ async def admit_provider_allocation(db, job, stage, request, saved, current, now
         if recap:
             allocations = [a for a in bounded_plan(job.id, job.feature, saved, current, job.max_calls)
                            if int(a["key"]) > job.calls]
+            if job.feature == 'recap_video':
+                from app.services.recap_video.narration_budget import envelope_allocation
+                allocations.append(await envelope_allocation(db, job))
         else:
             rate = pricing(request["model"])
             rate.update(bound_version=BOUND_VERSION, max_serialized_bytes=len(dump(request)),
@@ -461,6 +470,14 @@ async def admit_provider_allocation(db, job, stage, request, saved, current, now
         plan_id = await _reserve(db, episode, job.series_id, plan_key, allocations, now, managed=not recap)
     else:
         plan_id = plan.id
+    if job.feature == 'recap_video':
+        from app.services.recap_video.narration_budget import envelope_allocation, ENVELOPE_KEY
+        qualified = await envelope_allocation(db, job)
+        envelope = await db.scalar(select(RecapBudgetAllocation).where(
+            RecapBudgetAllocation.plan_id == plan_id, RecapBudgetAllocation.key == ENVELOPE_KEY))
+        if (not envelope or envelope.actual_microusd is not None
+                or json.loads(envelope.rate_json) != qualified['rate_snapshot']):
+            raise Held('narration_envelope_changed')
     row = await db.scalar(select(RecapBudgetAllocation).where(
         RecapBudgetAllocation.plan_id == plan_id, RecapBudgetAllocation.key == str(stage))
         .with_for_update().execution_options(populate_existing=True))
@@ -485,6 +502,22 @@ async def settle_attempt(db, attempt, evidence):
         RecapBudgetAllocation.attempt_id == attempt.id))
     if allocation:
         await settle_allocation(db, allocation.id, attempt.cost_microusd, evidence)
+
+
+async def bind_dispatch_allocation(db, allocation, attempt):
+    """Move carried exposure into the actual dispatch windows under admission locks."""
+    await lock_control(db)
+    plan = await db.get(RecapBudgetPlan, allocation.plan_id)
+    policy = await _policy_lock(db, plan.series_id)
+    # Capture after lock acquisition, never before a month-end lock wait.
+    now = int(time.time())
+    attempt.created_at = now
+    allocation.attempt_id = attempt.id
+    await db.flush()
+    rows = await _obligations(db)
+    if allocation.category != 'managed':
+        _check_balances(rows, plan.series_id, plan.episode_id, _caps(policy), now)
+    await _check_app(db, rows, now)
 
 
 async def reconcile_allocation(db, allocation_id, actual_microusd, evidence, actor_id, reason):

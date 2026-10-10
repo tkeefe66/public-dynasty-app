@@ -27,11 +27,11 @@ async def require_admin_actor(db, actor_id):
 
 
 def current_versions():
-    from sleeper_dynasty.engine import recap_video_claims
+    from sleeper_dynasty.engine import recap_video_claims, recap_narration
     from sleeper_dynasty.llm import recap_video_writer
     from media import timeline, geometry, qa, audio_seams
     from app.services.recap_video import audio, rendering, elevenlabs, periods, readiness
-    modules = (recap_video_claims, recap_video_writer, timeline, geometry, qa, audio_seams, audio, rendering, elevenlabs, periods, readiness)
+    modules = (recap_video_claims, recap_narration, recap_video_writer, timeline, geometry, qa, audio_seams, audio, rendering, elevenlabs, periods, readiness)
     result={module.__name__: hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest() for module in modules}
     root=Path(timeline.__file__).parent
     for name in ('render/render.cjs','render/scene.js','render/style.css','render/index.html','Dockerfile','requirements.lock','package-lock.json'):
@@ -100,7 +100,17 @@ async def review_binding(db, episode_id, media_id):
     if not stages or any(item.state != 'succeeded' for item in stages):
         raise Held('qualification_checkpoints_incomplete')
     narration = (await db.scalars(select(RecapProviderAttempt).where(RecapProviderAttempt.episode_id == episode_id).execution_options(populate_existing=True))).all()
-    if not narration or any(item.cost_microusd is None or item.state in ('dispatching', 'unknown', 'abandoned') for item in narration):
+    from app.services.recap_video.admin_actions import replacement_dispositions, active_stages
+    current = await active_stages(db, episode_id)
+    if current and stage.id not in {s.id for s in current}:
+        raise Held('qualification_checkpoints_changed')
+    dispositioned = set()
+    for selected in stages:
+        if selected.kind == 'narrate':
+            dispositioned.update(await replacement_dispositions(db, selected))
+    if not narration or any(item.cost_microusd is None or
+            (item.state in ('dispatching', 'unknown', 'abandoned') or item.error_code == 'response_invalid')
+            and not (item.state == 'abandoned' and item.id in dispositioned) for item in narration):
         raise Held('qualification_receipts_unreconciled')
     allocations = (await db.scalars(select(RecapBudgetAllocation).join(RecapBudgetPlan,
         RecapBudgetAllocation.plan_id == RecapBudgetPlan.id).where(RecapBudgetPlan.episode_id == episode_id).execution_options(populate_existing=True))).all()
@@ -117,13 +127,14 @@ async def review_binding(db, episode_id, media_id):
     article_head=await db.get(ArtifactHead,article.subject) if article else None
     heads=[[head.artifact_id,head.revision,head.hold] if head else None for head in (script_head,article_head)]
     recoveries = (await db.scalars(select(RecapRecovery).where(RecapRecovery.stage_id.in_([item.id for item in stages]),
-        RecapRecovery.action == 'adopt_recovered_audio').order_by(RecapRecovery.id))).all()
+        RecapRecovery.action.in_(('adopt_recovered_audio', 'bounded_replacement_authority'))).order_by(RecapRecovery.id))).all()
     return dict(facts_digest=episode.facts_digest, article_digest=episode.article_digest,
         heads=heads,
         script_id=script.id, script_digest=script.digest, media_id=media_id, versions=current_versions(),
         stages=[[s.id,s.generation,s.input_digest,s.result_json,s.evidence_json] for s in stages],
         assets=[[a.id,a.digest] for a in assets],
         recoveries=[[r.id,r.stage_id,r.before_json] for r in recoveries],
+        replacement=stage.execution_revision > 1 and any(r.action == 'bounded_replacement_authority' for r in recoveries),
         receipts=sorted([[a.id,a.cost_microusd,a.state,a.recovery_receipt_json] for a in narration]))
 
 
@@ -144,6 +155,8 @@ async def qualification_status(db, series_id: str, season: int) -> dict:
         try:
             await require_admin_actor(db, row.actor_id)
             saved = json.loads(row.binding_json)
+            if saved.get('replacement'):
+                continue  # A reviewed replacement may publish, but earns no rollout credit.
             if saved != await review_binding(db, row.episode_id, saved['media_id']):
                 continue
             valid.append(row.id)
@@ -286,7 +299,7 @@ async def target_publication_binding(db, episode_id, scope, *, manual_proof_id=N
                 continue
             await require_admin_actor(db,review.actor_id)
             return binding
-        raise Held('recovered_audio_finished_review_required')
+        raise Held('replacement_finished_review_required' if binding.get('replacement') else 'recovered_audio_finished_review_required')
     return binding
 
 
@@ -301,7 +314,7 @@ async def require_standing_proof(db, proof):
                 RecapRecovery.stage_id == RecapStage.id).where(
                 RecapStage.script_id == stage.script_id,
                 RecapStage.execution_revision == stage.execution_revision,
-                RecapRecovery.action == 'adopt_recovered_audio').limit(1)) if stage else None
+                RecapRecovery.action.in_(('adopt_recovered_audio', 'bounded_replacement_authority'))).limit(1)) if stage else None
             if recovered:
                 await target_publication_binding(db,proof.episode_id,scope,manual_proof_id=proof.id)
         return {}

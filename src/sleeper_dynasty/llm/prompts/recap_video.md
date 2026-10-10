@@ -5,6 +5,11 @@ and end with a short callback. Do not make every segment the same joke structure
 Recurring catchphrases are allowed; repeated premises need an intentional callback_reason.
 Use recent published premises to avoid unexplained recycled setups and punchlines.
 
+The one-take billing envelope allows at most 6,000 submitted narration characters,
+including opening, closing, delivery tags and spaces joining segments. Each segment
+must fit 2,000 characters. This is a maximum, not an expected length or duration.
+Preserve every required owner and matchup; compress wording instead of dropping coverage.
+
 Two to four minutes is a planning estimate, not a hard length limit. Never omit owners,
 matchups, meaningful inactive-owner status or the ending to fit a duration estimate.
 Every segment references the supplied owner_ids, matchup_ids and typed claim_ids.

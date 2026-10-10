@@ -133,8 +133,9 @@ describe("recap budgets", () => {
   it("queries the selected episode and renders unbounded remaining as unavailable", async () => {
     // Mutation: omit episode identity or render unbounded remaining as zero.
     request.mockResolvedValue({ ...view, episode_id: "episode-one", balances: { ...view.balances, video_episode_microusd: { ...balance, carry_forward_microusd: 0, remaining_microusd: null, unbounded_unknown_count: 1 } } });
-    render(<GenerationRecapBudget {...props} episodeId="episode-one" />);
-    expect(await screen.findByText("Episode: episode-one")).toBeInTheDocument();
+    render(<GenerationRecapBudget {...props} episodeId="episode-one" episodeLabel="Round 1 · Week 15 · 2026" />);
+    expect(await screen.findByText("Episode: Round 1 · Week 15 · 2026")).toBeInTheDocument();
+    expect(screen.getByText("Technical episode identity")).toBeInTheDocument();
     expect(request).toHaveBeenCalledWith("/recap-budgets/synthetic-series?episode_id=episode-one");
     expect(screen.getByText(/Remaining: unavailable — unknown cost has no defensible ceiling/)).toBeInTheDocument();
   });

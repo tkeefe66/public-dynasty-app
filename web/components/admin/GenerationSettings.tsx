@@ -20,6 +20,7 @@ export function GenerationSettings({ leagues, busy, run, version, budgetSeriesId
   const [leagueAction, setLeagueAction] = useState("");
   const [profile, setProfile] = useState("dynasty");
   const [episodeId, setEpisodeId] = useState<string | undefined>();
+  const [episodeLabel, setEpisodeLabel] = useState<string | undefined>();
   const selectedLeague = leagues.find(l => scope === "series:" + l.id);
   useEffect(() => { if (budgetSeriesId) setScope("series:" + budgetSeriesId); }, [budgetSeriesId, budgetRequestId]);
   useEffect(() => {
@@ -124,8 +125,8 @@ export function GenerationSettings({ leagues, busy, run, version, budgetSeriesId
         <Button type="submit" className="mt-3 px-4 py-2" disabled={blocked || !reason.trim()}>Save configuration</Button>
       </fieldset>
     </form>}
-    {selectedLeague && <GenerationRecapEpisode key={"episode:" + selectedLeague.id} seriesId={selectedLeague.id} busy={busy} run={run} version={version} onEpisodeChange={setEpisodeId} />}
-    {selectedLeague ? <GenerationRecapBudget key={"budget:" + selectedLeague.id} seriesId={selectedLeague.id} episodeId={episodeId} busy={busy} run={run} version={version} /> : <div className="mt-4 border-t border-rule pt-4">
+    {selectedLeague && <GenerationRecapEpisode key={"episode:" + selectedLeague.id} seriesId={selectedLeague.id} busy={busy} run={run} version={version} onEpisodeChange={(id,label)=>{setEpisodeId(id);setEpisodeLabel(label);}} />}
+    {selectedLeague ? <GenerationRecapBudget key={"budget:" + selectedLeague.id} seriesId={selectedLeague.id} episodeId={episodeId} episodeLabel={episodeLabel} busy={busy} run={run} version={version} /> : <div className="mt-4 border-t border-rule pt-4">
       <h4 className="font-display text-name font-bold">Weekly Analyst recap limits</h4>
       <p className="mt-1 text-prose text-dim">Select an individual league above to view and edit its recap spending limits.</p>
     </div>}

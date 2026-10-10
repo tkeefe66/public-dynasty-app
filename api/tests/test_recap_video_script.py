@@ -35,9 +35,12 @@ async def seed(maker, tmp_path, monkeypatch):
     monkeypatch.setenv("TRADE_GRADER_CACHE_DIR", str(tmp_path))
     await seed_job(maker)
     from app.services.recap_video import workflow
+    from tests.test_recap_narration_adapters import qualified as qualified_provider
+    from app.services.recap_video.elevenlabs import canonical
+    approval = qualified_provider(monkeypatch)
     async def qualified(db, episode_id):
-        return dict(episode_id=episode_id, account_alias="primary", voice_digest="synthetic-voice",
-            rate_digest="synthetic-rate", qualification_revision="synthetic-qualification")
+        return dict(episode_id=episode_id, account_alias="primary", voice_digest=canonical([approval['config'], approval['metadata']]),
+            rate_digest=canonical(approval['rate_snapshot']), qualification_revision=approval['revision'])
     monkeypatch.setattr(workflow, "require_media_preflight", qualified)
     source = snapshot()
     source.update(build_participants(source["participants"], source["scores"], source["bracket"], source))
@@ -195,7 +198,8 @@ async def test_video_reserved_as_full_plan(maker, tmp_path, monkeypatch):
     await gateway.invoke("job", 1, 1, request)
     async with maker() as db:
         allocations = list((await db.scalars(select(RecapBudgetAllocation))).all())
-        assert len(allocations) == 4 and {a.category for a in allocations} == {"video"}
+        assert len(allocations) == 5 and {a.category for a in allocations} == {"video"}
+        assert next(a for a in allocations if a.key == 'narration-envelope').outstanding_microusd == 6000 * 7
     await gateway.invoke("job", 1, 2, request)
 
 
@@ -315,4 +319,5 @@ async def test_managed_writer_checkpoint_to_durable_private_script(maker, tmp_pa
         assert artifact.feature == "recap_video"
         assert await db.scalar(select(GenerationOutbox).where(GenerationOutbox.key == "artifact:" + artifact.id)) is None
         allocations = list((await db.scalars(select(RecapBudgetAllocation))).all())
-        assert all(a.outstanding_microusd == 0 for a in allocations)
+        assert all(a.outstanding_microusd == 0 for a in allocations if a.key != 'narration-envelope')
+        assert next(a for a in allocations if a.key == 'narration-envelope').outstanding_microusd == 6000 * 7

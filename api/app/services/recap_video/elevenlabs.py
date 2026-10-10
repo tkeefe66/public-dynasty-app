@@ -345,7 +345,7 @@ async def validate_preflight(db, stage, result):
 
 
 async def build_media_plan(db, artifact, evidence):
-    from app.services.recap_video.audio import script_segments, split_narration
+    from sleeper_dynasty.engine.recap_narration import narration_chunks
     from app.services.recap_video.speech_reviews import bind_reviews
     from app.services.generation.store import Held
     payload = json.loads(artifact.payload_json)
@@ -364,9 +364,10 @@ async def build_media_plan(db, artifact, evidence):
         raise Held("render_script_mapping_ambiguous") from None
     speech_review = await bind_reviews(db, artifact)
     cfg, rate = approved["config"], approved["rate_snapshot"]
-    chunks = split_narration(script_segments(script))
-    if len(chunks) > 63:
-        raise Held("media_plan_unbounded")
+    try:
+        chunks = narration_chunks(script)
+    except ValueError as exc:
+        raise Held(str(exc)) from None
     plan = []
     for i, chunk in enumerate(chunks):
         request = {"model_id": MODEL, "inputs": [{"voice_id": cfg["voice_id"], "text": chunk["text"]}], "settings": cfg["settings"]}
