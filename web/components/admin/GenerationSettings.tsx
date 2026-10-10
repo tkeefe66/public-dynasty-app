@@ -77,6 +77,7 @@ export function GenerationSettings({ leagues, busy, run, version, budgetSeriesId
         </div>}
         {(Object.keys(FEATURE_LABELS) as GenerationFeature[]).map(feature => {
           const current = policy.effective.policy.features[feature], edited = overrides(feature);
+          if (!current) return null;
           const saved = (policy.value.features as Partial<Record<GenerationFeature, Partial<FeatureSettings>>>)?.[feature];
           const inherited = !saved?.mode;
           const source = policy.effective.sources[`features.${feature}.mode`];
@@ -101,10 +102,10 @@ export function GenerationSettings({ leagues, busy, run, version, budgetSeriesId
             <details className="mt-2"><summary className="min-h-tap cursor-pointer py-2 text-prose text-dim">Advanced {FEATURE_LABELS[feature].toLowerCase()} settings</summary>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-prose">Writer model<select className={controlClass} value={edited.model || ""} onChange={e => featureField(feature, "model", e.target.value || undefined)}><option value="">Use shared default</option>{models.map(m => <option key={m}>{m}</option>)}</select></label>
-                <label className="text-prose">Maximum AI requests per item<select className={controlClass} value={edited.max_calls ?? ""} onChange={e => featureField(feature, "max_calls", e.target.value ? Number(e.target.value) : undefined)}><option value="">Use shared default</option>{(feature === "analyst" ? [2, 4] : [1, 2]).map(n => <option key={n} value={n}>{n} requests</option>)}</select></label>
+                <label className="text-prose">Maximum AI requests per item<select className={controlClass} value={edited.max_calls ?? ""} onChange={e => featureField(feature, "max_calls", e.target.value ? Number(e.target.value) : undefined)}><option value="">Use shared default</option>{(["analyst", "recap_video"].includes(feature) ? [2, 4] : [1, 2]).map(n => <option key={n} value={n}>{n} requests</option>)}</select></label>
                 <label className="text-prose">Pause this feature<select className={controlClass} value={typeof edited.paused === "boolean" ? String(edited.paused) : ""} onChange={e => featureField(feature, "paused", e.target.value === "" ? undefined : e.target.value === "true")}><option value="">Use shared default</option><option value="true">Paused</option><option value="false">Allowed</option></select></label>
                 <label className="text-prose">Maximum output tokens<input className={controlClass} type="number" min={64} max={8192} value={edited.max_tokens ?? ""} placeholder="Use shared default" onChange={e => featureField(feature, "max_tokens", e.target.value ? Number(e.target.value) : undefined)} /></label>
-                {feature === "analyst" && <label className="text-prose">Review model<select className={controlClass} value={edited.review_model || ""} onChange={e => featureField(feature, "review_model", e.target.value || undefined)}><option value="">Use shared default</option>{models.map(m => <option key={m}>{m}</option>)}</select></label>}
+                {["analyst", "recap_video"].includes(feature) && <label className="text-prose">Review model<select className={controlClass} value={edited.review_model || ""} onChange={e => featureField(feature, "review_model", e.target.value || undefined)}><option value="">Use shared default</option>{models.map(m => <option key={m}>{m}</option>)}</select></label>}
               </div>
             </details>
           </div>;

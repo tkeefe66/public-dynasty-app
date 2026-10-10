@@ -61,6 +61,9 @@ class Gateway:
             if get_settings().generation_emergency_pause:
                 raise Held("emergency_pause")
             await require_actor(db, job)
+            if job.feature == "recap_video":
+                from app.services.recap_video.contracts import require_script_inputs
+                await require_script_inputs(db, job.series_id, job.league_id, json.loads(job.payload_json))
             if job.feature == "analyst":
                 from app.services.recap_video.readiness import require_readiness
                 await require_readiness(db, job.series_id, json.loads(job.payload_json), league_id=job.league_id)
@@ -86,8 +89,8 @@ class Gateway:
                 raise Held("feature_breaker_open")
             if stage != job.calls + 1 or job.calls >= min(job.max_calls, feature["max_calls"]):
                 raise Held("attempt_allowance_exhausted")
-            allowed_model = saved["review_model"] if job.feature == "analyst" and stage > 1 else saved["model"]
-            current_model = feature["review_model"] if job.feature == "analyst" and stage > 1 else feature["model"]
+            allowed_model = saved["review_model"] if job.feature in ("analyst", "recap_video") and stage > 1 else saved["model"]
+            current_model = feature["review_model"] if job.feature in ("analyst", "recap_video") and stage > 1 else feature["model"]
             if request.get("model") != allowed_model or allowed_model != current_model:
                 raise Held("request_model_changed")
             if (type(request.get("max_tokens")) is not int or request["max_tokens"] < 1
@@ -109,6 +112,8 @@ class Gateway:
             if series_pending:
                 raise Held("series_concurrency_busy")
             allocation = await admit_provider_allocation(db, job, stage, request, saved, feature, stamp())
+            # Settle from the admitted immutable rates, including later stages.
+            snapshot = json.loads(allocation.rate_json)
             attempt = ProviderAttempt(operation_id=job.id, stage=stage, generation=generation,
                 request_digest=request_hash, request_json=dump(request), model=allowed_model,
                 pricing_json=dump(snapshot))

@@ -219,6 +219,9 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
     if actor_kind == "scheduler" and feature["mode"] != "automatic":
         raise Held("manual_only")
     recap_episode = None
+    if candidate.feature == "recap_video":
+        from app.services.recap_video.contracts import require_script_inputs
+        await require_script_inputs(db, candidate.series_id, candidate.league_id, json.loads(candidate.payload_json))
     if candidate.feature == "analyst":
         from app.services.recap_video.readiness import require_readiness
         recap_episode = await require_readiness(db, candidate.series_id, json.loads(candidate.payload_json),

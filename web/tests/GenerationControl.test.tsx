@@ -71,6 +71,7 @@ describe("Generation controls", () => {
   it("limits the bulk Automatic action to its four named writing features", async () => {
     // Mutation: derive bulk opt-in from every registered feature, including a future video feature.
     const labels = FEATURE_LABELS as Record<string, string>;
+    const previousVideoLabel = labels.recap_video;
     labels.recap_video = "Recap video";
     const normal = request.getMockImplementation()!;
     request.mockImplementation((path = "", ...args) => path.startsWith("/policy") && !args[0] ? Promise.resolve({ ...config,
@@ -87,7 +88,7 @@ describe("Generation controls", () => {
       await waitFor(() => expect(request.mock.calls.find(c => c[0] === "/policy/app" && c[1])?.[1].value.features).toMatchObject({
         recap_video: { mode: "manual" }, analyst: { mode: "automatic" }, trade_story: { mode: "automatic" }, gm_rating_blurb: { mode: "automatic" }, franchise_blurb: { mode: "automatic" },
       }));
-    } finally { delete labels.recap_video; }
+    } finally { labels.recap_video = previousVideoLabel; }
   });
   it("keeps free-refresh details read-only until the direct retry is clicked", async () => {
     const normal = request.getMockImplementation()!;
@@ -180,17 +181,20 @@ describe("Generation controls", () => {
   });
 
   it("sets all four shared modes together without saving before review", async () => {
+    // Mutation: bulk action silently opts the newly registered video feature in.
+    const writingFeatures = ["trade_story", "gm_rating_blurb", "franchise_blurb", "analyst"] as const;
     render(<GenerationControl />);
     fireEvent.click(await screen.findByText("Settings", { selector: "summary" }));
     fireEvent.click(await screen.findByRole("button", { name: "Set all four to Automatic" }));
-    for (const label of Object.values(FEATURE_LABELS)) {
-      expect(screen.getByLabelText(label + " mode")).toHaveValue("automatic");
+    for (const feature of writingFeatures) {
+      expect(screen.getByLabelText(FEATURE_LABELS[feature] + " mode")).toHaveValue("automatic");
     }
+    expect(screen.getByLabelText(FEATURE_LABELS.recap_video + " mode")).toHaveValue("");
     expect(request.mock.calls.some(c => c[2] === "PUT")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
     await waitFor(() => expect(request).toHaveBeenCalledWith("/policy/app", {
       expected_revision: 7, reason: "Enable automatic writing for all four content types across leagues",
-      value: { paused: false, features: Object.fromEntries(Object.keys(FEATURE_LABELS).map(k => [k, { mode: "automatic" }])) },
+      value: { paused: false, features: Object.fromEntries(writingFeatures.map(k => [k, { mode: "automatic" }])) },
     }, "PUT"));
     await screen.findByText(/Configuration saved/);
     await waitFor(() => expect(screen.getByRole("button", { name: "Set all four to Automatic" })).toBeEnabled());

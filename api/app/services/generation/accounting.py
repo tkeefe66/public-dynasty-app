@@ -111,11 +111,11 @@ def bounded_plan(operation_id, feature_name, saved, current, max_calls):
     output = min(saved["max_tokens"], current["max_tokens"])
     result = []
     for stage in range(1, min(max_calls, saved["max_calls"], current["max_calls"]) + 1):
-        model = saved["review_model"] if feature_name == "analyst" and stage > 1 else saved["model"]
+        model = saved["review_model"] if feature_name in ("analyst", "recap_video") and stage > 1 else saved["model"]
         snapshot = pricing(model)
         snapshot.update(bound_version=BOUND_VERSION, max_serialized_bytes=prompt,
                         max_output_tokens=output, wrapper_tokens=WRAPPER_TOKEN_ALLOWANCE)
-        result.append(dict(key=str(stage), category="written", operation_id=operation_id,
+        result.append(dict(key=str(stage), category="video" if feature_name == "recap_video" else "written", operation_id=operation_id,
             max_microusd=_ceiling(snapshot, prompt, output), rate_snapshot=snapshot))
     return result
 

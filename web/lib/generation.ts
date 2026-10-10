@@ -1,4 +1,4 @@
-export type GenerationFeature = "trade_story" | "gm_rating_blurb" | "franchise_blurb" | "analyst";
+export type GenerationFeature = "trade_story" | "gm_rating_blurb" | "franchise_blurb" | "analyst" | "recap_video";
 export interface FeatureSettings {
   mode: "disabled" | "manual" | "automatic";
   paused: boolean;
@@ -86,5 +86,5 @@ export interface CampaignPreview {
 }
 export const FEATURE_LABELS: Record<GenerationFeature, string> = {
   trade_story: "Trade stories", gm_rating_blurb: "GM profiles",
-  franchise_blurb: "Franchise outlooks", analyst: "Weekly Analyst",
+  franchise_blurb: "Franchise outlooks", analyst: "Weekly Analyst", recap_video: "Weekly recap script",
 };

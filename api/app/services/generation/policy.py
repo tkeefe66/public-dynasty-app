@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-FEATURES = ("trade_story", "gm_rating_blurb", "franchise_blurb", "analyst")
+FEATURES = ("trade_story", "gm_rating_blurb", "franchise_blurb", "analyst", "recap_video")
 HAIKU = "claude-haiku-4-5-20251001"
 SONNET = "claude-sonnet-4-6"
 MODELS = (HAIKU, "claude-haiku-4-5", SONNET)
@@ -29,6 +29,8 @@ class FeaturePolicy(StrictModel):
 def feature_defaults() -> dict[str, FeaturePolicy]:
     values = {key: FeaturePolicy() for key in FEATURES}
     values["analyst"] = FeaturePolicy(model=SONNET, max_calls=4, max_tokens=8192)
+    values["recap_video"] = FeaturePolicy(mode="disabled", model=SONNET, max_calls=4,
+        max_tokens=8192, max_prompt_chars=96_000)
     return values
 
 
@@ -46,9 +48,9 @@ class Policy(StrictModel):
             raise ValueError("Unknown feature; register its execution contract first")
         defaults = feature_defaults()
         for key, value in self.features.items():
-            if key == "analyst" and value.max_calls not in (2, 4):
+            if key in ("analyst", "recap_video") and value.max_calls not in (2, 4):
                 raise ValueError("Analyst requires draft plus review, optionally one correction plus review")
-            if key != "analyst" and value.max_calls > 2:
+            if key not in ("analyst", "recap_video") and value.max_calls > 2:
                 raise ValueError("Story and blurb workflows permit at most two calls")
             defaults[key] = value
         self.features = defaults
@@ -72,7 +74,7 @@ def paid_capabilities(raw: dict | None) -> dict | None:
 def supports_feature(capabilities, provider, feature):
     if not capabilities or provider not in ("sleeper", "yahoo") or feature not in FEATURES:
         return False
-    if feature == "analyst":
+    if feature in ("analyst", "recap_video"):
         return provider == "sleeper"
     if feature == "franchise_blurb":
         return capabilities["roster_continuity"]

@@ -55,7 +55,7 @@ async def overlay(db, entry, series_id):
         ArtifactHead, ArtifactHead.artifact_id == ContentArtifact.id).where(
             ContentArtifact.series_id == series_id))).all()
     for row in rows:
-        if row.feature == "analyst":
+        if row.feature in ("analyst", "recap_video"):
             continue
         target = json.loads(row.facts_json).get("target", {})
         if row.feature != "trade_story" and row.league_id != entry.league_id:
@@ -84,6 +84,11 @@ async def save_artifact(db, operation_id, generation, validated):
         raise Held("validation_checkpoints_missing")
     payload = validated.payload
     await require_actor(db, job)
+    if job.feature == "recap_video":
+        from app.services.recap_video.contracts import require_approved_script, require_script_inputs
+        saved = json.loads(job.payload_json)
+        await require_script_inputs(db, job.series_id, job.league_id, saved)
+        require_approved_script(payload, saved, attempts)
     if job.feature == "analyst":
         from app.services.recap_video.readiness import require_readiness
         await require_readiness(db, job.series_id, json.loads(job.payload_json), league_id=job.league_id)
@@ -134,8 +139,9 @@ async def save_artifact(db, operation_id, generation, validated):
     else:
         db.add(ArtifactHead(subject=job.subject, artifact_id=row.id, revision=revision))
     job.artifact_id = row.id
-    db.add(GenerationOutbox(key="artifact:" + row.id, kind="artifact",
-        payload_json=dump({"artifact_id": row.id, "expected_artifact": job.expected_artifact})))
+    if job.feature != "recap_video":
+        db.add(GenerationOutbox(key="artifact:" + row.id, kind="artifact",
+            payload_json=dump({"artifact_id": row.id, "expected_artifact": job.expected_artifact})))
     breakers = json.loads(control.breakers_json)
     # A successful already-running operation must not silently close an open breaker.
     breaker = breakers.setdefault(job.feature, {"failures": 0, "open": False})

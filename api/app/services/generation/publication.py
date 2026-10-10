@@ -58,6 +58,8 @@ async def drain(maker, cache_dir):
                 payload = json.loads(item.payload_json)
                 if item.kind == "artifact":
                     row = await db.get(ContentArtifact, payload["artifact_id"])
+                    if row.feature == "recap_video":
+                        raise Held("private_script_not_reader_content")
                     if row.feature == "analyst":
                         from app.services.recap_video.readiness import require_readiness
                         episode = await require_readiness(db, row.series_id, json.loads(row.facts_json), league_id=row.league_id)

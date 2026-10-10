@@ -87,6 +87,15 @@ async def generate(job, gateway):
     kwargs = {"model": policy["model"], "client": managed}
 
     def run():
+        if job.feature == "recap_video":
+            from sleeper_dynasty.llm.recap_video_writer import RecapVideoWriter
+            script = RecapVideoWriter(**kwargs, review_model=policy["review_model"],
+                max_calls=job.max_calls).write(saved["claims"], saved["published_article"],
+                                             recent_premises=saved["recent_premises"])
+            return {"script": script, "claims": saved["claims"], "episode_id": saved["episode_id"],
+                "article_digest": saved["published_article"]["digest"],
+                "source_digest": saved["source_digest"], "recap_facts_digest": saved["recap_facts_digest"],
+                "generated_at": datetime.now(UTC).isoformat()}
         if job.feature == "analyst":
             from sleeper_dynasty.llm.recap_packet import ArchivedPacket
             from sleeper_dynasty.llm.recap_writer import RecapWriter

@@ -72,6 +72,14 @@ def automatic_reason(season, feature, payload, now):
 
 
 async def automatic_eligibility(db, season, feature, payload, now):
+    if feature == "recap_video":
+        from app.services.recap_video.contracts import require_script_inputs
+        from app.services.generation.store import Held
+        try:
+            await require_script_inputs(db, season.series_id, season.league_id, payload, automatic=True)
+            return ""
+        except Held as exc:
+            return exc.code
     if feature == "analyst":
         from app.services.recap_video.readiness import require_readiness
         from app.services.generation.store import Held

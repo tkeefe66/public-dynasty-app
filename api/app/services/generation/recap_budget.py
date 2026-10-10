@@ -116,9 +116,10 @@ async def _obligations(db):
     for a, job in attempts:
         if a.id in bound:
             continue
-        category = "written" if job and job.feature == "analyst" else "managed"
+        category = ("video" if job and job.feature == "recap_video" else
+                    "written" if job and job.feature == "analyst" else "managed")
         episode = None
-        if category == "written":
+        if category in ("written", "video"):
             try:
                 episode = operation_episode(job)
             except (Held, ValueError, TypeError):
@@ -365,7 +366,7 @@ async def backfill_written(db, series_id):
     from app.services.generation.accounting import request_ceiling
     attempts = (await db.execute(select(ProviderAttempt, GenerationOperation).join(
         GenerationOperation, GenerationOperation.id == ProviderAttempt.operation_id).where(
-        GenerationOperation.series_id == series_id, GenerationOperation.feature == "analyst")
+        GenerationOperation.series_id == series_id, GenerationOperation.feature.in_(("analyst", "recap_video")))
         .order_by(ProviderAttempt.id))).all()
     for attempt, job in attempts:
         if await db.scalar(select(RecapBudgetAllocation.id).where(RecapBudgetAllocation.attempt_id == attempt.id)):
@@ -390,7 +391,7 @@ async def backfill_written(db, series_id):
             created_at=attempt.created_at)
         db.add(plan)
         await db.flush()
-        db.add(RecapBudgetAllocation(plan_id=plan.id, key=str(attempt.stage), category="written",
+        db.add(RecapBudgetAllocation(plan_id=plan.id, key=str(attempt.stage), category="video" if job.feature == "recap_video" else "written",
             operation_id=job.id, attempt_id=attempt.id, max_microusd=maximum,
             outstanding_microusd=maximum if actual is None else 0, actual_microusd=actual,
             rate_json=attempt.pricing_json, month_key=month_key(attempt.created_at),
@@ -406,7 +407,7 @@ async def admit_provider_allocation(db, job, stage, request, saved, current, now
     await lock_control(db)
     policy = await _policy_lock(db, job.series_id)
     maximum = request_ceiling(request, pricing(request["model"]))
-    recap = job.feature == "analyst"
+    recap = job.feature in ("analyst", "recap_video")
     episode = operation_episode(job) if recap else "managed:" + job.id
     if recap:
         await backfill_written(db, job.series_id)
