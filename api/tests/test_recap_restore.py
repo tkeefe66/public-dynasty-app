@@ -160,6 +160,67 @@ async def test_financial_reconciliation_includes_current_caps_and_provider_holds
     async with maker() as db:assert await financial_digest(db) != after
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('field,value', [
+    ('provider_hold', 'provider_auth_failed'),
+    ('cooldown_until', 9999999999),
+    ('breakers_json', '{"analyst":{"open":true}}'),
+])
+async def test_restore_requires_current_legacy_financial_gates(maker, monkeypatch, field, value):
+    # Mutation: omit supported global provider gates from the financial authority.
+    from types import SimpleNamespace
+    from app.services.generation.models import GenerationControl
+    from app.services.generation.administration import control_action
+    from app.services.generation.recovery import (
+        export_restore_authority, financial_digest, quarantine, reconcile_restore, reopen_restore)
+    from app.services.generation.store import digest, Held, lock_control
+    for key, setting in {'RECAP_PUBLICATION_MODE': 'quarantine', 'GENERATION_EMERGENCY_PAUSE': 'true',
+            'RECAP_RESTORE_EPOCH': 'new', 'RECAP_SERVING_EPOCH': 'new', 'GENERATION_EXECUTION_EPOCH': 'new'}.items():
+        monkeypatch.setenv('TRADE_GRADER_' + key, setting)
+    async with maker.begin() as db:
+        control = await lock_control(db)
+        control.epoch = 'old'
+        old_value = getattr(control, field)
+        setattr(control, field, value)
+    async with maker.begin() as db:
+        current = await export_restore_authority(db)
+    monkeypatch.setenv('TRADE_GRADER_RECAP_RESTORE_EVIDENCE_DIGEST', digest(current))
+    async with maker.begin() as db:
+        control = await db.get(GenerationControl, 'global')
+        setattr(control, field, old_value)  # Restore the older backup's missing gate.
+        await quarantine(db)
+    async with maker.begin() as db:
+        report = await reconcile_restore(db, {'media_objects': {}, 'current_authority': current}, {})
+        assert report['current_authority_verified']
+        assert not report['financial_ledger_matches'] and not report['reconciled']
+        with pytest.raises(Held, match='restore_reconciliation_required'):
+            await reopen_restore(db, expected_digest=digest(report), actor_id='owner')
+        control = await db.get(GenerationControl, 'global')
+        with pytest.raises(Held, match='restore_reconciliation_required'):
+            await control_action(db, SimpleNamespace(action='activate', expected_revision=control.revision,
+                workers_stopped=True, reason='Recovered evidence'), 'owner')
+        assert control.hold == 'restore_quarantine'
+        setattr(control, field, value)  # Recover the exact independently pinned current gate.
+    async with maker.begin() as db:
+        report = await reconcile_restore(db, {'media_objects': {}, 'current_authority': current}, {})
+        assert report['reconciled']
+        await reopen_restore(db, expected_digest=digest(report), actor_id='owner')
+        control = await db.get(GenerationControl, 'global')
+        setattr(control, field, old_value)
+        await db.flush()
+        with pytest.raises(Held, match='restore_financial_evidence_changed'):
+            await control_action(db, SimpleNamespace(action='activate', expected_revision=control.revision,
+                workers_stopped=True, reason='Stale successful reconciliation'), 'owner')
+        assert control.hold == 'restore_reconciled'
+        setattr(control, field, value)
+        await db.flush()
+        await control_action(db, SimpleNamespace(action='activate', expected_revision=control.revision,
+            workers_stopped=True, reason='Recovered evidence'), 'owner')
+        assert control.hold == '' and getattr(control, field) == value
+        # Rotated epoch/quarantine/revision must not invalidate recovered financial evidence.
+        assert await financial_digest(db) == current['financial_digest']
+
+
 def test_restore_media_verifies_configured_destination_bytes_not_only_backup(monkeypatch):
     # Mutation: accept an existing object with extra bytes sharing a valid prefix.
     import sys,hashlib,uuid

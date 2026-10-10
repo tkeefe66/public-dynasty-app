@@ -98,7 +98,15 @@ async def financial_digest(db):
     tables = (ProviderAttempt, RecapProviderAttempt, RecapBudgetAllocation, RecapBudgetPlan,
         RecapBudgetPolicy, GenerationPolicy, ProviderAccountControl)
     # Quarantine changes dispatching to unknown but not the financial identity.
-    inventory = {}
+    control = await db.get(GenerationControl, 'global')
+    # Legacy gates still govern dispatch (and migrate into account controls).
+    # Execution epoch, quarantine hold and revision change during restore; these
+    # provider financial gates must instead match independently pinned evidence.
+    inventory = {GenerationControl.__tablename__: {
+        'provider_hold': control.provider_hold if control else '',
+        'cooldown_until': control.cooldown_until if control else 0,
+        'breakers_json': control.breakers_json if control else '{}',
+    }}
     for model in tables:
         rows=[]
         for row in (await db.scalars(select(model))).all():

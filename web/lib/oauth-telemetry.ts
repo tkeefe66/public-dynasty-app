@@ -2,11 +2,16 @@ import type { ErrorEvent } from "@sentry/nextjs";
 
 function decoded(value: string): string {
   for (let i = 0; i < 8; i++) {
+    let next: string;
     try {
-      const next = decodeURIComponent(value);
-      if (next === value) break;
-      value = next;
-    } catch { break; }
+      next = decodeURIComponent(value);
+    } catch {
+      // Credential routes are ASCII. An unrelated malformed escape or UTF-8
+      // sequence must not hide valid encoded separators or route characters.
+      next = value.replace(/%[0-7][\da-f]/gi, (escape) => String.fromCharCode(parseInt(escape.slice(1), 16)));
+    }
+    if (next === value) break;
+    value = next;
   }
   return value;
 }
