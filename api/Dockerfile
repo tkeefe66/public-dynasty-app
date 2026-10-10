@@ -7,6 +7,7 @@ COPY pyproject.toml uv.lock ./
 COPY src ./src
 COPY api ./api
 COPY scripts ./scripts
+COPY media ./media
 RUN uv sync --frozen --all-packages --no-dev --no-editable
 
 ENV PATH="/app/.venv/bin:$PATH" \

@@ -9,6 +9,38 @@ from tests.test_recap_workflow import seed_media, seed_long_media_chain, fence
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("release", ["expiry", "cancel"])
+async def test_render_authority_serializes_workers_and_recovers_after_expiry(pgmaker,tmp_path,monkeypatch,release):
+    # Mutation: filter running renders after bounded scan or allow second lease.
+    from app.services.generation.recap_models import RecapStage
+    _, first = await seed_media(pgmaker,tmp_path,monkeypatch)
+    async with pgmaker.begin() as db:
+        source=await db.get(RecapStage,first)
+        db.add(RecapStage(id="second-render",episode_id=source.episode_id,revision=source.revision,kind="render",chunk=1,
+            script_id=source.script_id,operation_id=source.operation_id,predecessor_id=source.predecessor_id,
+            input_json=source.input_json,input_digest=source.input_digest,policy_digest=source.policy_digest,epoch=source.epoch))
+    now=stamp()
+    async def claim(index):
+        async with pgmaker.begin() as db:
+            return await work.claim_stage(db,f"renderer-{index}",{"render"},now)
+    leases=[v for v in await asyncio.gather(*(claim(i) for i in range(8))) if v]
+    assert len(leases)==1
+    async with pgmaker.begin() as db:
+        from sqlalchemy import select
+        narration=await db.scalar(select(RecapStage).where(RecapStage.kind=="narrate"))
+        db.add(RecapStage(id="independent-narration",episode_id=narration.episode_id,revision=narration.revision,kind="narrate",chunk=1,
+            script_id=narration.script_id,operation_id=narration.operation_id,predecessor_id="",
+            input_json=narration.input_json,input_digest=narration.input_digest,policy_digest=narration.policy_digest,epoch=narration.epoch))
+        assert (await work.claim_stage(db,"narrator",{"render","narrate"},now))["capability"]=="narrate"
+        current=await db.get(RecapStage,leases[0]["stage_id"])
+        if release=="expiry":
+            current.lease_until=now
+        else:
+            current.state="cancelled"
+        assert await work.claim_stage(db,"replacement",{"render"},now)
+
+
+@pytest.mark.asyncio
 async def test_provider_identity_race_preserves_first_evidence(pgmaker, tmp_path, monkeypatch):
     from app.services.generation.store import Conflict
     await seed_media(pgmaker, tmp_path, monkeypatch, "narrate")

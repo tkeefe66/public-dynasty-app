@@ -126,7 +126,7 @@ def install_narration_handlers(client, *, api_key, model_directory, ffmpeg="/usr
                             file.write(block)
                 entries.append(f"file 'chunk-{index}.mp3'")
             (root / "concat.txt").write_text("\n".join(entries))
-            await _bounded_process([ffmpeg, "-v", "error", "-f", "concat", "-safe", "1", "-i", str(root / "concat.txt"),
+            await _bounded_process([ffmpeg, "-v", "error", "-nostdin", "-protocol_whitelist", "file,pipe", "-f", "concat", "-safe", "1", "-i", str(root / "concat.txt"),
                 "-ac", "1", "-ar", "16000", str(root / "joined.wav")], root, 120)
             module = Path(__file__).resolve().parents[1] / "api/app/services/recap_video/audio.py"
             await _bounded_process([sys.executable, str(module), str(root / "joined.wav"),
@@ -143,17 +143,10 @@ def install_narration_handlers(client, *, api_key, model_directory, ffmpeg="/usr
 
 
 async def _bounded_process(argv, directory, timeout):
-    process = await asyncio.create_subprocess_exec(*argv, cwd=directory, env=renderer_environment(directory),
-        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
-    try:
-        await asyncio.wait_for(process.wait(), timeout)
-        if process.returncode:
-            raise RuntimeError("Local speech process failed; inspect packaged dependencies and saved evidence")
-    finally:
-        if process.returncode is None:
-            import signal
-            os.killpg(process.pid, signal.SIGKILL)
-            await process.wait()
+    from media.runtime import run
+    # Translate assigned host scratch to the only writable child mount.
+    translated = [str(value).replace(str(directory), "/work") for value in argv]
+    await run(translated, directory, timeout)
 
 
 async def recover_narration(client, attempt_id, *, api_key):
@@ -176,3 +169,44 @@ async def recover_narration(client, attempt_id, *, api_key):
     result = await client.post("/api/internal/media/recovery-receipt", json={"attempt_id": attempt_id, "receipt": receipt})
     result.raise_for_status()
     return receipt
+
+
+async def main():
+    """Single-claim supervisor. Runtime admission occurs before credentials/network."""
+    import fcntl
+    import logging
+    import httpx
+    from urllib.parse import urlparse
+    from media.runtime import probe
+    from media.adapters import install
+    from app.services.recap_video.audio import verify_model_artifacts
+    log = logging.getLogger("recap.worker")
+    logging.basicConfig(level=logging.INFO)
+    lock = open("/scratch/worker.lock", "w")
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with tempfile.TemporaryDirectory(prefix="probe-", dir="/scratch") as temporary:
+        probe(Path(temporary))
+    verify_model_artifacts(Path("/opt/model"))
+    tempfile.tempdir = "/scratch"
+    url, token = os.environ.get("MEDIA_API_URL", ""), os.environ.get("MEDIA_WORKER_TOKEN", "")
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or not token:
+        raise RuntimeError("Worker API configuration invalid; set HTTPS API origin and dedicated worker token")
+    # No DB, bucket or publication settings are accepted by this entrypoint.
+    async with httpx.AsyncClient(base_url=url, headers={"Authorization":"Bearer "+token},
+            transport=httpx.AsyncHTTPTransport(retries=0), follow_redirects=False, timeout=120) as client:
+        install_narration_handlers(client, api_key=os.environ.get("ELEVENLABS_API_KEY", ""), model_directory="/opt/model")
+        install(client, HANDLERS)
+        while True:
+            try:
+                if not await tick(client):
+                    await asyncio.sleep(5)
+            except (httpx.HTTPError, RuntimeError):
+                # Original lease/attempt remains server-owned. Do not resend paid
+                # requests; reconciliation is explicit through saved receipts.
+                log.error("Media stage stopped; API unavailable, ownership lost, or runtime refused. Inspect durable stage evidence.")
+                await asyncio.sleep(5)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

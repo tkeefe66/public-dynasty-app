@@ -52,6 +52,14 @@ def test_renderer_env_excludes_provider_and_database_credentials(monkeypatch, tm
     assert worker.renderer_environment(tmp_path) == {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "TMPDIR": str(tmp_path), "LANG": "C.UTF-8"}
 
 
+def test_render_install_targets_entrypoint_registry():
+    # Mutation: import media.worker creates a second registry under python -m.
+    from media.adapters import install
+    registry = {}
+    install(object(), registry)
+    assert set(registry) == {"render", "media_check"}
+
+
 @pytest.mark.asyncio
 async def test_narration_handler_commits_identity_audio_receipt_once(monkeypatch):
     import base64
@@ -119,3 +127,25 @@ async def test_speech_handler_preserves_raw_evidence_and_holds_ambiguity(monkeyp
     if status == "input_failure":
         assert "result_verb_mismatch" in result["report"]["issues"]
     assert result["asset_ids"] == ["raw-evidence"]
+
+@pytest.mark.asyncio
+async def test_render_alignment_ambiguity_holds_without_repeating_paid_work(monkeypatch, tmp_path):
+    # Mutation: ambiguous timing throws out of the handler instead of durable hold.
+    import tempfile
+    import wave
+    from media import adapters
+    original = tempfile.TemporaryDirectory
+    monkeypatch.setattr(adapters.tempfile, 'TemporaryDirectory', lambda **kw: original(dir=tmp_path))
+    async def download(client,lease,identity,target):
+        target.write_text('{}')
+    async def run(argv,root,timeout):
+        with wave.open(str(root/'audio.wav'),'wb') as wav:
+            wav.setnchannels(1);wav.setsampwidth(2);wav.setframerate(16000);wav.writeframes(b'\0\0'*16000)
+    def ambiguous(*args,**kwargs):
+        raise ValueError('scene_timing_ambiguous:synthetic')
+    monkeypatch.setattr(adapters,'download',download)
+    monkeypatch.setattr(adapters,'run',run)
+    monkeypatch.setattr(adapters,'build_episode',ambiguous)
+    registry={};adapters.install(object(),registry)
+    result=await registry['render']({'allowed_assets':['raw','narration'],'input':{'chunks':[{}],'speech_review':{'aliases':{}}}})
+    assert result=={'status':'input_failure','asset_ids':[],'report':{'issues':['scene_timing_ambiguous']}}

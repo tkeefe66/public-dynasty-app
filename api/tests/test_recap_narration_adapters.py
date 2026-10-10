@@ -48,7 +48,8 @@ async def test_api_builds_all_ordered_chunks_at_exact_price_and_configuration(ma
     async with maker.begin() as db:
         artifact = await db.get(ContentArtifact, "script")
         payload = json.loads(artifact.payload_json)
-        payload["script"]["segments"][0]["text"] = "x" * 1999
+        # Keep unambiguous visual anchors while exercising the same chunk bound.
+        payload["script"]["segments"][0]["text"] = "Avery and Blake tied. " + "x" * 1977
         artifact.payload_json, artifact.digest = dump(payload), digest(payload)
         plan = await el.build_media_plan(db, artifact, evidence)
     assert [s["kind"] for s in plan] == ["narrate", "narrate", "narrate", "speech_check", "render", "media_check"]

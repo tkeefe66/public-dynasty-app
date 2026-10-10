@@ -124,6 +124,12 @@ async def test_generation_rows_roundtrip_without_receipt_or_artifact_changes(mak
             receipt_json='{"status":200}', state="received", cost_microusd=17))
         db.add(RecapAsset(stage_id="media-stage", generation=1, digest="media-digest", size=17,
             media_type="audio/wav", storage_key="synthetic-immutable-key"))
+        from app.services.generation.recap_models import RecapSpeechReview
+        db.add(RecapSpeechReview(id="speech-review", series_id="series", season=2026,
+            entity_kind="owner", entity_id="synthetic-owner", canonical_name="Avery",
+            canonical_token="avery", reusable=True, aliases_json='["averie"]',
+            script_id="script", script_digest="synthetic-script-digest", script_revision=3,
+            reviewer_id="owner", reason="Reviewed synthetic spelling", created_at=123))
     async with maker() as db:
         blob, counts = await dump_database(db)
     assert all(counts[t.name] for t in Base.metadata.sorted_tables if t.name not in

@@ -1,0 +1,4 @@
+@font-face{font-family:Bricolage;src:url(fonts/bricolage-grotesque-latin-var.woff2);font-weight:200 800;font-display:swap}
+@font-face{font-family:Geist;src:url(fonts/geist-latin-var.woff2);font-weight:100 900;font-display:swap}
+@font-face{font-family:GeistMono;src:url(fonts/geist-mono-latin-var.woff2);font-weight:100 900;font-display:swap}
+html,body{margin:0;padding:0;background:#17181c;overflow:hidden}canvas{display:block;width:1280px;height:720px}

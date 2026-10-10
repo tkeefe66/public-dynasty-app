@@ -1,0 +1,1 @@
+{"name":"recap-renderer","version":"1.0.0","private":true,"dependencies":{"playwright":"1.64.0"},"scripts":{"check":"node --check render/render.cjs && node --check render/scene.js"}}

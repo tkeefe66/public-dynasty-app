@@ -291,12 +291,16 @@ async def allowed_asset_ids(db, row):
 async def claim_stage(db, worker_id: str, capabilities: set[str], now: int) -> dict | None:
     await lock_control(db)
     await _expire(db, now)
+    eligible_kinds = set(capabilities) & MEDIA_KINDS
+    if await db.scalar(select(RecapStage.id).where(RecapStage.kind == "render",
+            RecapStage.state == "running", RecapStage.lease_until > now).limit(1)):
+        eligible_kinds.discard("render")
     # Blocked dependents must not consume the bounded window and hide their root.
     predecessor = aliased(RecapStage)
     dependency_ready = select(predecessor.id).where(predecessor.id == RecapStage.predecessor_id,
         predecessor.script_id == RecapStage.script_id, predecessor.state == "succeeded").exists()
     rows = (await db.scalars(select(RecapStage).where(RecapStage.state == "queued",
-        RecapStage.next_attempt_at <= now, RecapStage.kind.in_(set(capabilities) & MEDIA_KINDS),
+        RecapStage.next_attempt_at <= now, RecapStage.kind.in_(eligible_kinds),
         or_(RecapStage.predecessor_id == "", dependency_ready))
         .order_by(RecapStage.created_at, RecapStage.id).with_for_update(skip_locked=True).limit(100))).all()
     for row in rows:
@@ -344,17 +348,19 @@ async def complete_stage(db, stage_id: str, generation: int, epoch: str, input_d
             or not isinstance(result["asset_ids"], list) or len(result["asset_ids"]) > 64
             or not isinstance(result["report"], dict) or len(dump(result)) > 32_000):
         raise Held("media_result_invalid")
+    for asset_id in result["asset_ids"]:
+        asset = await db.get(RecapAsset, asset_id) if isinstance(asset_id, str) else None
+        if not asset or asset.stage_id != row.id or asset.generation != generation:
+            raise Held("media_asset_not_owned")
     if result["status"] != "ok":
+        # Failure diagnostics remain durable after the generation is fenced.
+        row.result_json = dump(result)
         if result["status"] == "transient":
             _retry_free(row, now)
         else:
             row.state, row.reason = "held", "input_revision_required"
         row.generation += 1
     else:
-        for asset_id in result["asset_ids"]:
-            asset = await db.get(RecapAsset, asset_id) if isinstance(asset_id, str) else None
-            if not asset or asset.stage_id != row.id or asset.generation != generation:
-                raise Held("media_asset_not_owned")
         validator = RESULT_VALIDATORS.get(row.kind)
         if validator is None:
             raise Held("media_handlers_unqualified")

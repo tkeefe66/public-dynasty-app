@@ -309,7 +309,10 @@ async def test_media_provider_failure_preserves_written_readiness(maker, tmp_pat
     async with maker.begin() as db:
         leased = await work.claim_stage(db, "narrator", {"narrate"}, stamp())
         await record_failure(db, "elevenlabs", "primary", 401, stamp())
-        await work.complete_stage(db, **fence(leased), result={"status": "input_failure", "asset_ids": [], "report": {}})
+        # Mutation: discard private failure measurements/issue codes on a hold.
+        failed={"status":"input_failure","asset_ids":[],"report":{"issues":["caption_overflow"]}}
+        await work.complete_stage(db, **fence(leased), result=failed)
+        assert json.loads((await db.get(RecapStage,leased["stage_id"])).result_json)==failed
         job = await db.get(GenerationOperation, "job")
         assert await require_readiness(db, "series", json.loads(job.payload_json), league_id="synthetic")
         await require_provider_ready(db, "anthropic", "primary", stamp())

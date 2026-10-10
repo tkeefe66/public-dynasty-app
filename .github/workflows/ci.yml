@@ -83,3 +83,21 @@ jobs:
         run: |
           docker build -f api/Dockerfile -t generation-contract .
           docker run --rm --network none generation-contract python scripts/check_generation_runtime.py
+
+  recap-media:
+    name: recap — isolated Linux render and decode
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f media/Dockerfile -t recap-media-contract .
+      - name: Namespace boundary, cancellation and actual media failures
+        run: >-
+          docker run --rm --network none --memory 2g --tmpfs /scratch:size=4g
+          --cap-add SYS_ADMIN --security-opt seccomp=unconfined
+          --security-opt apparmor=unconfined --security-opt systempaths=unconfined
+          -e BOUNDARY_SECRET=recap-boundary-sentinel -e RECAP_LINUX_TEST=1 -e TMPDIR=/scratch
+          recap-media-contract python scripts/check_recap_media_runtime.py
+      - name: Default runtime must refuse unsupported isolation before claims
+        run: >-
+          docker run --rm --network none --memory 2g --tmpfs /scratch:size=4g
+          recap-media-contract python scripts/check_recap_media_runtime.py --expect-refusal

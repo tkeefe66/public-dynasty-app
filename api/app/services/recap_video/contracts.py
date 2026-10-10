@@ -17,6 +17,41 @@ class ReadinessDecision:
     facts_digest: str
 
 
+def require_media_measurements(report, episode, assets):
+    """API checks raw measured evidence against immutable selected objects.
+
+    Decoder execution remains the restricted authenticated worker's responsibility;
+    media QA alone never grants publication or human performance qualification.
+    """
+    import math
+    from media.timeline import digest, validate_episode, FONTS
+    from app.services.generation.store import Held
+    try:
+        m = report["measurements"]
+        if (report["version"] != "recap-media-qa-1" or report["issues"] or report["decoded"] is not True
+                or report["episode_digest"] != digest(episode) or validate_episode(episode)
+                or report["render"]["layout_issues"] or report["render"]["fonts"] != FONTS
+                or report["hashes"] != {name: assets[name].digest for name in ("video.mp4", "audio.wav", "render.json")}):
+            raise ValueError()
+        expected_frames = [("decoded-"+f["file"],f["time"]) for f in report["render"]["representative_frames"]]
+        if (not expected_frames or [(f["file"],f["time"]) for f in m["representative_frames"]] != expected_frames
+                or any(type(v) not in (float,int) or not math.isfinite(v) for key in ("peak_db","rms_db") for v in m[key])):
+            raise ValueError()
+        numeric = ("audio_start_ms", "video_start_ms", "sync_error_ms", "audio_duration", "video_duration", "source_duration", "bytes", "frames")
+        if any(type(m[k]) not in (float, int) or not math.isfinite(m[k]) for k in numeric):
+            raise ValueError()
+        if (abs(m["audio_start_ms"]-m["video_start_ms"]) > 100 or m["sync_error_ms"] != abs(m["audio_start_ms"]-m["video_start_ms"])
+                or abs(m["audio_duration"]-m["source_duration"]) > .1
+                or m["source_duration"] > episode["duration"]+.1 or episode["duration"]-m["source_duration"] > 2
+                or abs(m["video_duration"]-episode["duration"]) > 1/30+.001
+                or m["frames"] != math.ceil(episode["duration"]*30)
+                or m["bytes"] != assets["video.mp4"].size or m["silence_seconds"]
+                or not m["rms_db"] or max(m["rms_db"]) < -50 or not m["peak_db"] or max(m["peak_db"]) >= -.01):
+            raise ValueError()
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise Held("media_measurements_invalid") from None
+
+
 def player_evidence(snapshot, cache_dir):
     """Enrich only relevant names/eligibility from the trusted local Sleeper cache."""
     from sleeper_dynasty.cache import FileCache

@@ -355,6 +355,13 @@ async def build_media_plan(db, artifact, evidence):
             or evidence["rate_digest"] != canonical(approved["rate_snapshot"])):
         raise Held("media_qualification_changed")
     script = payload["script"]
+    from media.timeline import scene_plan
+    try:
+        scene_plan(script, payload["claims"])
+    except ValueError as exc:
+        raise Held(str(exc).split(":")[0]) from None
+    except (KeyError, TypeError):
+        raise Held("render_script_mapping_ambiguous") from None
     speech_review = await bind_reviews(db, artifact)
     cfg, rate = approved["config"], approved["rate_snapshot"]
     chunks = split_narration(script_segments(script))
@@ -369,8 +376,7 @@ async def build_media_plan(db, artifact, evidence):
     for kind in ("speech_check", "render", "media_check"):
         plan.append(dict(kind=kind, chunk=0, input={"script": script, "chunks": chunks,
             "script_digest": artifact.digest, "claims": payload["claims"]}))
-        if kind == "speech_check":
-            plan[-1]["input"]["speech_review"] = speech_review
+        plan[-1]["input"]["speech_review"] = speech_review
     return plan
 
 
@@ -427,3 +433,5 @@ def install_api():
     workflow.MEDIA_PLAN_BUILDER = build_media_plan
     workflow.RECEIPT_SETTLERS["elevenlabs"] = settle_receipt
     workflow.RESULT_VALIDATORS.update(preflight=validate_preflight, narrate=validate_narration, speech_check=validate_speech)
+    from app.services.recap_video.rendering import install_api as install_rendering
+    install_rendering()

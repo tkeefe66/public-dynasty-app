@@ -43,7 +43,7 @@ include = ["app*"]
 # In a git worktree the editable `sleeper-dynasty` install points at the MAIN
 # repo's src, so prepend this worktree's src (and the api dir for `app`) so the
 # backend tests pick up the worktree's engine + app, not the main checkout's.
-pythonpath = [".", "../src"]
+pythonpath = [".", "../src", ".."]
 
 [tool.uv.sources]
 sleeper-dynasty = { workspace = true }
