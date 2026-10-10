@@ -65,8 +65,11 @@ class RecoveryCompletion(Strict):
 
 @router.post('/recovery-claim')
 async def claim_recovery(request: Request, worker=Depends(require_media_worker)):
-    require_narration(worker)
     await parse(request,Claim)
+    # Authenticated free-only workers still poll their ordinary queue. Capability
+    # comes exclusively from server configuration, never from request JSON.
+    if 'narrate' not in worker.capabilities:
+        return None
     from app.services.recap_video.recovery import claim_recovery as claim
     async with get_sessionmaker().begin() as db:
         return await claim(db,worker.worker_id,stamp())

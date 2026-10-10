@@ -323,13 +323,17 @@ async def select_publication(db, episode_id: str, expected_revision: int, media_
     if not proof or proof.consumed or proof.episode_id != episode_id:
         raise Held('publication_approval_required')
     # No global lock while storage, QA, or hashing may block.
+    proof_id = proof.id
     media, script_id = await verified_media(db, episode_id, media_id)
+    await db.flush()
+    db.expire_all()
     await lock_control(db)
-    proof = await db.get(RecapPublicationApproval, proof.id, populate_existing=True)
+    proof = await db.get(RecapPublicationApproval, proof_id, populate_existing=True)
     from app.services.recap_video.qualification import require_standing_proof
-    await require_standing_proof(db, proof)
+    target_evidence = await require_standing_proof(db, proof)
     scope = await current_scope(db, episode_id, expected_revision, media_id)
     scope.update(media_digest=digest(media), script_id=script_id)
+    scope.update(target_evidence)
     if proof.consumed or dump(scope) != proof.scope_json:
         raise Held('publication_approval_stale')
     episode = await db.get(RecapEpisode, episode_id)

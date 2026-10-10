@@ -156,3 +156,46 @@ async def test_replacement_keeps_existing_public_take_readable(pgmaker,tmp_path,
     async with pgmaker() as db:
         assert await authorize_public_read(db,token,'old-take',stamp())==before
         assert (await db.get(RecapStage,media_id)).state=='succeeded'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('boundary',['approval','selection'])
+@pytest.mark.parametrize('change',['recovery','policy'])
+async def test_recovered_publication_reloads_after_storage_before_lock(pgmaker,tmp_path,monkeypatch,boundary,change):
+    # Mutation: let pre-storage identity-map evidence survive a concurrent committed change.
+    import json
+    from tests.test_recap_qualification import reviewed_recovered_fourth
+    from app.services.recap_video import qualification as q,publication as p
+    from app.services.generation.models import GenerationPolicy
+    from app.services.generation.store import lock_control,dump
+    ident,mid,_=await reviewed_recovered_fourth(pgmaker,tmp_path,monkeypatch)
+    async with pgmaker.begin() as db:proof=await q.record_standing_approval(db,ident,0,mid)
+    started,release=asyncio.Event(),asyncio.Event()
+    async def storage(db,*args):
+        # Real verifier loads these before potentially slow object-store I/O.
+        attempt=await db.get(RecapProviderAttempt,'narration-0')
+        policy=await db.get(GenerationPolicy,'app')
+        started.set();await release.wait()
+        assert attempt is not None and policy is not None
+        return {},'script'
+    monkeypatch.setattr(p,'verified_media',storage)
+    async def publish():
+        async with pgmaker.begin() as db:
+            if boundary=='approval':return await q.record_standing_approval(db,ident,0,mid)
+            return await p.select_publication(db,ident,0,mid,proof)
+    pending=asyncio.create_task(publish())
+    await asyncio.wait_for(started.wait(),5)
+    try:
+        async with pgmaker.begin() as db:
+            await asyncio.wait_for(lock_control(db),5)  # No storage work under the global lock.
+            if change=='recovery':
+                attempt=await db.get(RecapProviderAttempt,'narration-0')
+                value=json.loads(attempt.recovery_receipt_json);value['audio_sha256']='changed'
+                attempt.recovery_receipt_json=dump(value)
+            else:
+                row=await db.get(GenerationPolicy,'app')
+                value=json.loads(row.value_json);value['features']['recap_video']['paused']=True;row.value_json=dump(value)
+    finally:release.set()
+    with pytest.raises(Held):await pending
+    from app.services.generation.recap_models import RecapEpisode
+    async with pgmaker() as db:assert await p.authority_for_episode(db,await db.get(RecapEpisode,ident)) is None

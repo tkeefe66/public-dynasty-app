@@ -22,7 +22,7 @@ async def test_absent_calibration_never_enables_automatic_media(maker):
     assert status['reason'] == 'media_calibration_required'
 
 
-async def qualified_series(maker,tmp_path,monkeypatch):
+async def qualified_series(maker,tmp_path,monkeypatch,*,review_target=True):
     from tests.test_recap_workflow import seed_media
     from app.services.recap_video import qualification as q, elevenlabs
     from app.services.generation import recap_models as m
@@ -49,7 +49,7 @@ async def qualified_series(maker,tmp_path,monkeypatch):
             row.result_json=dump({'asset_ids':[]})
         original=await db.get(m.RecapEpisode,ident)
         script=await db.get(ContentArtifact,'script')
-        for index in range(3):
+        for index in range(3 if review_target else 4):
             eid=ident if index==0 else 'episode-'+str(index)
             sid='script' if index==0 else 'script-'+str(index)
             mid=media_id if index==0 else 'media-'+str(index)
@@ -67,11 +67,12 @@ async def qualified_series(maker,tmp_path,monkeypatch):
             db.add(ProviderAttempt(operation_id='job' if index==0 else 'job-'+str(index),stage=0,generation=1,request_digest='test',
                 request_json='{}',model='synthetic',state='received',cost_microusd=10))
             await db.flush()
+            if index==0 and not review_target:continue
             binding=await q.review_binding(db,eid,mid)
             db.add(m.RecapQualificationReview(id='review-'+str(index),episode_id=eid,series_id='series',season=2026,calibration_id='calibration',
                 approval_id='approval-'+str(index),binding_json=dump(binding),evidence_json='{}',actor_id='owner',passed=True))
         db.add(m.RecapStandingAuthorization(id='standing',series_id='series',season=2026,calibration_id='calibration',
-            review_ids_json=dump(['review-0','review-1','review-2']),actor_id='owner'))
+            review_ids_json=dump(['review-0','review-1','review-2'] if review_target else ['review-1','review-2','review-3']),actor_id='owner'))
     return ident,media_id
 
 
@@ -188,6 +189,8 @@ async def test_standing_postseason_uses_saved_authoritative_format(maker,tmp_pat
             snapshot_digest='synthetic',facts_digest=episode.facts_digest,decision='ready'))
     async def verified(*args):return {'id':'post-media'},'post-script'
     async def scope(*args):return {'article':{'artifact_id':'post-article','revision':1,'digest':'post-article-digest'}}
+    async def target(*args):return {'synthetic_format_fixture':True}
+    monkeypatch.setattr(q,'target_publication_binding',target)
     monkeypatch.setattr(p,'verified_media',verified)
     monkeypatch.setattr(p,'current_scope',scope)  # Task9 bindings exercised by initial-article test above.
     async with maker.begin() as db:
@@ -219,3 +222,130 @@ async def test_automatic_projector_carries_member_article_revision_through_selec
         authority=await p.authority_for_episode(db,await db.get(m.RecapEpisode,ident))
         assert authority.authority_revision==2 and authority.media_id==mid
         assert (await db.get(m.RecapEpisode,ident)).lifecycle=='published'
+
+
+async def recovered_fourth(maker,tmp_path,monkeypatch):
+    """Three prior reviews plus a real adopted take and completed free chain."""
+    import hashlib
+    from app.services.recap_video import workflow,storage,publication as p
+    from app.services.recap_video.admin_actions import apply_action,episode_view
+    from app.services.generation import recap_models as m
+    from app.services.generation.models import stamp
+    from app.services.generation.store import digest,resolve_policy
+    from tests.test_recap_workflow import fence,result
+    ident,mid=await qualified_series(maker,tmp_path,monkeypatch,review_target=False)
+    async with maker.begin() as db:
+        config=await resolve_policy(db,'series')
+        rows=(await db.scalars(select(m.RecapStage).where(m.RecapStage.episode_id==ident))).all()
+        for stage in rows:
+            stage.policy_digest=digest([config['policy']['features']['recap_video'],config['revisions'],await workflow.require_media_preflight(db,ident)])
+        paid=next(s for s in rows if s.kind=='narrate')
+        paid.state='held'
+        attempt=await db.get(m.RecapProviderAttempt,'narration-0')
+        attempt.stage_id,attempt.generation,attempt.state,attempt.cost_microusd=paid.id,paid.generation,'unknown',None
+        identity={'request_id':'synthetic-request','history_item_id':'synthetic-history'}
+        await workflow.persist_identity(db,attempt.id,identity,worker_id='worker')
+        asset=m.RecapAsset(stage_id=paid.id,generation=attempt.generation,storage_key='recovered',digest=hashlib.sha256(b'audio').hexdigest(),size=5,media_type='audio/mpeg')
+        db.add(asset);await db.flush()
+        attempt.recovery_receipt_json=dump({'request_digest':attempt.request_digest,'identity':identity,'outcome':'recovered',
+            'audio_sha256':asset.digest,'audio_size':5,'asset':{'asset_id':asset.id,'digest':asset.digest,'size':5}})
+        db.add(m.RecapBudgetPlan(id='fourth-plan',episode_id=ident,series_id='series',plan_key='fourth',digest='fourth'))
+        db.add(m.RecapBudgetAllocation(id='fourth-allocation',plan_id='fourth-plan',attempt_id=attempt.id,key='narrate',category='video',operation_id='job',month_key='2026-10',max_microusd=100,outstanding_microusd=100,rate_json='{}'))
+        view=await episode_view(db,ident)
+    class Store:
+        def read_range(self,*args):return b'audio'
+    monkeypatch.setattr(storage,'configured_store',lambda:Store())
+    async with maker.begin() as db:
+        await apply_action(db,ident,actor_id='owner',expected_revision=view['revision'],action='resume_recovered_audio',reason='Review exact recovered audio')
+    for kind in ('speech_check','render','media_check'):
+        async with maker.begin() as db:
+            lease=await workflow.claim_stage(db,'worker',{kind},stamp())
+            assert lease and lease['capability']==kind
+            await workflow.complete_stage(db,**fence(lease),result=result(lease))
+    async def verified(*args):return {},'script'
+    monkeypatch.setattr(p,'verified_media',verified)
+    return ident,mid
+
+
+@pytest.mark.asyncio
+async def test_fourth_recovered_episode_requires_settlement_and_current_finished_review(maker,tmp_path,monkeypatch):
+    # Mutation: three earlier reviews authorize unreconciled or unreviewed recovered content.
+    from app.services.recap_video import qualification as q,publication as p
+    from app.services.generation import recap_models as m
+    ident,mid=await recovered_fourth(maker,tmp_path,monkeypatch)
+    async with maker() as db:
+        assert (await q.qualification_status(db,'series',2026))['automatic']
+    await q.advance_qualified_publication(maker)
+    async with maker() as db:
+        assert await p.authority_for_episode(db,await db.get(m.RecapEpisode,ident)) is None
+        assert (await db.get(m.RecapProviderAttempt,'narration-0')).cost_microusd is None
+        assert (await db.get(m.RecapBudgetAllocation,'fourth-allocation')).outstanding_microusd==100
+    async with maker.begin() as db:
+        attempt=await db.get(m.RecapProviderAttempt,'narration-0')
+        attempt.state,attempt.cost_microusd='received',17
+        (await db.get(m.RecapBudgetAllocation,'fourth-allocation')).outstanding_microusd=0
+    async with maker.begin() as db:
+        with pytest.raises(Held,match='recovered_audio_finished_review_required'):
+            await q.record_standing_approval(db,ident,0,mid)
+    async with maker.begin() as db:
+        preview=await p.preview_publication(db,ident,0,mid)
+    async with maker.begin() as db:
+        proof=await q.record_preview_approval(db,ident,0,'owner',dict(media_id=mid,preview_digest=preview['digest'],
+            reason='Reviewed recovered audio in finished preview',checks={key:'Synthetic retained evidence for this exact finished preview' for key in ('factual_coverage','performance','physical_phone','message_preview')}))
+    async with maker.begin() as db:
+        assert (await p.select_publication(db,ident,0,mid,proof))['authority_revision']==1
+
+
+async def reviewed_recovered_fourth(maker,tmp_path,monkeypatch):
+    from app.services.recap_video import qualification as q,publication as p
+    from app.services.generation import recap_models as m
+    ident,mid=await recovered_fourth(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        attempt=await db.get(m.RecapProviderAttempt,'narration-0')
+        attempt.state,attempt.cost_microusd='received',17
+        (await db.get(m.RecapBudgetAllocation,'fourth-allocation')).outstanding_microusd=0
+    async with maker.begin() as db:preview=await p.preview_publication(db,ident,0,mid)
+    async with maker.begin() as db:
+        proof=await q.record_preview_approval(db,ident,0,'owner',dict(media_id=mid,preview_digest=preview['digest'],
+            reason='Reviewed recovered audio in finished preview',checks={key:'Synthetic retained evidence for this exact finished preview' for key in ('factual_coverage','performance','physical_phone','message_preview')}))
+    return ident,mid,proof
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('authority',['manual','standing'])
+@pytest.mark.parametrize('boundary',['selection','projection'])
+@pytest.mark.parametrize('change',['unchanged','uncertain','recovery','binding','policy'])
+async def test_recovered_target_revalidates_after_review_at_selection_and_projection(maker,tmp_path,monkeypatch,authority,boundary,change):
+    # Mutations: trust old review after a recovery/receipt/QA/policy commit, or validate only at approval.
+    from app.services.recap_video import qualification as q,publication as p
+    from app.services.generation import recap_models as m
+    from app.services.generation.models import GenerationPolicy,GenerationOutbox
+    ident,mid,proof=await reviewed_recovered_fourth(maker,tmp_path,monkeypatch)
+    if authority=='standing':
+        async with maker.begin() as db:proof=await q.record_standing_approval(db,ident,0,mid)
+    if boundary=='projection':
+        async with maker.begin() as db:await p.select_publication(db,ident,0,mid,proof)
+    async with maker.begin() as db:
+        if change=='uncertain':(await db.get(m.RecapProviderAttempt,'narration-0')).cost_microusd=None
+        if change=='recovery':
+            attempt=await db.get(m.RecapProviderAttempt,'narration-0')
+            value=json.loads(attempt.recovery_receipt_json);value['audio_sha256']='changed'
+            attempt.recovery_receipt_json=dump(value)
+        if change=='binding':(await db.get(m.RecapStage,mid)).evidence_json='{"qa":"new measurement"}'
+        if change=='policy':
+            row=await db.get(GenerationPolicy,'app')
+            value=json.loads(row.value_json);value['features']['recap_video']['paused']=True;row.value_json=dump(value)
+    async with maker.begin() as db:
+        async def action():
+            if boundary=='selection':return await p.select_publication(db,ident,0,mid,proof)
+            item=await db.scalar(select(GenerationOutbox).where(GenerationOutbox.key==f'recap-publication:{ident}:1'))
+            return await p.project_publication(db,item,tmp_path)
+        if change!='unchanged':
+            with pytest.raises(Held):await action()
+            row=await p.authority_for_episode(db,await db.get(m.RecapEpisode,ident))
+            assert row is None if boundary=='selection' else row.projected_revision==0
+        else:
+            await action()
+            row=await p.authority_for_episode(db,await db.get(m.RecapEpisode,ident))
+            assert row.media_id==mid
+            if boundary=='projection':assert row.projected_revision==1

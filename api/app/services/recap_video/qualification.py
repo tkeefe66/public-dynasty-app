@@ -15,7 +15,7 @@ from app.db.models import User
 from app.services.generation.models import ContentArtifact, LeagueSeason, ProviderAttempt, stamp
 from app.services.generation.recap_models import (RecapAsset, RecapBudgetAllocation, RecapBudgetPlan,
     RecapCalibration, RecapEpisode, RecapProviderAttempt, RecapPublicationApproval,
-    RecapQualificationReview, RecapShareDecision, RecapStage, RecapStandingAuthorization)
+    RecapQualificationReview, RecapRecovery, RecapShareDecision, RecapStage, RecapStandingAuthorization)
 from app.services.generation.store import Held, audit, digest, dump, lock_control, resolve_policy
 
 
@@ -88,25 +88,25 @@ async def qualification_reader(db, episode_id):
 
 async def review_binding(db, episode_id, media_id):
     """Bind content and all selected paid/free evidence; timestamps are not content."""
-    episode = await db.get(RecapEpisode, episode_id)
-    stage = await db.get(RecapStage, media_id)
-    if not episode or episode.hold or not stage or stage.kind != 'media_check' or stage.state != 'succeeded':
+    episode = await db.get(RecapEpisode, episode_id, populate_existing=True)
+    stage = await db.get(RecapStage, media_id, populate_existing=True)
+    if not episode or episode.hold or not stage or stage.episode_id != episode_id or stage.kind != 'media_check' or stage.state != 'succeeded':
         raise Held('qualification_finished_preview_required')
-    script = await db.get(ContentArtifact, stage.script_id)
+    script = await db.get(ContentArtifact, stage.script_id, populate_existing=True)
     if not script or script.digest != digest(json.loads(script.payload_json)):
         raise Held('qualification_script_changed')
     stages = (await db.scalars(select(RecapStage).where(RecapStage.script_id == script.id,
-        RecapStage.execution_revision == stage.execution_revision).order_by(RecapStage.id))).all()
+        RecapStage.execution_revision == stage.execution_revision).order_by(RecapStage.id).execution_options(populate_existing=True))).all()
     if not stages or any(item.state != 'succeeded' for item in stages):
         raise Held('qualification_checkpoints_incomplete')
-    narration = (await db.scalars(select(RecapProviderAttempt).where(RecapProviderAttempt.episode_id == episode_id))).all()
+    narration = (await db.scalars(select(RecapProviderAttempt).where(RecapProviderAttempt.episode_id == episode_id).execution_options(populate_existing=True))).all()
     if not narration or any(item.cost_microusd is None or item.state in ('dispatching', 'unknown', 'abandoned') for item in narration):
         raise Held('qualification_receipts_unreconciled')
     allocations = (await db.scalars(select(RecapBudgetAllocation).join(RecapBudgetPlan,
-        RecapBudgetAllocation.plan_id == RecapBudgetPlan.id).where(RecapBudgetPlan.episode_id == episode_id))).all()
+        RecapBudgetAllocation.plan_id == RecapBudgetPlan.id).where(RecapBudgetPlan.episode_id == episode_id).execution_options(populate_existing=True))).all()
     if any(item.outstanding_microusd for item in allocations):
         raise Held('qualification_receipts_unreconciled')
-    prose = (await db.scalars(select(ProviderAttempt).where(ProviderAttempt.operation_id == script.operation_id))).all()
+    prose = (await db.scalars(select(ProviderAttempt).where(ProviderAttempt.operation_id == script.operation_id).execution_options(populate_existing=True))).all()
     if not prose or any(item.cost_microusd is None for item in prose):
         raise Held('qualification_receipts_unreconciled')
     assets = (await db.scalars(select(RecapAsset).where(RecapAsset.stage_id.in_([item.id for item in stages])).order_by(RecapAsset.id))).all()
@@ -116,11 +116,15 @@ async def review_binding(db, episode_id, media_id):
         ContentArtifact.feature=='analyst',ContentArtifact.digest==episode.article_digest))
     article_head=await db.get(ArtifactHead,article.subject) if article else None
     heads=[[head.artifact_id,head.revision,head.hold] if head else None for head in (script_head,article_head)]
+    recoveries = (await db.scalars(select(RecapRecovery).where(RecapRecovery.stage_id.in_([item.id for item in stages]),
+        RecapRecovery.action == 'adopt_recovered_audio').order_by(RecapRecovery.id))).all()
     return dict(facts_digest=episode.facts_digest, article_digest=episode.article_digest,
         heads=heads,
         script_id=script.id, script_digest=script.digest, media_id=media_id, versions=current_versions(),
         stages=[[s.id,s.generation,s.input_digest,s.result_json,s.evidence_json] for s in stages],
-        assets=[[a.id,a.digest] for a in assets], receipts=sorted([[a.id,a.cost_microusd] for a in narration]))
+        assets=[[a.id,a.digest] for a in assets],
+        recoveries=[[r.id,r.stage_id,r.before_json] for r in recoveries],
+        receipts=sorted([[a.id,a.cost_microusd,a.state,a.recovery_receipt_json] for a in narration]))
 
 
 async def qualification_status(db, series_id: str, season: int) -> dict:
@@ -229,6 +233,8 @@ async def require_standing_format(db, episode):
 async def record_standing_approval(db, episode_id, expected_revision, media_id):
     from app.services.recap_video import publication
     media, script_id = await publication.verified_media(db, episode_id, media_id)
+    await db.flush()
+    db.expire_all()  # Storage I/O may have overlapped a recovery or policy commit.
     await lock_control(db)
     episode = await db.get(RecapEpisode, episode_id)
     status = await qualification_status(db, episode.series_id, episode.season)
@@ -246,6 +252,7 @@ async def record_standing_approval(db, episode_id, expected_revision, media_id):
             or existing.article_digest != article['digest'])):
         raise Held('recap_revision_review_required')
     scope.update(media_digest=digest(media), script_id=script_id)
+    scope['target_review_binding'] = await target_publication_binding(db,episode_id,scope)
     row = RecapPublicationApproval(episode_id=episode_id, scope_json=dump(scope), reviewer_id='',
         reason='Current standing policy authorization', authorization_kind='standing', authorization_id=status['standing_id'])
     db.add(row)
@@ -254,14 +261,60 @@ async def record_standing_approval(db, episode_id, expected_revision, media_id):
     return {'approval_id':row.id}
 
 
+async def target_publication_binding(db, episode_id, scope, *, manual_proof_id=None):
+    """Reconcile every obligation; recovered bytes additionally need human review.
+
+    This is database-only and runs under the publication control lock. Storage
+    verification remains in the caller's pre-lock phase.
+    """
+    binding = await review_binding(db,episode_id,scope['media_id'])
+    if binding['recoveries']:
+        episode = await db.get(RecapEpisode,episode_id)
+        calibrated = await calibration(db,episode.series_id,episode.season)
+        reviews = (await db.scalars(select(RecapQualificationReview).where(
+            RecapQualificationReview.episode_id == episode_id,
+            RecapQualificationReview.calibration_id == calibrated.id,
+            RecapQualificationReview.passed.is_(True)))).all()
+        for review in reviews:
+            if json.loads(review.binding_json) != binding:
+                continue
+            approval = await db.get(RecapPublicationApproval,review.approval_id)
+            if (not approval or approval.authorization_kind != 'manual'
+                    or approval.reviewer_id != review.actor_id or approval.episode_id != episode_id
+                    or manual_proof_id and approval.id != manual_proof_id
+                    or json.loads(approval.scope_json) != scope):
+                continue
+            await require_admin_actor(db,review.actor_id)
+            return binding
+        raise Held('recovered_audio_finished_review_required')
+    return binding
+
+
 async def require_standing_proof(db, proof):
+    scope = json.loads(proof.scope_json)
     if proof.authorization_kind != 'standing':
-        return
+        # Manual recovered publication also rechecks its exact review after the
+        # separate approval transaction and again before outbox projection.
+        if scope.get('media_id'):
+            stage = await db.get(RecapStage,scope['media_id'])
+            recovered = await db.scalar(select(RecapRecovery.id).join(RecapStage,
+                RecapRecovery.stage_id == RecapStage.id).where(
+                RecapStage.script_id == stage.script_id,
+                RecapStage.execution_revision == stage.execution_revision,
+                RecapRecovery.action == 'adopt_recovered_audio').limit(1)) if stage else None
+            if recovered:
+                await target_publication_binding(db,proof.episode_id,scope,manual_proof_id=proof.id)
+        return {}
     episode = await db.get(RecapEpisode, proof.episode_id)
     status = await qualification_status(db, episode.series_id, episode.season)
     if not status['automatic'] or status['standing_id'] != proof.authorization_id:
         raise Held('recap_standing_authorization_changed')
     await require_standing_format(db,episode)
+    saved = scope.pop('target_review_binding',None)
+    binding = await target_publication_binding(db,proof.episode_id,scope)
+    if saved != binding:
+        raise Held('recap_target_review_changed')
+    return {'target_review_binding':binding}
 
 
 def install_api():

@@ -104,3 +104,25 @@ async def test_exact_recovery_http_handoff_stops_on_missing_history(app,maker,tm
     async with maker() as db:
         assert (await db.get(RecapRecoveryRequest,recovery.id)).error=='history_unavailable'
         assert (await db.get(RecapProviderAttempt,sent['attempt_id'])).cost_microusd is None
+
+
+@pytest.mark.asyncio
+async def test_free_worker_recovery_poll_preserves_authenticated_ordinary_claim(app,maker,tmp_path,monkeypatch):
+    # Mutation: require narrate before the free-only worker can reach ordinary claims.
+    from media import worker
+    from app.routes import media_worker as routes
+    _,stage_id=await seed_media(maker,tmp_path,monkeypatch,'render')
+    monkeypatch.setenv('TRADE_GRADER_MEDIA_WORKER_TOKEN','synthetic-worker-secret-'*3)
+    monkeypatch.setenv('TRADE_GRADER_MEDIA_WORKER_ID','renderer')
+    monkeypatch.setenv('TRADE_GRADER_MEDIA_WORKER_CAPABILITIES','render,speech_check,media_check')
+    monkeypatch.setattr(routes,'get_sessionmaker',lambda:maker)
+    claimed=[]
+    async def run(client,lease):claimed.append(lease)
+    async def recover(attempt):pytest.fail('Free worker received narration recovery')
+    monkeypatch.setattr(worker,'run_claim',run)
+    async with AsyncClient(transport=ASGITransport(app=app),base_url='http://testserver',headers={'Authorization':'Bearer '+'synthetic-worker-secret-'*3}) as client:
+        assert await worker.tick(client,recovery=recover)
+        assert len(claimed)==1 and claimed[0]['stage_id']==stage_id
+        assert claimed[0]['capability']=='render'
+        denied=await client.post('/api/internal/media/recovery-complete',json={'recovery_id':'foreign','generation':1})
+        assert denied.status_code==403

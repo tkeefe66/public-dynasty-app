@@ -197,3 +197,16 @@ async def test_explicit_recovery_poll_never_claims_paid_work_and_reports_unavail
     async with httpx.AsyncClient(base_url='http://api',transport=httpx.MockTransport(api)) as client:
         assert await worker.tick(client,recovery=recover)
     assert paths==['/api/internal/media/recovery-claim','/api/internal/media/recovery-complete']
+
+
+@pytest.mark.asyncio
+async def test_recovery_poll_auth_failure_never_falls_through_to_ordinary_claim():
+    import httpx
+    paths=[]
+    def api(request):
+        paths.append(request.url.path)
+        return httpx.Response(403,json={'detail':'Invalid worker credential'})
+    async def recover(attempt):pytest.fail('Unauthorized recovery')
+    async with httpx.AsyncClient(base_url='http://api',transport=httpx.MockTransport(api)) as client:
+        with pytest.raises(httpx.HTTPStatusError):await worker.tick(client,recovery=recover)
+    assert paths==['/api/internal/media/recovery-claim']
