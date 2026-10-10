@@ -14,6 +14,29 @@ from app.services.recap_video import publication as p
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('change',['source_hold','script_head'])
+async def test_projection_authority_changed_after_selection_on_postgres(pgmaker,tmp_path,monkeypatch,change):
+    from tests.test_recap_publication import test_projector_rechecks_current_media_authority_without_storage_io
+    await test_projector_rechecks_current_media_authority_without_storage_io(pgmaker,tmp_path,monkeypatch,change)
+
+
+@pytest.mark.asyncio
+async def test_member_article_bootstrap_has_one_token_under_contention(pgmaker,tmp_path,monkeypatch):
+    ident = await ready_article(pgmaker,tmp_path,monkeypatch)
+    async with pgmaker.begin() as db:
+        (await db.get(RecapShareDecision,'series:series')).allowed = False
+    async def enable():
+        async with pgmaker.begin() as db:
+            return await p.change_share(db,league_id='synthetic',season=2026,week=4,enabled=True,actor_id='member')
+    values = await asyncio.gather(*(enable() for _ in range(8)))
+    assert len({value['token'] for value in values}) == 1
+    async with pgmaker() as db:
+        assert await db.scalar(select(func.count()).select_from(RecapPublication)) == 1
+        assert (await db.get(RecapPublication,ident)).authority_revision == 1
+        assert (await db.get(RecapShareDecision,'edition:'+ident)).revision == 1
+
+
+@pytest.mark.asyncio
 async def test_legacy_identity_adoption_is_atomic_on_postgres(pgmaker, tmp_path, monkeypatch):
     # Exercise real primary-key migration and preserved history under the control CAS.
     from tests.test_recap_publication import test_legacy_adoption_preserves_token_permissions_history_and_episode

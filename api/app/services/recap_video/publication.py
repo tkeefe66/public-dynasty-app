@@ -2,6 +2,7 @@
 
 Task10 calls record_approval with its authenticated admin, then select_publication
 in a NEW transaction (immutable object verification precedes the control lock).
+Member share bootstrap exposes only an already-published article, never media.
 Task11 rotates the external serving epoch and sets mode=quarantine before restore.
 Neither database restore nor an outbox replay can set deployment configuration.
 """
@@ -98,38 +99,114 @@ async def withdraw_edition(db, league_id, season, week, *, expected_revision, ac
     return dict(episode_id=row.episode_id, authority_revision=row.authority_revision)
 
 
-async def share_state(db, row):
+async def edition_decision(db, identity, league_id, season, week):
+    """A pre-episode decision keeps its logical-edition tombstone until adoption."""
+    share = await db.get(RecapShareDecision, 'edition:'+identity, populate_existing=True)
+    legacy = legacy_episode_id(league_id, season, week)
+    if identity != legacy:
+        prior = await db.get(RecapShareDecision, 'edition:'+legacy, populate_existing=True)
+        if share and prior:
+            raise Held('publication_identity_share_conflict')
+        share = share or prior
+    return share
+
+
+async def sharing_context(db, row=None, *, league_id=None, season=None, week=None):
+    if row:
+        league_id, season, week = row.league_id, row.season, row.week
+    row = await edition_row(db, league_id, season, week)
+    episode = await db.scalar(select(RecapEpisode).where(RecapEpisode.league_id == league_id,
+        RecapEpisode.season == season, RecapEpisode.week == week).execution_options(populate_existing=True))
+    identity = row.episode_id if row else episode.episode_id if episode else legacy_episode_id(league_id, season, week)
+    share = await edition_decision(db, identity, league_id, season, week)
+    return row, episode, identity, share
+
+
+async def share_state(db, row=None, **target):
     await serving_gate(db)
-    share = await db.get(RecapShareDecision, 'edition:'+row.episode_id) if row else None
+    _, _, _, share = await sharing_context(db, row, **target)
     return {'token': share.token if share and share.allowed and not share.opted_out else None}
 
 
-async def change_share(db, row, *, enabled, actor_id):
-    await serving_gate(db)
+async def change_share(db, row=None, *, enabled, actor_id, **target):
     await lock_control(db)
-    if not row:
-        raise Held('publication_missing')
-    row = await edition_row(db, row.league_id, row.season, row.week)
-    scope = 'edition:'+row.episode_id
-    share = await db.get(RecapShareDecision, scope, populate_existing=True)
+    gate = await serving_gate(db)
+    row, episode, identity, share = await sharing_context(db, row, **target)
+    bootstrapped = enabled and not row
+    if bootstrapped:
+        # This is member authorization to share an ALREADY published article,
+        # never an admin media approval or a future-sharing grant.
+        row = await article_share_bootstrap(db, identity, episode, target, gate)
+    scope = 'edition:'+identity
     if not share:
         share = RecapShareDecision(scope=scope, revision=0)
         db.add(share)
+    elif share.scope != scope:
+        share.scope = scope
     if enabled and share.allowed and not share.opted_out:
-        return {'token': share.token}
-    share.revision += 1
-    share.allowed, share.opted_out = enabled, not enabled
-    share.token = secrets.token_urlsafe(32) if enabled else None
-    share.token_digest = hashlib.sha256(share.token.encode()).hexdigest() if share.token else None
-    row.share_revision = share.revision
-    # Authority fences invalidate any prepared selection/projection on revoke.
-    already_projected = row.projected_revision == row.authority_revision
-    row.authority_revision += 1
-    if already_projected:
-        row.projected_revision = row.authority_revision
-    audit(db, actor_id, 'recap_share_enabled' if enabled else 'recap_share_revoked', row.episode_id,
+        if not bootstrapped:
+            return {'token': share.token}
+    else:
+        share.revision += 1
+        share.allowed, share.opted_out = enabled, not enabled
+        share.token = secrets.token_urlsafe(32) if enabled else None
+        share.token_digest = hashlib.sha256(share.token.encode()).hexdigest() if share.token else None
+    if row:
+        row.share_revision = share.revision
+        # Authority fences invalidate any prepared selection/projection on revoke.
+        already_projected = row.projected_revision == row.authority_revision
+        row.authority_revision += 1
+        if already_projected:
+            row.projected_revision = row.authority_revision
+    audit(db, actor_id, 'recap_share_enabled' if enabled else 'recap_share_revoked', identity,
           'Explicit member sharing decision')
     return {'token': share.token}
+
+
+async def require_episode_readiness(db, episode):
+    from app.services.recap_video.readiness import require_readiness
+    return await require_readiness(db, episode.series_id, dict(season=episode.season,
+        week=episode.week, period_id=episode.period_id, recap_facts_digest=episode.facts_digest),
+        league_id=episode.league_id, media_checkpoint=True)
+
+
+async def publication_policy(db, series_id, media_id=None):
+    policy = await resolve_policy(db, series_id)
+    config = get_settings()
+    feature = policy['policy']['features']['recap_video' if media_id else 'analyst']
+    if (policy['blocked_by'] or policy['policy']['paused'] or config.generation_emergency_pause
+            or not policy['epoch'] or config.generation_execution_epoch != policy['epoch']
+            or feature['paused'] or feature['mode'] == 'disabled'):
+        raise Held('publication_paused')
+    return policy
+
+
+async def article_share_bootstrap(db, identity, episode, target, gate):
+    if episode:
+        await require_episode_readiness(db, episode)
+        from app.services.recap_video.contracts import _published_article
+        article = await _published_article(db, episode)
+        artifact = await db.get(ContentArtifact, article['artifact_id'])
+        public = public_article(json.loads(artifact.payload_json))
+        series_id, facts = episode.series_id, episode.facts_digest
+        league_id, season, week = episode.league_id, episode.season, episode.week
+    else:
+        league_id, season, week = target['league_id'], target['season'], target['week']
+        edition = AnalystShares(get_settings().cache_dir).edition(league_id, season, week)
+        if not edition:
+            raise Held('publication_missing')
+        public, artifact, facts = public_article(edition), None, ''
+        from app.services.generation.models import LeagueSeason
+        league = await db.get(LeagueSeason, league_id)
+        series_id = league.series_id if league else 'legacy:'+league_id
+    policy = await publication_policy(db, series_id)
+    row = RecapPublication(episode_id=identity, series_id=series_id, league_id=league_id, season=season, week=week,
+        article_id=artifact.id if artifact else '', article_revision=public['revision'],
+        article_digest=artifact.digest if artifact else digest(public), article_json=dump(public), facts_digest=facts,
+        media_json='{}', share_revision=0, authority_revision=0, projected_revision=0,
+        epoch=gate.epoch, policy_digest=digest(policy), published_at=stamp())
+    db.add(row)
+    return row
 
 
 async def set_future_sharing(db, series_id, *, allowed, actor_id):
@@ -149,19 +226,13 @@ async def current_scope(db, episode_id, expected_revision, media_id):
     episode = await db.get(RecapEpisode, episode_id, populate_existing=True)
     if not episode:
         raise Held('recap_episode_missing')
+    policy = await publication_policy(db, episode.series_id, media_id)
+    await require_episode_readiness(db, episode)
     from app.services.recap_video.contracts import _published_article
     article = await _published_article(db, episode)
     row = await authority_for_episode(db, episode)
     if (row.authority_revision if row else 0) != expected_revision:
         raise Conflict('Publication changed. Review the current article and media.')
-    policy = await resolve_policy(db, episode.series_id)
-    config = get_settings()
-    if (policy['blocked_by'] or policy['policy']['paused'] or config.generation_emergency_pause
-            or not policy['epoch'] or config.generation_execution_epoch != policy['epoch']):
-        raise Held('publication_paused')
-    feature = policy['policy']['features']['recap_video' if media_id else 'analyst']
-    if feature['paused'] or feature['mode'] == 'disabled':
-        raise Held('publication_paused')
     media_fence = None
     if media_id:
         stage = await db.get(RecapStage, media_id, populate_existing=True)
@@ -171,7 +242,7 @@ async def current_scope(db, episode_id, expected_revision, media_id):
         await _current(db, stage, now=stamp())
         media_fence = [stage.generation, stage.epoch, stage.input_digest, stage.result_json]
     publication_episode_id = row.episode_id if row else episode_id
-    share = await db.get(RecapShareDecision, 'edition:'+publication_episode_id, populate_existing=True)
+    share = await edition_decision(db, publication_episode_id, episode.league_id, episode.season, episode.week)
     future = await db.get(RecapShareDecision, 'series:'+episode.series_id, populate_existing=True)
     if share and share.opted_out:
         raise Held('edition_sharing_opted_out')
@@ -179,6 +250,7 @@ async def current_scope(db, episode_id, expected_revision, media_id):
         if not future or not future.allowed or future.opted_out:
             raise Held('future_sharing_disabled')
     return dict(episode_id=episode_id, publication_episode_id=publication_episode_id,
+        share_scope=share.scope if share else 'edition:'+episode_id,
         expected_revision=expected_revision, media_id=media_id,
         article=article, facts_digest=episode.facts_digest, source_digest=episode.source_digest,
         policy_digest=digest(policy), generation_epoch=policy['epoch'], serving_epoch=gate.epoch,
@@ -261,7 +333,7 @@ async def select_publication(db, episode_id: str, expected_revision: int, media_
     episode = await db.get(RecapEpisode, episode_id)
     article = await db.get(ContentArtifact, scope['article']['artifact_id'])
     source_id = scope['publication_episode_id']
-    share = await db.get(RecapShareDecision, 'edition:'+source_id)
+    share = await db.get(RecapShareDecision, scope['share_scope'])
     row = await db.get(RecapPublication, source_id)
     if row and source_id != episode_id:
         # Current scope proved this is the same logical legacy edition under CAS.
@@ -270,10 +342,12 @@ async def select_publication(db, episode_id: str, expected_revision: int, media_
             raise Held('publication_identity_share_conflict')
         row.episode_id = episode_id
         row.series_id = episode.series_id
-        if share:
-            share.scope = 'edition:'+episode_id
         await db.execute(update(RecapPublicationSelection).where(
             RecapPublicationSelection.episode_id == source_id).values(episode_id=episode_id, series_id=episode.series_id))
+    if share and share.scope != 'edition:'+episode_id:
+        if await db.get(RecapShareDecision, 'edition:'+episode_id):
+            raise Held('publication_identity_share_conflict')
+        share.scope = 'edition:'+episode_id
     if not share:
         token = secrets.token_urlsafe(32)
         share = RecapShareDecision(scope='edition:'+episode_id, revision=1, allowed=True,
@@ -339,10 +413,16 @@ async def project_publication(db, item, cache_dir):
     if (policy['blocked_by'] or policy['policy']['paused'] or config.generation_emergency_pause
             or config.generation_execution_epoch != scope['generation_epoch'] or digest(policy) != row.policy_digest):
         raise Held('publication_paused')
+    episode = await db.get(RecapEpisode, row.episode_id, populate_existing=True)
+    if not episode or episode.source_digest != scope['source_digest']:
+        raise Held('recap_source_changed')
+    await require_episode_readiness(db, episode)
     if row.media_id:
         stage = await db.get(RecapStage, row.media_id, populate_existing=True)
         if not stage or stage.state != 'succeeded' or [stage.generation,stage.epoch,stage.input_digest,stage.result_json] != scope['media_fence']:
             raise Held('media_checkpoint_unready')
+        from app.services.recap_video.workflow import _current
+        await _current(db, stage, now=stamp())
     # Files are projections only. Install before acknowledging outbox.
     target = Path(cache_dir)/'recap_publications'/hashlib.sha256(row.episode_id.encode()).hexdigest()
     AnalystShares._write(target, dict(authority_revision=row.authority_revision,

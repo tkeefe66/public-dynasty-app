@@ -447,3 +447,208 @@ async def approve_current(db, ident, revision, media_id, *, reviewer, reason):
     preview = await p.preview_publication(db, ident, revision, media_id)
     return await p.record_approval(db, ident, revision, media_id, reviewer=reviewer,
         reason=reason, preview_digest=preview['digest'])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('enabled',[True,False])
+async def test_member_http_consent_before_selection_is_independent_of_future_permission(client,maker,tmp_path,monkeypatch,enabled):
+    # Mutation: require publication before permission, or turn edition consent into league/media approval.
+    from app.main import app
+    from app.db.session import get_db
+    from app.auth.deps import require_league_member
+    from app.services.recap_video import publication as p
+    from app.services.generation.recap_models import RecapPublication, RecapPublicationApproval, RecapPublicationSelection, RecapShareDecision
+    from sqlalchemy import select
+    ident = await ready_article(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        future = await db.get(RecapShareDecision,'series:series')
+        future.allowed, future.opted_out = not enabled, enabled
+    async def dependency():
+        async with maker.begin() as db:
+            yield db
+    app.dependency_overrides[get_db] = dependency
+    app.dependency_overrides[require_league_member] = lambda: SimpleNamespace(id='member',is_admin=False)
+    url = '/api/league/synthetic/analyst/2026/4/share'
+    response = client.post(url) if enabled else client.delete(url)
+    assert response.status_code == 200, response.text
+    assert client.get(url).json() == response.json()
+    async with maker() as db:
+        future = await db.get(RecapShareDecision,'series:series')
+        assert future.allowed == (not enabled) and future.opted_out == enabled
+        assert (await db.scalars(select(RecapPublicationApproval))).all() == []
+        assert (await db.scalars(select(RecapPublicationSelection))).all() == []
+        if enabled:
+            row = await db.get(RecapPublication,ident)
+            assert row and not row.media_id and row.media_json == '{}'
+        else:
+            assert await db.get(RecapPublication,ident) is None
+    if enabled:
+        from fastapi.testclient import TestClient
+        overrides = app.dependency_overrides.copy()
+        app.dependency_overrides.clear()
+        app.dependency_overrides[get_db] = dependency
+        try:
+            with TestClient(app) as anonymous:
+                public = anonymous.get('/api/public/analyst/'+response.json()['token'])
+                assert public.status_code == 200 and public.json()['markdown'] == 'Correct published roast.'
+                assert public.json()['media'] is None and 'facts' not in public.json()
+        finally:
+            app.dependency_overrides.update(overrides)
+    else:
+        async with maker.begin() as db:
+            with pytest.raises(Held,match='edition_sharing_opted_out'):
+                await approve_current(db,ident,0,None,reviewer=SimpleNamespace(id='admin',is_admin=True),reason='Review')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change',['unchanged','source_hold','source_digest','script_head','actor','preflight'])
+async def test_projector_rechecks_current_media_authority_without_storage_io(maker,tmp_path,monkeypatch,change):
+    # Mutation: select -> invalidate authority -> drain still installs or acknowledges.
+    from tests.test_recap_workflow import seed_media
+    from app.services.recap_video import publication as p, workflow
+    from app.services.generation.publication import drain
+    from app.services.generation.models import ArtifactHead, GenerationOperation, GenerationOutbox
+    from app.services.generation.recap_models import RecapEpisode, RecapStage, RecapPublication, RecapPublicationControl, RecapShareDecision
+    from sqlalchemy import select
+    ident, media_id = await seed_media(maker,tmp_path,monkeypatch,'media_check')
+    monkeypatch.setenv('TRADE_GRADER_RECAP_PUBLICATION_MODE','database')
+    monkeypatch.setenv('TRADE_GRADER_RECAP_SERVING_EPOCH','test-serving')
+    async with maker.begin() as db:
+        db.add(RecapPublicationControl(id='global',epoch='test-serving',reconciliation_digest='synthetic',quarantined=False))
+        db.add(RecapShareDecision(scope='series:series',allowed=True,opted_out=False))
+        (await db.get(RecapStage,media_id)).state = 'succeeded'
+    # Byte verification is outside this authority-only test; encoded integration covers that boundary.
+    async def bytes_checked(*args):
+        return {}, 'script'
+    monkeypatch.setattr(p,'verified_media',bytes_checked)
+    async with maker.begin() as db:
+        proof = await approve_current(db,ident,0,media_id,reviewer=SimpleNamespace(id='admin',is_admin=True),reason='Review')
+    async with maker.begin() as db:
+        await p.select_publication(db,ident,0,media_id,proof)
+    async with maker.begin() as db:
+        if change == 'source_hold':
+            (await db.get(RecapEpisode,ident)).hold = 'source_unavailable'
+        elif change == 'source_digest':
+            (await db.get(RecapEpisode,ident)).source_digest = 'changed'
+        elif change == 'script_head':
+            (await db.get(ArtifactHead,'video-subject')).hold = 'script_withdrawn'
+        elif change == 'actor':
+            (await db.get(GenerationOperation,'job')).actor_id = 'removed'
+    if change == 'preflight':
+        async def unqualified(*args):
+            raise Held('media_qualification_expired')
+        monkeypatch.setattr(workflow,'require_media_preflight',unqualified)
+    def forbidden_store():
+        raise AssertionError('Projector must not repeat object reads while holding control')
+    monkeypatch.setattr(p,'configured_store',forbidden_store)
+    await drain(maker,tmp_path)
+    async with maker() as db:
+        row = await db.get(RecapPublication,ident)
+        item = await db.scalar(select(GenerationOutbox).where(GenerationOutbox.kind=='recap_publication'))
+        if change == 'unchanged':
+            assert row.projected_revision == 1 and item.delivered
+            assert (tmp_path/'recap_publications').exists()
+        else:
+            assert row.projected_revision == 0 and not item.delivered
+            assert not (tmp_path/'recap_publications').exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change',['source_hold','head_hold','stale_digest','results','pause','epoch'])
+async def test_member_article_bootstrap_rejects_stale_held_private_or_quarantined_authority(client,maker,tmp_path,monkeypatch,change):
+    # Mutation: member consent bypasses current article/readiness/serving authority.
+    import json
+    from app.main import app
+    from app.db.session import get_db
+    from app.services.generation.models import ArtifactHead, ContentArtifact
+    from app.services.generation.recap_models import RecapEpisode, RecapPublication, RecapShareDecision
+    from app.services.generation.store import digest,dump
+    from sqlalchemy import select
+    ident = await ready_article(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        episode = await db.get(RecapEpisode,ident)
+        if change == 'source_hold':
+            episode.hold = 'source_unavailable'
+        elif change == 'head_hold':
+            (await db.get(ArtifactHead,'article-subject')).hold = 'article_withdrawn'
+        elif change in ('stale_digest','results'):
+            artifact = await db.get(ContentArtifact,'article')
+            value = json.loads(artifact.payload_json)
+            value['edition_type'] = 'results' if change == 'results' else 'roast'
+            value['markdown'] = 'Private or changed bytes'
+            artifact.payload_json = dump(value)
+            if change == 'results':
+                artifact.digest = episode.article_digest = digest(value)
+    if change == 'pause':
+        monkeypatch.setenv('TRADE_GRADER_GENERATION_EMERGENCY_PAUSE','true')
+    if change == 'epoch':
+        monkeypatch.setenv('TRADE_GRADER_RECAP_SERVING_EPOCH','changed')
+    async def dependency():
+        async with maker.begin() as db:
+            yield db
+    app.dependency_overrides[get_db] = dependency
+    response = client.post('/api/league/synthetic/analyst/2026/4/share')
+    assert response.status_code in (404,503) and 'token' not in response.json()
+    async with maker() as db:
+        assert await db.get(RecapPublication,ident) is None
+        assert (await db.scalars(select(RecapShareDecision).where(RecapShareDecision.scope.like('edition:%')))).all() == []
+
+
+@pytest.mark.asyncio
+async def test_http_pre_episode_optout_survives_canonical_creation_and_explicit_reenable(client,maker,tmp_path,monkeypatch):
+    # Mutation: creating canonical identity loses logical-edition opt-out or defaults sharing on.
+    from app.main import app
+    from app.db.session import get_db
+    from app.services.recap_video import publication as p
+    from app.services.generation.recap_models import RecapEpisode, RecapShareDecision
+    from app.services.generation.store import data
+    ident = await ready_article(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        episode = await db.get(RecapEpisode,ident)
+        saved = data(episode)
+        await db.delete(episode)
+    async def dependency():
+        async with maker.begin() as db:
+            yield db
+    app.dependency_overrides[get_db] = dependency
+    url = '/api/league/synthetic/analyst/2026/4/share'
+    assert client.delete(url).status_code == 200
+    async with maker.begin() as db:
+        db.add(RecapEpisode(**saved))
+    async with maker.begin() as db:
+        with pytest.raises(Held,match='edition_sharing_opted_out'):
+            await approve_current(db,ident,0,None,reviewer=SimpleNamespace(id='admin',is_admin=True),reason='Review')
+    assert client.get(url).json() == {'token':None}
+    response = client.post(url)
+    assert response.status_code == 200
+    assert client.get('/api/public/analyst/'+response.json()['token']).status_code == 200
+    async with maker() as db:
+        assert await db.get(RecapShareDecision,'edition:'+p.legacy_episode_id('synthetic',2026,4)) is None
+        share = await db.get(RecapShareDecision,'edition:'+ident)
+        assert share.allowed and not share.opted_out and share.revision == 2
+        assert (await db.get(RecapShareDecision,'series:series')).allowed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('edition_type',['roast','results'])
+async def test_member_http_can_share_only_exact_published_legacy_roast_without_media(client,maker,tmp_path,monkeypatch,edition_type):
+    from app.main import app
+    from app.db.session import get_db
+    from app.services.analyst_store import AnalystStore
+    await ready_article(maker,tmp_path,monkeypatch)
+    article = seed(edition_type)
+    async def dependency():
+        async with maker.begin() as db:
+            yield db
+    app.dependency_overrides[get_db] = dependency
+    response = client.post('/api/league/test/analyst/2026/1/share')
+    if edition_type == 'results':
+        assert response.status_code == 404
+        return
+    assert response.status_code == 200
+    url = '/api/public/analyst/'+response.json()['token']
+    public = client.get(url)
+    assert public.status_code == 200 and public.json()['markdown'] == article['markdown']
+    assert public.json()['media'] is None and 'private' not in public.text.lower()
+    AnalystStore(get_cache_dir()).save_correction('test',{**article,'markdown':'Corrected roast'},'Correct facts')
+    assert client.get(url).json()['status'] == 'withdrawn'

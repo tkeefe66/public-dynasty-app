@@ -99,7 +99,7 @@ async def share_state(league_id: str, response: Response, season: int = Path(ge=
     private_headers(response)
     if authority_mode() == 'database':
         try:
-            return await publication.share_state(db, await publication.edition_row(db, league_id, season, week))
+            return await publication.share_state(db, league_id=league_id, season=season, week=week)
         except (Held, SQLAlchemyError) as exc:
             raise authority_error(exc) from None
     return store().state(league_id, season, week)
@@ -110,7 +110,7 @@ async def create_share(league_id: str, response: Response, season: int = Path(ge
     private_headers(response)
     if authority_mode() == 'database':
         try:
-            return await publication.change_share(db, await publication.edition_row(db, league_id, season, week), enabled=True, actor_id=user.id)
+            return await publication.change_share(db, league_id=league_id, season=season, week=week, enabled=True, actor_id=user.id)
         except (Held, SQLAlchemyError) as exc:
             raise authority_error(exc) from None
     result = store().create(league_id, season, week)
@@ -125,7 +125,7 @@ async def revoke_share(league_id: str, response: Response, season: int = Path(ge
     private_headers(response)
     if authority_mode() == 'database':
         try:
-            return await publication.change_share(db, await publication.edition_row(db, league_id, season, week), enabled=False, actor_id=user.id)
+            return await publication.change_share(db, league_id=league_id, season=season, week=week, enabled=False, actor_id=user.id)
         except (Held, SQLAlchemyError) as exc:
             raise authority_error(exc) from None
     store().revoke(league_id, season, week)
