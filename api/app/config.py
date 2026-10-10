@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     media_worker_id: str = "media-worker"
     media_worker_capabilities: str = "render,speech_check,media_check"
     media_asset_root: Path | None = None
+    media_bucket: str = ""
+    media_bucket_endpoint: str = ""
+    # Exact approved voice stays in protected configuration, never a fixture ID.
+    elevenlabs_voice_id: str = ""
+    elevenlabs_account_identity_digest: str = ""
+    elevenlabs_dialogue_settings: dict = {}
     # LLM-regeneration throttle: within this window since the last LLM pass, the
     # 3h auto-refresh reuses cached stories/blurbs verbatim (new trades still get
     # generated) rather than re-evaluating hashes. Caps regen to ~once/day on top

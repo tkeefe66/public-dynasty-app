@@ -448,12 +448,86 @@ async def authorize_dispatch(db, stage_id, generation, epoch, input_digest, *, w
     return {"attempt_id": attempt.id, "dispatch_authority": authority, "request": paid["request"]}
 
 
+def _safe_receipt(value):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if any(part in key.lower() for part in ("base64", "secret", "api_key", "authorization", "token")):
+                raise Held("media_receipt_sensitive_field")
+            _safe_receipt(child)
+    elif isinstance(value, list):
+        for child in value:
+            _safe_receipt(child)
+
+
+async def _owned_attempt(db, attempt_id, worker_id):
+    await lock_control(db)
+    attempt = await db.get(RecapProviderAttempt, attempt_id)
+    if not attempt or attempt.worker_id != worker_id:
+        raise OwnershipLost("Provider evidence does not belong to this worker")
+    return attempt
+
+
+def _identity(attempt):
+    identity = {}
+    for observation in json.loads(attempt.identity_json or "[]"):
+        identity.update(observation)
+    return identity
+
+
+async def persist_identity(db, attempt_id, identity, *, worker_id):
+    from app.services.recap_video.elevenlabs import identifier
+    attempt = await _owned_attempt(db, attempt_id, worker_id)
+    if not isinstance(identity, dict) or not identity or set(identity) - {"request_id", "history_item_id"}:
+        raise Held("provider_identity_invalid")
+    try:
+        for value in identity.values():
+            identifier(value)
+    except ValueError:
+        raise Held("provider_identity_invalid") from None
+    previous = _identity(attempt)
+    if any(key in previous and previous[key] != value for key, value in identity.items()):
+        raise Conflict("Provider identity conflicts with retained evidence")
+    if any(key not in previous for key in identity):
+        observations = json.loads(attempt.identity_json or "[]")
+        observations.append(identity)
+        attempt.identity_json = dump(observations)
+    return {"attempt_id": attempt.id, "identity": _identity(attempt)}
+
+
+async def recovery_evidence(db, attempt_id, *, worker_id):
+    attempt = await _owned_attempt(db, attempt_id, worker_id)
+    return {"attempt_id": attempt.id, "identity": _identity(attempt), "request": json.loads(attempt.request_json),
+        "receipt": json.loads(attempt.receipt_json) if attempt.receipt_json else None,
+        "recovery_receipt": json.loads(attempt.recovery_receipt_json) if attempt.recovery_receipt_json else None}
+
+
+async def persist_recovery_receipt(db, attempt_id, receipt, *, worker_id):
+    attempt = await _owned_attempt(db, attempt_id, worker_id)
+    _safe_receipt(receipt)
+    raw = dump(receipt)
+    if len(raw) > 32_000:
+        raise Held("media_receipt_too_large")
+    identity = _identity(attempt)
+    if not identity.get("history_item_id") or receipt.get("identity") != identity:
+        raise Held("provider_recovery_identity_unresolved")
+    if attempt.recovery_receipt_json and attempt.recovery_receipt_json != raw:
+        raise Conflict("Recovery receipt conflicts with retained evidence")
+    original = json.loads(attempt.receipt_json or "{}")
+    if original.get("audio_sha256") and original["audio_sha256"] != receipt.get("audio_sha256"):
+        raise Conflict("Recovered audio differs from original response")
+    attempt.recovery_receipt_json = raw
+    return {"attempt_id": attempt.id, "state": attempt.state}
+
+
 async def persist_receipt(db, attempt_id, receipt, *, worker_id):
     """Persist bounded immutable raw evidence before invoking receipt decoder."""
     await lock_control(db)
     attempt = await db.get(RecapProviderAttempt, attempt_id)
     if not attempt or attempt.worker_id != worker_id:
         raise OwnershipLost("Provider receipt does not belong to this worker")
+    if receipt.get("identity"):
+        await persist_identity(db, attempt_id, receipt["identity"], worker_id=worker_id)
+    _safe_receipt(receipt)
     raw = dump(receipt)
     if len(raw) > 32_000:
         raise Held("media_receipt_too_large")
@@ -469,11 +543,12 @@ async def settle_receipt(db, attempt_id, *, worker_id):
     attempt = await db.get(RecapProviderAttempt, attempt_id)
     if not attempt or attempt.worker_id != worker_id:
         raise OwnershipLost("Provider receipt does not belong to this worker")
-    if attempt.settled_at:
+    recovery = bool(attempt.recovery_receipt_json)
+    if (recovery and attempt.recovery_settled_at) or (not recovery and attempt.settled_at):
         return {"attempt_id": attempt.id, "state": attempt.state}
-    if not attempt.receipt_json:
+    if not attempt.receipt_json and not recovery:
         raise Held("media_receipt_missing")
-    receipt = json.loads(attempt.receipt_json)
+    receipt = json.loads(attempt.recovery_receipt_json if recovery else attempt.receipt_json)
     settle = RECEIPT_SETTLERS.get(attempt.provider)
     if settle is None:
         raise Held("provider_receipts_unqualified")
@@ -483,6 +558,15 @@ async def settle_receipt(db, attempt_id, *, worker_id):
         raise Held("provider_receipt_validation_failed") from None
     if state not in ("received", "rejected", "unknown") or error not in ("", "provider_rejected", "provider_outcome_unknown", "response_invalid"):
         raise Held("media_receipt_invalid")
+    if recovery and amount is None and attempt.cost_microusd is not None:
+        # An audio-only retrieval cannot erase already validated metering.
+        amount = attempt.cost_microusd
+    if attempt.cost_microusd is not None and amount != attempt.cost_microusd:
+        raise Conflict("Recovered metering conflicts with settled amount")
+    if recovery:
+        # Financial reconciliation cannot itself certify recovered audio/timing.
+        error = "response_invalid" if amount is not None else "provider_outcome_unknown"
+        attempt.recovery_settled_at = stamp()
     attempt.cost_microusd = amount
     attempt.state, attempt.error_code, attempt.settled_at = state, error, stamp()
     from app.services.generation.provider_control import record_failure
@@ -504,8 +588,10 @@ async def record_receipt(db, attempt_id, receipt, *, worker_id):
 
 async def reconcile_media_receipts(maker):
     async with maker() as db:
-        rows = (await db.scalars(select(RecapProviderAttempt).where(RecapProviderAttempt.receipt_json.is_not(None),
-            RecapProviderAttempt.settled_at == 0).limit(100))).all()
+        rows = (await db.scalars(select(RecapProviderAttempt).where(or_(
+            (RecapProviderAttempt.receipt_json.is_not(None) & (RecapProviderAttempt.settled_at == 0)),
+            (RecapProviderAttempt.recovery_receipt_json.is_not(None) & (RecapProviderAttempt.recovery_settled_at == 0)))
+            ).limit(100))).all()
         saved = [(row.id, row.worker_id) for row in rows]
     for attempt_id, worker_id in saved:
         try:

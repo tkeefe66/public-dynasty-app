@@ -44,6 +44,8 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        from app.services.recap_video.elevenlabs import install_api
+        install_api()
         # Create the identity DB engine eagerly (one pool, no first-request race).
         init_engine()
         tasks = [asyncio.create_task(worker_loop(settings.cache_dir))]

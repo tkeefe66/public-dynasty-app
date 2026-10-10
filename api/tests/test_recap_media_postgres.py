@@ -9,6 +9,26 @@ from tests.test_recap_workflow import seed_media, seed_long_media_chain, fence
 
 
 @pytest.mark.asyncio
+async def test_provider_identity_race_preserves_first_evidence(pgmaker, tmp_path, monkeypatch):
+    from app.services.generation.store import Conflict
+    await seed_media(pgmaker, tmp_path, monkeypatch, "narrate")
+    async with pgmaker.begin() as db:
+        lease = await work.claim_stage(db, "narrator", {"narrate"}, stamp())
+        authority = await work.authorize_dispatch(db, **fence(lease), worker_id="narrator")
+    async def persist(identity):
+        try:
+            async with pgmaker.begin() as db:
+                await work.persist_identity(db, authority["attempt_id"], {"request_id": identity}, worker_id="narrator")
+            return True
+        except Conflict:
+            return False
+    assert sum(await asyncio.gather(persist("first-request"), persist("second-request"))) == 1
+    async with pgmaker.begin() as db:
+        evidence = await work.recovery_evidence(db, authority["attempt_id"], worker_id="narrator")
+        assert evidence["identity"]["request_id"] in {"first-request", "second-request"}
+
+
+@pytest.mark.asyncio
 async def test_long_chain_claim_has_single_runnable_winner(pgmaker, tmp_path, monkeypatch):
     # Mutation: the bounded window hides root, or concurrent claims acquire it twice.
     root = await seed_long_media_chain(pgmaker, tmp_path, monkeypatch)

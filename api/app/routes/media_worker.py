@@ -1,23 +1,20 @@
 """Bounded media protocol. No worker-selected identities, paths, URLs or publication."""
 import hashlib
-import os
-import tempfile
 import uuid
-from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select
 
 from app.auth.media_worker import require_media_worker
-from app.config import get_settings
 from app.db.engine import get_sessionmaker
 from app.services.generation.models import stamp
 from app.services.generation.recap_models import RecapAsset
 from app.services.generation.store import Conflict, Held, OwnershipLost
 from app.services.recap_video import workflow as work
+from app.services.recap_video.storage import configured_store
 
 router = APIRouter(prefix="/api/internal/media", tags=["internal-media"])
 MAX_JSON = 40_000
@@ -52,6 +49,77 @@ class Completion(Fence):
 class Receipt(Strict):
     attempt_id: str = Field(min_length=1, max_length=64)
     receipt: dict
+
+
+class Identity(Strict):
+    attempt_id: str = Field(min_length=1, max_length=64)
+    identity: dict
+
+
+def require_narration(worker):
+    if "narrate" not in worker.capabilities:
+        raise HTTPException(403, "Narration capability required")
+
+
+@router.post("/identity")
+async def identity(request: Request, worker=Depends(require_media_worker)):
+    require_narration(worker)
+    body = await parse(request, Identity)
+    try:
+        async with get_sessionmaker().begin() as db:
+            return await work.persist_identity(db, **body.model_dump(), worker_id=worker.worker_id)
+    except (Held, Conflict) as exc:
+        raise translate(exc) from None
+
+
+@router.get("/attempts/{attempt_id}/recovery")
+async def recovery(attempt_id: str, worker=Depends(require_media_worker)):
+    require_narration(worker)
+    try:
+        async with get_sessionmaker().begin() as db:
+            return await work.recovery_evidence(db, attempt_id, worker_id=worker.worker_id)
+    except (Held, Conflict) as exc:
+        raise translate(exc) from None
+
+
+@router.post("/recovery-receipt")
+async def recovery_receipt(request: Request, worker=Depends(require_media_worker)):
+    require_narration(worker)
+    body = await parse(request, Receipt)
+    check_receipt(body.receipt)
+    try:
+        async with get_sessionmaker().begin() as db:
+            await work.persist_recovery_receipt(db, **body.model_dump(), worker_id=worker.worker_id)
+        async with get_sessionmaker().begin() as db:
+            return await work.settle_receipt(db, body.attempt_id, worker_id=worker.worker_id)
+    except (Held, Conflict) as exc:
+        raise translate(exc) from None
+
+
+@router.post("/attempts/{attempt_id}/audio")
+async def recovery_audio(attempt_id: str, request: Request, worker=Depends(require_media_worker)):
+    """Retain exact retrieved audio after cancellation; never selects a checkpoint."""
+    require_narration(worker)
+    if request.headers.get("content-type") != "audio/mpeg":
+        raise HTTPException(422, "Recovered audio must be audio/mpeg")
+    try:
+        async with get_sessionmaker().begin() as db:
+            attempt = await work._owned_attempt(db, attempt_id, worker.worker_id)
+            if not work._identity(attempt).get("history_item_id"):
+                raise Held("provider_recovery_identity_unresolved")
+        key, size = await store_upload(request)
+        async with get_sessionmaker().begin() as db:
+            attempt = await work._owned_attempt(db, attempt_id, worker.worker_id)
+            count = await db.scalar(select(func.count()).select_from(RecapAsset).where(RecapAsset.stage_id == attempt.stage_id))
+            if count >= 64:
+                raise Held("media_asset_limit_reached")
+            asset = RecapAsset(stage_id=attempt.stage_id, generation=attempt.generation, storage_key=key,
+                digest=request.headers["x-content-sha256"], size=size, media_type="audio/mpeg")
+            db.add(asset)
+            await db.flush()
+            return {"asset_id": asset.id, "digest": asset.digest, "size": size}
+    except (Held, Conflict) as exc:
+        raise translate(exc) from None
 
 
 async def parse(request, model):
@@ -136,6 +204,7 @@ async def dispatch(request: Request, worker=Depends(require_media_worker)):
 @router.post("/receipt")
 async def receipt(request: Request, worker=Depends(require_media_worker)):
     body = await parse(request, Receipt)
+    check_receipt(body.receipt)
     if "narrate" not in worker.capabilities:
         raise HTTPException(403, "Narration capability required")
     try:
@@ -147,52 +216,29 @@ async def receipt(request: Request, worker=Depends(require_media_worker)):
         raise translate(exc) from None
 
 
-class LocalImmutableMediaStore:
-    """API-only adapter: upload(stream, digest)->metadata, path(key)->local file.
+def check_receipt(value):
+    from app.services.recap_video.elevenlabs import sanitized_receipt
+    try:
+        sanitized_receipt(value)
+    except (ValueError, TypeError):
+        raise HTTPException(422, "Provider receipt metadata contains invalid or unsupported fields") from None
 
-    Task7 bucket adapter replaces upload/read at this authorization boundary;
-    it must keep streaming byte limits, digest verification, immutable keys and
-    private API streaming (never redirects or worker bucket credentials).
-    """
-    def __init__(self):
-        self.root = get_settings().media_asset_root
-        if self.root is None:
-            raise Held("media_storage_unconfigured")
-        self.root.mkdir(parents=True, exist_ok=True)
 
-    def path(self, key):
-        try:
-            if str(uuid.UUID(key)) != key:
-                raise ValueError()
-        except ValueError:
-            raise Held("media_storage_key_invalid") from None
-        path = self.root / key
-        if path.is_symlink():
-            raise Held("media_storage_key_invalid")
-        return path
-
-    async def upload(self, stream, expected):
-        if len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
-            raise HTTPException(422, "SHA256 digest required")
-        fd, temporary = tempfile.mkstemp(dir=self.root, prefix=".upload-")
-        size, sha = 0, hashlib.sha256()
-        try:
-            with os.fdopen(fd, "wb") as file:
-                async for chunk in stream:
-                    size += len(chunk)
-                    if size > MAX_ASSET:
-                        raise HTTPException(413, "Media asset exceeds maximum upload size")
-                    sha.update(chunk)
-                    file.write(chunk)
-                file.flush()
-                os.fsync(file.fileno())
-            if not size or sha.hexdigest() != expected:
-                raise HTTPException(422, "Uploaded asset is empty or SHA256 digest does not match")
-            key = str(uuid.uuid4())
-            os.link(temporary, self.path(key))
-            return key, size
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+async def store_upload(request):
+    expected = request.headers.get("x-content-sha256", "")
+    if len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
+        raise HTTPException(422, "SHA256 digest required")
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > MAX_ASSET:
+            raise HTTPException(413, "Media asset exceeds maximum upload size")
+        data.extend(chunk)
+    if not data or hashlib.sha256(data).hexdigest() != expected:
+        raise HTTPException(422, "Uploaded asset is empty or SHA256 digest does not match")
+    key = str(uuid.uuid4())
+    import asyncio
+    await asyncio.to_thread(configured_store().put_verified, key, bytes(data), expected)
+    return key, len(data)
 
 
 @router.post("/assets")
@@ -204,8 +250,7 @@ async def upload(request: Request, worker=Depends(require_media_worker)):
     try:
         async with get_sessionmaker().begin() as db:
             await lease(db, body, worker)
-        store = LocalImmutableMediaStore()
-        key, size = await store.upload(request.stream(), request.headers.get("x-content-sha256", ""))
+        key, size = await store_upload(request)
         # No control/DB lock across network upload. Recheck all fences after transfer.
         async with get_sessionmaker().begin() as db:
             row = await lease(db, body, worker)
@@ -232,9 +277,15 @@ async def download(asset_id: str, request: Request, worker=Depends(require_media
             allowed = await work.allowed_asset_ids(db, row)
             if (not asset or not ((asset.stage_id == row.id and asset.generation == row.generation) or asset.id in allowed)):
                 raise HTTPException(403, "Asset does not belong to this lease")
-            path = LocalImmutableMediaStore().path(asset.storage_key)
-            if not path.is_file() or path.stat().st_size != asset.size:
+            store = configured_store()
+            import asyncio
+            metadata = await asyncio.to_thread(store.head, asset.storage_key)
+            if metadata != {"size": asset.size, "sha256": asset.digest}:
                 raise Held("media_asset_unavailable")
-            return FileResponse(path, media_type=asset.media_type, headers={"Cache-Control": "private, no-store"})
+            key, size, media_type = asset.storage_key, asset.size, asset.media_type
+        async def chunks():
+            for start in range(0, size, 1024 * 1024):
+                yield await asyncio.to_thread(store.read_range, key, start, min(size - 1, start + 1024 * 1024 - 1))
+        return StreamingResponse(chunks(), media_type=media_type, headers={"Cache-Control": "private, no-store"})
     except (Held, Conflict) as exc:
         raise translate(exc) from None

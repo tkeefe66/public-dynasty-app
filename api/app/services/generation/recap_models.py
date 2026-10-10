@@ -103,6 +103,7 @@ class ProviderAccountControl(Base):
 class RecapStage(Base):
     """API-created subordinate checkpoint, never an independent scheduler job."""
     __tablename__ = "recap_stages"
+    evidence_json: Mapped[str] = mapped_column(String, default="{}")
     __table_args__ = (UniqueConstraint("episode_id", "revision", "kind", "chunk", name="uq_recap_stage"),)
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
     episode_id: Mapped[str] = mapped_column(String, index=True)
@@ -147,6 +148,9 @@ class RecapProviderAttempt(Base):
     state: Mapped[str] = mapped_column(String, default="dispatching", index=True)
     error_code: Mapped[str] = mapped_column(String, default="")
     receipt_json: Mapped[str | None] = mapped_column(String, nullable=True)
+    identity_json: Mapped[str] = mapped_column(String, default="[]")
+    recovery_receipt_json: Mapped[str | None] = mapped_column(String, nullable=True)
+    recovery_settled_at: Mapped[int] = mapped_column(BigInteger, default=0)
     cost_microusd: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
     settled_at: Mapped[int] = mapped_column(BigInteger, default=0)

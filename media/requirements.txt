@@ -1,0 +1,3 @@
+# Worker-only; do not add ASR to API/reader dependencies. Model files packaged separately.
+faster-whisper==1.2.1
+ctranslate2==4.8.2
