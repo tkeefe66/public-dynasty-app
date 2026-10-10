@@ -3,15 +3,13 @@ import { generationRequest } from "@/lib/api";
 import { FEATURE_LABELS, FeatureSettings, GenerationFeature, GenerationSeries, PolicyView } from "@/lib/generation";
 import { Button } from "@/components/furniture/Button";
 import { ActionForm, ActionProps, controlClass, readable, secondary, TechnicalDetails } from "./GenerationShared";
-import { GenerationRecapBudget } from "./GenerationRecapBudget";
-import { GenerationRecapEpisode } from "./GenerationRecapEpisode";
 
 const models = ["claude-haiku-4-5-20251001", "claude-haiku-4-5", "claude-sonnet-4-6"];
 const modes = { disabled: "Off", manual: "Ask me first", automatic: "Automatic" };
 const bulkAutomaticFeatures: GenerationFeature[] = ["trade_story", "gm_rating_blurb", "franchise_blurb", "analyst"];
 
-export function GenerationSettings({ leagues, busy, run, version, budgetSeriesId, budgetRequestId }: ActionProps & { leagues: GenerationSeries[]; version: number; budgetSeriesId?: string; budgetRequestId?: number }) {
-  const [scope, setScope] = useState(budgetSeriesId ? "series:" + budgetSeriesId : "app");
+export function GenerationSettings({ leagues, busy, run, version }: ActionProps & { leagues: GenerationSeries[]; version: number }) {
+  const [scope, setScope] = useState("app");
   const [policy, setPolicy] = useState<PolicyView | null>(null);
   const [draft, setDraft] = useState<Record<string, unknown>>({});
   const [reason, setReason] = useState("");
@@ -19,16 +17,7 @@ export function GenerationSettings({ leagues, busy, run, version, budgetSeriesId
   const [loading, setLoading] = useState(true);
   const [leagueAction, setLeagueAction] = useState("");
   const [profile, setProfile] = useState("dynasty");
-  const [episodeId, setEpisodeId] = useState<string | undefined>();
-  const [episodeLabel, setEpisodeLabel] = useState<string | undefined>();
   const selectedLeague = leagues.find(l => scope === "series:" + l.id);
-  useEffect(() => { if (budgetSeriesId) setScope("series:" + budgetSeriesId); }, [budgetSeriesId, budgetRequestId]);
-  useEffect(() => {
-    if (budgetSeriesId && scope === "series:" + budgetSeriesId) {
-      const panel = document.getElementById("generation-recap-budgets");
-      panel?.focus(); panel?.scrollIntoView?.({ block: "start" });
-    }
-  }, [scope, budgetSeriesId, budgetRequestId]);
   useEffect(() => {
     let current = true;
     setLoading(true); setError(""); setPolicy(null); setLeagueAction("");
@@ -89,9 +78,7 @@ export function GenerationSettings({ leagues, busy, run, version, budgetSeriesId
             <div className="grid items-start gap-3 sm:grid-cols-2">
               <div><h4 className="font-display text-name font-bold">{FEATURE_LABELS[feature]}</h4>
                 <p className="mt-1 text-prose text-dim">{current.paused ? "Currently paused" : `Saved setting: ${modes[current.mode]}`}{inherited ? ` · Uses ${sourceName}` : ""}</p>
-                {feature === "analyst" && selectedLeague && <a href="#generation-recap-budgets" className="inline-flex min-h-tap items-center text-prose underline" onClick={event => {
-                  event.preventDefault(); const panel = document.getElementById("generation-recap-budgets"); panel?.focus(); panel?.scrollIntoView?.({ block: "start" });
-                }}>View this league’s recap limits below</a>}
+
               </div>
               <label className="text-prose">When to write
                 <select className={controlClass + " mt-1"} aria-label={FEATURE_LABELS[feature] + " mode"} value={edited.mode || ""} onChange={e => featureField(feature, "mode", e.target.value || undefined)}>
@@ -126,11 +113,6 @@ export function GenerationSettings({ leagues, busy, run, version, budgetSeriesId
         <Button type="submit" className="mt-3 px-4 py-2" disabled={blocked || !reason.trim()}>Save configuration</Button>
       </fieldset>
     </form>}
-    {selectedLeague && <GenerationRecapEpisode key={"episode:" + selectedLeague.id} seriesId={selectedLeague.id} busy={busy} run={run} version={version} onEpisodeChange={(id,label)=>{setEpisodeId(id);setEpisodeLabel(label);}} />}
-    {selectedLeague ? <GenerationRecapBudget key={"budget:" + selectedLeague.id} seriesId={selectedLeague.id} episodeId={episodeId} episodeLabel={episodeLabel} busy={busy} run={run} version={version} /> : <div className="mt-4 border-t border-rule pt-4">
-      <h4 className="font-display text-name font-bold">Weekly Analyst recap limits</h4>
-      <p className="mt-1 text-prose text-dim">Select an individual league above to view and edit its recap spending limits.</p>
-    </div>}
     {selectedLeague && <details className="mt-4 border-t border-rule pt-3"><summary className="min-h-tap cursor-pointer py-2 text-prose text-dim">League setup and activation</summary>
       <p className="text-prose">{readable(selectedLeague.lifecycle)} · {selectedLeague.members} memberships · {selectedLeague.profile} defaults</p>
       <p className="text-prose text-dim">{selectedLeague.seasons.map(s => `${s.season}: ${s.verified_at ? "verified" : "needs verification"}`).join("; ")}</p>

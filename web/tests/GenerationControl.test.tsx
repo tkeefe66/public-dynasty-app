@@ -50,7 +50,7 @@ describe("Generation controls", () => {
     } : normal(path, ...args));
     render(<GenerationControl />);
     await screen.findByRole("heading", { name: "Waiting for your approval" });
-    fireEvent.click(screen.getByText("Advanced", { selector: "summary" }));
+    fireEvent.click(screen.getByRole("button", { name: "Recovery" }));
     fireEvent.click(await screen.findByText("Activation and recovery", { selector: "summary" }));
     fireEvent.click(screen.getByRole("button", { name: "Review elevenlabs / synthetic-voice recovery" }));
     const form = screen.getByRole("button", { name: "Reset provider account" }).closest("form")!;
@@ -68,26 +68,27 @@ describe("Generation controls", () => {
     render(<GenerationControl />);
     fireEvent.click(await screen.findByRole("button", { name: "Review recap limits" }));
     expect(await screen.findByLabelText("Video per episode ($)")).toHaveValue("3.00");
-    expect(screen.getByLabelText("Apply settings to")).toHaveValue("series:series-one");
+    expect(screen.getByLabelText("Recap limits for league")).toHaveValue("series-one");
     expect(request).toHaveBeenCalledWith("/recap-budgets/series-one");
     expect(request.mock.calls.filter(c => c[1])).toHaveLength(0);
     expect(screen.getByRole("region", { name: "Weekly Analyst recap limits" })).toHaveFocus();
-    fireEvent.change(screen.getByLabelText("Apply settings to"), { target: { value: "app" } });
+    fireEvent.change(screen.getByLabelText("Recap limits for league"), { target: { value: "" } });
     expect(await screen.findByText(/Select an individual league above/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Content" }));
     fireEvent.click(screen.getByRole("button", { name: "Review recap limits" }));
     expect(await screen.findByLabelText("Video per episode ($)")).toHaveValue("3.00");
-    expect(screen.getByLabelText("Apply settings to")).toHaveValue("series:series-one");
+    expect(screen.getByLabelText("Recap limits for league")).toHaveValue("series-one");
   });
-  it("requires an individual league and uses a separate visible budget form", async () => {
-    // Mutation: expose ambiguous all-league budgets or nest the budget form in policy settings.
+  it("requires an individual league and keeps budget forms outside writing rules", async () => {
+    // Mutation: mix budget settings back into the policy form or imply all-league budget scope.
     render(<GenerationControl />);
-    fireEvent.click(await screen.findByText("Settings", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Spend & limits" }));
     expect(await screen.findByText(/Select an individual league above/)).toBeInTheDocument();
     expect(request.mock.calls.some(c => c[0]?.startsWith("/recap-budgets"))).toBe(false);
-    fireEvent.change(screen.getByLabelText("Apply settings to"), { target: { value: "series:series-one" } });
+    fireEvent.change(screen.getByLabelText("Recap limits for league"), { target: { value: "series-one" } });
     const input = await screen.findByLabelText("Video per episode ($)");
     expect(input.closest("form")?.parentElement?.closest("form")).toBeNull();
-    expect(input.closest("details")?.querySelector("summary")).toHaveTextContent("Settings");
+    expect(screen.queryByLabelText("Trade stories mode")).not.toBeInTheDocument();
   });
   it("limits the bulk Automatic action to its four named writing features", async () => {
     // Mutation: derive bulk opt-in from every registered feature, including a future video feature.
@@ -101,7 +102,7 @@ describe("Generation controls", () => {
     }) : normal(path, ...args));
     try {
       render(<GenerationControl />);
-      fireEvent.click(await screen.findByText("Settings", { selector: "summary" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Writing rules" }));
       fireEvent.click(await screen.findByRole("button", { name: "Set all four to Automatic" }));
       expect(screen.getByText(/Set trade stories, GM profiles, franchise outlooks, and Weekly Analyst together/)).toBeInTheDocument();
       expect(screen.getByLabelText("Recap video mode")).toHaveValue("manual");
@@ -192,7 +193,7 @@ describe("Generation controls", () => {
       return normal(path, ...args);
     });
     render(<GenerationControl />);
-    fireEvent.click(await screen.findByText("Manual content and catch-up", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve writing" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Select all available content" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Select all available content" }));
     await screen.findByRole("button", { name: "Preview 2 selected" });
@@ -205,7 +206,7 @@ describe("Generation controls", () => {
     // Mutation: bulk action silently opts the newly registered video feature in.
     const writingFeatures = ["trade_story", "gm_rating_blurb", "franchise_blurb", "analyst"] as const;
     render(<GenerationControl />);
-    fireEvent.click(await screen.findByText("Settings", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Writing rules" }));
     fireEvent.click(await screen.findByRole("button", { name: "Set all four to Automatic" }));
     for (const feature of writingFeatures) {
       expect(screen.getByLabelText(FEATURE_LABELS[feature] + " mode")).toHaveValue("automatic");
@@ -229,7 +230,8 @@ describe("Generation controls", () => {
     request.mockImplementation((path = "", ...args) => path.startsWith("/records/candidates") ? records
       : path === "/campaigns/catch-up/preview" ? normal("/campaigns/preview", ...args) : normal(path, ...args));
     render(<GenerationControl />);
-    fireEvent.click(await screen.findByText("Manual content and catch-up", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve writing" }));
+    fireEvent.click(screen.getByText("Historical catch-up across content types", { selector: "summary" }));
     const preview = await screen.findByRole("button", { name: "Preview catch-up across all leagues" });
     expect(preview).toBeDisabled();
     fireEvent.click(preview);
@@ -314,11 +316,11 @@ describe("Generation controls", () => {
     render(<GenerationControl />);
     await screen.findByRole("heading", { name: "Automatic writing is enabled" });
     const problems = screen.getByRole("region", { name: "Needs your review" });
-    const optional = screen.getByRole("region", { name: "Manual content and catch-up" });
-    expect(problems).not.toContainElement(optional);
     expect(within(problems).queryByText("Manual content and catch-up")).not.toBeInTheDocument();
     expect(request.mock.calls.some(c => c[0]?.startsWith("/records/candidates"))).toBe(false);
-    fireEvent.click(within(optional).getByText("Manual content and catch-up", { selector: "summary" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve writing" }));
+    const optional = await screen.findByRole("region", { name: "Manual content and catch-up" });
+    expect(screen.queryByRole("region", { name: "Needs your review" })).not.toBeInTheDocument();
     await within(optional).findByLabelText("Select Requested profile");
     expect(within(optional).getAllByRole("checkbox")).toHaveLength(2);
     expect(within(optional).getByText(/Awaiting manual approval/)).toBeVisible();
@@ -413,7 +415,7 @@ describe("Generation controls", () => {
   it("saves only explicit overrides with the observed revision and reason", async () => {
     render(<GenerationControl />);
     // Mutation: save the resolved policy instead of only explicit overrides.
-    fireEvent.click(await screen.findByText("Settings", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Writing rules" }));
     await screen.findByLabelText("Reason for this change");
     fireEvent.change(screen.getByLabelText("Reason for this change"), { target: { value: "Enable new stories" } });
     fireEvent.change(screen.getByLabelText("Trade stories mode"), { target: { value: "automatic" } });
@@ -431,7 +433,7 @@ describe("Generation controls", () => {
       ? Promise.reject(new Error("Settings changed. Reload before saving.")) : normal(path, body, method));
     render(<GenerationControl />);
     // Mutation: swallow a revision conflict and display a success notice.
-    fireEvent.click(await screen.findByText("Settings", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Writing rules" }));
     await screen.findByLabelText("Reason for this change");
     fireEvent.change(screen.getByLabelText("Reason for this change"), { target: { value: "Pause" } });
     fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
@@ -442,7 +444,7 @@ describe("Generation controls", () => {
   it("approves only the exact preview digest and never buys from selection alone", async () => {
     render(<GenerationControl />);
     // Mutation: selecting a candidate buys work without the bound preview approval.
-    fireEvent.click(await screen.findByText("Manual content and catch-up", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve writing" }));
     fireEvent.click(await screen.findByLabelText("Select Owner One"));
     expect(request.mock.calls.some(c => c[0] === "/campaigns/apply")).toBe(false);
     fireEvent.change(screen.getByLabelText("Reason for this approval"), { target: { value: "Initial profile" } });
@@ -510,7 +512,7 @@ describe("Generation controls", () => {
     const normal = request.getMockImplementation()!;
     request.mockImplementation((path = "", ...args) => path.startsWith("/records/outbox") ? Promise.resolve({ records: [{ id: "delivery-one", delivered: true, error: "", kind: "generation_publish" }], next_offset: null }) : normal(path, ...args));
     render(<GenerationControl />);
-    fireEvent.click(await screen.findByText("Advanced", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Recovery" }));
     await screen.findByLabelText("Record type");
     await waitFor(() => expect(screen.getByLabelText("Record type")).toBeEnabled());
     fireEvent.change(screen.getByLabelText("Record type"), { target: { value: "outbox" } });
@@ -523,7 +525,7 @@ describe("Generation controls", () => {
     const normal = request.getMockImplementation()!;
     request.mockImplementation((path = "", ...args) => path.startsWith("/policy") ? Promise.resolve({ ...config, value: { features: { trade_story: { mode: "manual" } } } }) : normal(path, ...args));
     render(<GenerationControl />);
-    fireEvent.click(await screen.findByText("Settings", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Writing rules" }));
     const mode = await screen.findByLabelText("Trade stories mode");
     expect(within(mode).getByRole("option", { name: "Use shared default" })).toBeInTheDocument();
     fireEvent.click(screen.getByText("Advanced trade stories settings", { selector: "summary" }));
@@ -563,8 +565,8 @@ it('keeps episode and budget panels independently keyed while league settings re
   // Duplicate sibling keys remount both panels continuously when episode selection updates.
   const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
   render(<GenerationControl />);
-  fireEvent.click(await screen.findByText('Settings', { selector: 'summary' }));
-  fireEvent.change(await screen.findByLabelText('Apply settings to'), { target: { value: 'series:series-one' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Spend & limits' }));
+  fireEvent.change(await screen.findByLabelText('Recap limits for league'), { target: { value: 'series-one' } });
   await screen.findByLabelText('Video per episode ($)');
   expect(errors.mock.calls.filter(args => args.join(' ').includes('same key'))).toHaveLength(0);
 });

@@ -25,8 +25,8 @@ export function episodeLabel(row: RecapEpisodeSummary) {
 interface Replacement { digest: string; requests: number; maximum_microusd: number; original_requests: unknown }
 const checks = { factual_coverage:'Facts and every league member', performance:'Complete voice performance', physical_phone:'Physical phone playback', message_preview:'Real message preview' };
 
-export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisodeChange }: ActionProps & {
-  seriesId:string; version:number; onEpisodeChange:(episodeId:string | undefined, label?:string)=>void;
+export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisodeChange, selectionOnly = false, onRecapBudget, initialEpisodeId }: ActionProps & {
+  seriesId:string; version:number; onEpisodeChange:(episodeId:string | undefined, label?:string)=>void; selectionOnly?:boolean; initialEpisodeId?:string;
 }) {
   const [records,setRecords]=useState<RecapEpisodeSummary[]>([]);
   const [selected,setSelected]=useState('');
@@ -54,13 +54,15 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
     generationRequest<{records:RecapEpisodeSummary[]}>(`/recap-episodes?series_id=${encodeURIComponent(seriesId)}`).then(value=>{
       if(!current)return;
       const rows=value.records || [];
-      setRecords(rows);setSelected(rows[0]?.episode_id || '');callback.current(rows[0]?.episode_id, rows[0] ? episodeLabel(rows[0]) : undefined);
-      if(!rows.length)setLoading(false);
+      const initial=initialEpisodeId ? rows.find(row=>row.episode_id===initialEpisodeId) : rows[0];
+      setRecords(rows);setSelected(initial?.episode_id || '');callback.current(initial?.episode_id, initial ? episodeLabel(initial) : undefined);
+      if(!initial){setLoading(false);if(initialEpisodeId)setError('The selected episode is no longer available. Choose an episode to inspect its limits.');}
     }).catch(err=>{if(current){setError(err.message || 'Episodes could not load. Reload status.');setLoading(false);}});
     return()=>{current=false;};
-  },[seriesId]);
+  },[seriesId,initialEpisodeId]);
   useEffect(()=>{
     if(!selected)return;
+    if(selectionOnly){setLoading(false);return;}
     let current=true;
     previewRequest.current+=1;
     setLoading(true);setError('');setView(null);setAction('');setPreview(null);setReplacement(null);
@@ -68,7 +70,7 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
       .catch(err=>{if(current)setError(err.message || 'Episode evidence could not load. Reload status.');})
       .finally(()=>{if(current)setLoading(false);});
     return()=>{current=false;};
-  },[selected,version,reload]);
+  },[selected,version,reload,selectionOnly]);
   const blocked=busy || loading;
   async function open(next:string) {
     const request=++previewRequest.current;
@@ -105,20 +107,21 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
     <h4 className="font-display text-name font-bold">Weekly recap episode</h4>
     {records.length>0 && <label className="mt-3 block text-prose">Episode<select className={controlClass+' mt-1'} value={selected} disabled={blocked}
       onChange={event=>{const row=records.find(row=>row.episode_id===event.target.value);setSelected(event.target.value);callback.current(event.target.value,row ? episodeLabel(row) : undefined);}}>
+      {!selected && <option value="">Choose an episode</option>}
       {records.map(row=><option key={row.episode_id} value={row.episode_id}>{episodeLabel(row)}</option>)}
     </select></label>}
     {loading && <p role="status" className="mt-3 text-prose text-dim">Loading saved episode evidence…</p>}
     {!loading && !records.length && <p className="mt-3 text-prose text-dim">No saved recap episodes for this league.</p>}
     {error && <p role="alert" className="mt-3 text-prose text-neg-strong">{error}</p>}
-    <button type="button" className={secondary+' mt-3'} disabled={blocked || !selected} onClick={()=>setReload(n=>n+1)}>Reload episode status</button>
-    {view && <>
+    {!selectionOnly && <button type="button" className={secondary+' mt-3'} disabled={blocked || !selected} onClick={()=>setReload(n=>n+1)}>Reload episode status</button>}
+    {!selectionOnly && view && <>
       <p className="mt-3 text-prose font-semibold">{view.qualification.passed} of {view.qualification.required} reviewed episodes passed</p>
       <p className="mt-1 text-prose text-dim">{view.qualification.automatic?'Standing automatic publication is active for this league and season.':explanations[view.qualification.reason] || 'Finished previews require explicit review.'}</p>
       <p className="mt-3 text-prose">Stage: {readable(view.stage?.kind || view.episode.lifecycle)}{view.stage?` · ${readable(view.stage.state)}`:''}</p>
-      {view.reason && <p className="mt-1 max-w-prose text-prose text-warn-strong">{explanations[view.reason] || readable(view.reason)}</p>}
-      {view.reason.startsWith('recap_budget_') && <><p className="mt-2 text-prose">Video needs {money(view.needed_microusd || 0)}; {view.budget?.balances.video_episode_microusd?.remaining_microusd == null?'remaining budget needs accounting review':money(view.budget.balances.video_episode_microusd.remaining_microusd)+' remains in this episode'}.</p><a href="#generation-recap-budgets" className="inline-flex min-h-tap items-center text-prose underline">Edit recap limits</a></>}
+      {view.reason && <p className="mt-1 max-w-prose text-prose text-warn-strong">{explanations[view.reason] || (view.reason.startsWith('recap_budget_') ? 'A recap spending limit is holding this episode. Review its limits and outstanding charges.' : readable(view.reason))}</p>}
+      {view.reason.startsWith('recap_budget_') && <><p className="mt-2 text-prose">Video needs {money(view.needed_microusd || 0)}; {view.budget?.balances.video_episode_microusd?.remaining_microusd == null?'remaining budget needs accounting review':money(view.budget.balances.video_episode_microusd.remaining_microusd)+' remains in this episode'}.</p>{onRecapBudget ? <button className={secondary + ' mt-2'} onClick={() => onRecapBudget(seriesId,selected)}>Edit recap limits</button> : <a href="#generation-recap-budgets" className="inline-flex min-h-tap items-center text-prose underline">Edit recap limits</a>}</>}
       {view.stage?.result_json && <TechnicalDetails value={JSON.parse(view.stage.result_json)} label="Exact failed evidence"/>}
-      {view.attempts.some(a=>a.cost_microusd===null) && <p className="mt-2 text-prose text-warn-strong">Narration response or charge unresolved. Reserved and uncertain costs remain included in this episode’s spending below.</p>}
+      {view.attempts.some(a=>a.cost_microusd===null) && <p className="mt-2 text-prose text-warn-strong">Narration response or charge unresolved. Reserved and uncertain costs remain included in this episode’s spending limits.</p>}
       {view.recovery_requests?.map(request=><p key={request.id} className="mt-2 text-prose text-dim">History lookup · {readable(request.state)} · {readable(request.error || 'Waiting for original worker')}<span className="block break-all text-caption">Attempt {request.attempt_id} · Worker {request.worker_id}</span></p>)}
       <div className="mt-3 flex flex-wrap gap-2">{view.actions.map(item=><button key={item} type="button" className={secondary} disabled={blocked} onClick={()=>void open(item)}>{labels[item] || readable(item)}</button>)}</div>
       {action && <form className="mt-4 border-t border-rule pt-4" onSubmit={event=>{event.preventDefault();void submit();}}>

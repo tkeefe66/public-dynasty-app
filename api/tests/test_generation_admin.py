@@ -30,6 +30,23 @@ def test_non_owner_cannot_read_or_mutate_control(client, app, admin_db):
         "expected_revision": 1, "value": {"paused": False}, "reason": "try"}).status_code == 403
 
 
+def test_content_workspace_filter_runs_before_pagination(client, admin_db):
+    # Mutation: omit the feature predicate, or filter a paginated result in the UI.
+    async def seed():
+        async with admin_db.begin() as db:
+            for index, feature in enumerate(["trade_story", "gm_rating_blurb", "gm_rating_blurb"]):
+                payload = {"facts": {"test": True}}
+                db.add(GenerationCandidate(key=f"studio-{index}", series_id="series", league_id="synthetic",
+                    feature=feature, subject=f"studio-{index}", event="2026:week:02",
+                    payload_json=dump(payload), digest=digest(payload), observed_at=100 + index,
+                    hold="historical_approval_required"))
+    asyncio.run(seed())
+    page = client.get("/api/admin/generation/records/candidates?feature=trade_story&limit=1").json()
+    assert [row["key"] for row in page["records"]] == ["studio-0"]
+    assert page["next_offset"] is None
+    assert client.get("/api/admin/generation/records/attempts?feature=trade_story").status_code == 422
+
+
 def test_policy_form_cannot_overwrite_a_newer_revision(client, admin_db):
     body = {"expected_revision": 1, "value": {"paused": True}, "reason": "Pause while checking"}
     first = client.put("/api/admin/generation/policy/app", json=body)

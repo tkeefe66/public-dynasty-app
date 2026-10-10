@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { generationRequest } from "@/lib/api";
-import { FEATURE_LABELS, CampaignPreview, GenerationPage, GenerationRecord, GenerationSeries } from "@/lib/generation";
+import { FEATURE_LABELS, CampaignPreview, GenerationFeature, GenerationPage, GenerationRecord, GenerationSeries } from "@/lib/generation";
 import { Button } from "@/components/furniture/Button";
 import { GenerationJob } from "./GenerationJob";
 import { ActionForm, ActionProps, contentName, controlClass, dateLabel, leagueName, money, readable, secondary, TechnicalDetails } from "./GenerationShared";
@@ -15,11 +15,12 @@ const reviewReasons: Record<string, string> = {
 };
 const recordKinds = { attempts: "AI requests and costs", artifacts: "Saved content", audit: "Change history", outbox: "Publication delivery" };
 
-export function GenerationRecords({ leagues, busy, run, onRecapBudget, version, initialKind = "jobs", advanced = false }: ActionProps & {
-  leagues: GenerationSeries[]; version: number; initialKind?: string; advanced?: boolean;
+export function GenerationRecords({ leagues, busy, run, onRecapBudget, onRecapEpisode, version, initialKind = "jobs", advanced = false, featureFilter, scopeSeries }: ActionProps & {
+  leagues: GenerationSeries[]; version: number; initialKind?: string; advanced?: boolean; featureFilter?: GenerationFeature; scopeSeries?: string;
 }) {
   const [kind, setKind] = useState(initialKind);
-  const [series, setSeries] = useState("");
+  const [localSeries, setSeries] = useState("");
+  const series = scopeSeries ?? localSeries;
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<GenerationPage<GenerationRecord>>({ records: [], next_offset: null });
   const [loading, setLoading] = useState(true);
@@ -31,16 +32,17 @@ export function GenerationRecords({ leagues, busy, run, onRecapBudget, version, 
   const [action, setAction] = useState<{ row: GenerationRecord; name: string } | null>(null);
   const [catchup, setCatchup] = useState(false);
   const supportsLeagueFilter = ["jobs", "candidates", "artifacts"].includes(kind);
+  const featureQuery = featureFilter && supportsLeagueFilter ? `&feature=${featureFilter}` : "";
   useEffect(() => {
     let current = true;
     setLoading(true); setError(""); setPage({ records: [], next_offset: null });
     setSelected([]); setPreview(null); setAction(null);
-    generationRequest<GenerationPage<GenerationRecord>>(`/records/${kind}?limit=25&offset=${offset}${series && supportsLeagueFilter ? `&series_id=${encodeURIComponent(series)}` : ""}${kind === "candidates" ? "&view=review" : ""}`)
+    generationRequest<GenerationPage<GenerationRecord>>(`/records/${kind}?limit=25&offset=${offset}${series && supportsLeagueFilter ? `&series_id=${encodeURIComponent(series)}` : ""}${kind === "candidates" ? "&view=review" : ""}${featureQuery}`)
       .then(value => { if (current) setPage(value); })
       .catch(err => { if (current) setError(err.message || "Activity could not load. Try reloading."); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, [kind, series, offset, version, supportsLeagueFilter]);
+  }, [kind, series, offset, version, supportsLeagueFilter, featureQuery]);
   const blocked = busy || loading || pendingPreview;
   const visibleRecords = kind === "candidates" ? page.records.filter(available) : page.records;
   async function selectAll() {
@@ -49,7 +51,7 @@ export function GenerationRecords({ leagues, busy, run, onRecapBudget, version, 
       const keys: string[] = [];
       let next: number | null = 0;
       while (next !== null) {
-        const result: GenerationPage<GenerationRecord> = await generationRequest(`/records/candidates?limit=100&offset=${next}${series ? `&series_id=${encodeURIComponent(series)}` : ""}&view=review`);
+        const result: GenerationPage<GenerationRecord> = await generationRequest(`/records/candidates?limit=100&offset=${next}${series ? `&series_id=${encodeURIComponent(series)}` : ""}&view=review${featureQuery}`);
         keys.push(...result.records.filter(available).map(row => row.key!));
         if (keys.length > 1000) throw new Error("More than 1,000 items are available. Select a league and try again.");
         next = result.next_offset;
@@ -75,18 +77,18 @@ export function GenerationRecords({ leagues, busy, run, onRecapBudget, version, 
   }
   return <div className="mt-3">
     <div className="grid gap-3 sm:grid-cols-2">
-      {supportsLeagueFilter && <label className="text-prose">{advanced ? "Records for league" : kind === "candidates" ? "Content for league" : "Activity for league"}
+      {supportsLeagueFilter && scopeSeries === undefined && <label className="text-prose">{advanced ? "Records for league" : kind === "candidates" ? "Content for league" : "Activity for league"}
         <select className={controlClass + " mt-1"} disabled={blocked} value={series} onChange={e => { setSeries(e.target.value); setOffset(0); }}><option value="">All leagues</option>{leagues.map(l => <option key={l.id} value={l.id}>{l.name || "Unnamed league"}</option>)}</select>
       </label>}
       {advanced && <label className="text-prose">Record type<select className={controlClass + " mt-1"} disabled={blocked} value={kind} onChange={e => { setKind(e.target.value); setOffset(0); }}>{Object.entries(recordKinds).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
     </div>
     {!supportsLeagueFilter && <p className="mt-2 text-prose text-dim">Records across all leagues.</p>}
     {kind === "candidates" && <p className="mt-3 max-w-2xl text-prose text-dim">Only available manual or historical content appears here. Select what you want, review its request allowance, then approve paid writing. Selection and preview do not call the AI provider.</p>}
-    {kind === "candidates" && <div className="mt-4 rounded-lg border border-rule p-4">
+    {kind === "candidates" && !featureFilter && <details className="mt-4 border-y border-rule py-3"><summary className="min-h-tap cursor-pointer py-2 text-prose font-semibold">Historical catch-up across content types</summary><div className="pb-3">
       <h4 className="font-display text-name font-bold">One-time catch-up</h4>
       <p className="mt-1 max-w-2xl text-prose text-dim">Gather missing completed-week Analyst roasts, current GM profiles and franchise outlooks, and trade stories from the last seven days. Completed content and work already running or needing repair are skipped.</p>
       <button className={secondary + " mt-3"} disabled={blocked} onClick={previewCatchup}>{series ? "Preview catch-up for this league" : "Preview catch-up across all leagues"}</button>
-    </div>}
+    </div></details>}
     {kind === "candidates" && <div className="mt-3 flex flex-wrap items-center gap-3">
       <button className={secondary} disabled={blocked} onClick={selectAll}>Select all available content</button>
       <button className={secondary} disabled={blocked || !selected.length} onClick={() => { setSelected([]); setPreview(null); }}>Clear selection</button>
@@ -119,7 +121,7 @@ export function GenerationRecords({ leagues, busy, run, onRecapBudget, version, 
     {error && <p role="alert" className="mt-3 text-prose text-neg-strong">{error}</p>}
     {!loading && !error && !visibleRecords.length && <p className="mt-3 text-prose text-dim">{kind === "candidates" ? "Available manual and historical content will appear here after a league data refresh." : "Records will appear here as work runs for these leagues."}</p>}
     <ul className="mt-3 divide-y divide-rule">
-      {visibleRecords.map(row => kind === "jobs" ? <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} onRecapBudget={onRecapBudget} /> : <li key={row.id || row.key} className="py-4 text-prose">
+      {visibleRecords.map(row => kind === "jobs" ? <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} onRecapBudget={onRecapBudget} onRecapEpisode={onRecapEpisode} /> : <li key={row.id || row.key} className="py-4 text-prose">
         <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
           <div className="min-w-0">
             <label className="flex items-start gap-3 font-semibold">

@@ -9,7 +9,7 @@ export const readable = (value?: string) => value ? value.replaceAll("_", " ") :
 export const money = (value?: number | null) => value == null ? "Cost unknown" : `$${(value / 1_000_000).toFixed(4)}`;
 export const dateLabel = (value?: number) => value ? new Date(value * 1000).toLocaleString() : "Time not recorded";
 export type RunAction = (action: () => Promise<unknown>, notice: string, reload?: boolean) => Promise<void>;
-export interface ActionProps { busy: boolean; run: RunAction; onRecapBudget?: (seriesId: string) => void }
+export interface ActionProps { busy: boolean; run: RunAction; onRecapBudget?: (seriesId: string, episodeId?: string) => void; onRecapEpisode?: (seriesId: string) => void }
 export function leagueName(row: GenerationRecord, leagues: GenerationSeries[]) {
   return row.league_name || leagues.find(l => l.id === row.series_id || l.seasons.some(s => s.league_id === row.league_id))?.name
     || (row.league_id ? `League ${row.league_id}` : "No league recorded");

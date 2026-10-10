@@ -163,10 +163,15 @@ async def series(series_id: str, body: SeriesChange, db: DB, owner: Owner):
 @router.get("/records/{kind}")
 async def records(kind: Literal["jobs", "attempts", "candidates", "artifacts", "audit", "outbox"],
                   db: DB, owner: Owner, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100),
-                  series_id: str = "", state: str = "", view: Literal["all", "review"] = "all"):
+                  series_id: str = "", state: str = "", view: Literal["all", "review"] = "all",
+                  feature: Literal["", "trade_story", "gm_rating_blurb", "franchise_blurb", "analyst", "recap_video"] = ""):
     model = {"jobs": GenerationOperation, "attempts": ProviderAttempt, "candidates": GenerationCandidate,
         "artifacts": ContentArtifact, "audit": GenerationAudit, "outbox": GenerationOutbox}[kind]
     query = select(model)
+    if feature:
+        if kind not in ("jobs", "candidates", "artifacts"):
+            raise HTTPException(422, "Content filtering is available for jobs, candidates, and saved content only")
+        query = query.where(model.feature == feature)
     if series_id and hasattr(model, "series_id"):
         query = query.where(model.series_id == series_id)
     if state and hasattr(model, "state"):

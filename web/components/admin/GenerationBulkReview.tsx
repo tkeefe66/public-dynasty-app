@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { generationRequest } from "@/lib/api";
-import { GenerationPage, GenerationRecord, GenerationSeries } from "@/lib/generation";
+import { GenerationFeature, GenerationPage, GenerationRecord, GenerationSeries } from "@/lib/generation";
 import { Button } from "@/components/furniture/Button";
 import { GenerationJob } from "./GenerationJob";
 import { ActionProps, failedFreeRefresh, problemExplanation, secondary, summaryClass } from "./GenerationShared";
@@ -10,8 +10,8 @@ interface BatchPreview {
   items: { id: string }[]; skipped: { id: string; reason: string }[];
 }
 
-export function GenerationBulkReview({ rows, leagues, busy, run, onRecapBudget, version, hasMore = false }: ActionProps & {
-  rows: GenerationRecord[]; leagues: GenerationSeries[]; version: number; hasMore?: boolean;
+export function GenerationBulkReview({ rows, leagues, busy, run, onRecapBudget, onRecapEpisode, version, hasMore = false, featureFilter, scopeSeries = "" }: ActionProps & {
+  rows: GenerationRecord[]; leagues: GenerationSeries[]; version: number; hasMore?: boolean; featureFilter?: GenerationFeature; scopeSeries?: string;
 }) {
   const [batchOpen, setBatchOpen] = useState(false);
   const [allRows, setAllRows] = useState<GenerationRecord[] | null>(null);
@@ -29,7 +29,7 @@ export function GenerationBulkReview({ rows, leagues, busy, run, onRecapBudget, 
         const result: GenerationRecord[] = [];
         let offset: number | null = 0;
         while (offset !== null) {
-          const page: GenerationPage<GenerationRecord> = await generationRequest(`/records/jobs?limit=100&state=${state}&offset=${offset}`);
+          const page: GenerationPage<GenerationRecord> = await generationRequest(`/records/jobs?limit=100&state=${state}&offset=${offset}${scopeSeries ? `&series_id=${encodeURIComponent(scopeSeries)}` : ""}${featureFilter ? `&feature=${featureFilter}` : ""}`);
           result.push(...page.records);
           if (result.length > 1000) throw new Error("More than 1,000 review jobs. Select a smaller batch.");
           offset = page.next_offset;
@@ -77,7 +77,7 @@ export function GenerationBulkReview({ rows, leagues, busy, run, onRecapBudget, 
       }}>Confirm {preview.action} {preview.items.length} jobs</Button>
     </div>}
     </details>}
-    <ul className="mt-3 divide-y divide-rule">{displayed.map(row => <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} onRecapBudget={onRecapBudget} review
+    <ul className="mt-3 divide-y divide-rule">{displayed.map(row => <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} onRecapBudget={onRecapBudget} onRecapEpisode={onRecapEpisode} review
       selected={selected.includes(row.id!)} onSelect={batchOpen && !failedFreeRefresh(row) ? checked => { setPreview(null); setSelected(old => checked ? [...old, row.id!] : old.filter(id => id !== row.id)); } : undefined} />)}</ul>
   </div>;
 }

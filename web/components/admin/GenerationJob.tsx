@@ -5,7 +5,7 @@ import { ActionForm, ActionProps, contentName, dateLabel, failedFreeRefresh, isD
 
 interface JobDetail { job?: GenerationRecord; attempts?: GenerationRecord[] }
 
-export function GenerationJob({ row, leagues, busy, run, onRecapBudget, review = false, selected, onSelect }: ActionProps & { row: GenerationRecord; leagues: GenerationSeries[]; review?: boolean; selected?: boolean; onSelect?: (checked: boolean) => void }) {
+export function GenerationJob({ row, leagues, busy, run, onRecapBudget, onRecapEpisode, review = false, selected, onSelect }: ActionProps & { row: GenerationRecord; leagues: GenerationSeries[]; review?: boolean; selected?: boolean; onSelect?: (checked: boolean) => void }) {
   const [opened, setOpened] = useState(false);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -36,7 +36,7 @@ export function GenerationJob({ row, leagues, busy, run, onRecapBudget, review =
           throw new Error("This refresh changed and no longer needs this retry. Its current status is shown on this row.");
         }
         if (latest.attempts.some(attempt => ["dispatching", "unknown"].includes(attempt.state || ""))) {
-          throw new Error("A provider request still needs review. Open Advanced → AI requests and costs before retrying this refresh.");
+          throw new Error("A provider request still needs review. Open Recovery → AI requests and costs before retrying this refresh.");
         }
         if (latest.job.calls || latest.job.max_calls || latest.attempts.length) {
           throw new Error(problemExplanation({ reason: "data_refresh_has_provider_activity" }));
@@ -67,7 +67,7 @@ export function GenerationJob({ row, leagues, busy, run, onRecapBudget, review =
       </div>
       <div className="flex shrink-0 flex-wrap gap-2">
       {budgetHeld && onRecapBudget && budgetSeries && <button className={secondary} disabled={blocked} onClick={() => onRecapBudget(budgetSeries)}>Review recap limits</button>}
-      {job.feature === 'recap_video' && onRecapBudget && budgetSeries && <button className={secondary} disabled={blocked} onClick={() => onRecapBudget(budgetSeries)}>Review recap episode</button>}
+      {job.feature === 'recap_video' && (onRecapEpisode || onRecapBudget) && budgetSeries && <button className={secondary} disabled={blocked} onClick={() => (onRecapEpisode || onRecapBudget)?.(budgetSeries)}>Review recap episode</button>}
       {retryable && <button className={secondary} disabled={blocked} onClick={retryDataRefresh}>Retry data refresh</button>}
       <button className={secondary} disabled={blocked} aria-expanded={opened} onClick={async () => {
         if (opened) { setOpened(false); setAction(""); return; }
@@ -90,7 +90,7 @@ export function GenerationJob({ row, leagues, busy, run, onRecapBudget, review =
           </>}
           <div><dt className="text-dim">Started</dt><dd>{dateLabel(job.created_at)}</dd></div>
         </dl>
-        {resumable && <p className="mt-3 max-w-2xl text-dim">{freeRefresh ? "Resuming rebuilds league data using the saved account. Current league access is checked before the refresh runs." : "Resuming may use the remaining AI request allowance. Unresolved provider receipts must be settled first in Advanced → AI requests and costs."}</p>}
+        {resumable && <p className="mt-3 max-w-2xl text-dim">{freeRefresh ? "Resuming rebuilds league data using the saved account. Current league access is checked before the refresh runs." : "Resuming may use the remaining AI request allowance. Unresolved provider receipts must be settled first in Recovery → AI requests and costs."}</p>}
         <div className="mt-3 flex flex-wrap gap-2">
           {resumable && <button className={secondary} disabled={blocked} onClick={() => setAction("resume")}>{freeRefresh ? "Resume data refresh" : job.state === "held" ? "Resume remaining work" : "Resume after receipt review"}</button>}
           {!["succeeded", "cancelled"].includes(job.state || "") && <button className={secondary} disabled={blocked} onClick={() => setAction("cancel")}>Cancel this work</button>}

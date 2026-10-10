@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { generationRequest } from "@/lib/api";
 import { FEATURE_LABELS, GenerationFeature, GenerationOverview, GenerationPage, GenerationRecord, GenerationSeries } from "@/lib/generation";
-import { Panel } from "@/components/furniture/Panel";
+import { GenerationRecovery } from './GenerationRecovery';
+import { GenerationRecapWorkspace } from './GenerationRecapWorkspace';
+import styles from './GenerationStudio.module.css';
 import { GenerationSettings } from "./GenerationSettings";
 import { GenerationBulkReview } from "./GenerationBulkReview";
 import { GenerationRecords } from "./GenerationRecords";
-import { ActionForm, money, readable, RunAction, secondary, summaryClass, TechnicalDetails } from "./GenerationShared";
+import { ActionForm, money, readable, RunAction, secondary, controlClass } from "./GenerationShared";
 
 const emptyPage: GenerationPage<GenerationRecord> = { records: [], next_offset: null };
 const pauseReasons: Record<string, string> = {
@@ -27,19 +29,20 @@ export function GenerationControl() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [action, setAction] = useState("");
-  const [providerKey, setProviderKey] = useState("");
-  const [feature, setFeature] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [view, setView] = useState('content');
+  const [contentType, setContentType] = useState<GenerationFeature | ''>('');
+  const [series, setSeries] = useState('');
+  const [workView, setWorkView] = useState('review');
   const [budgetSeriesId, setBudgetSeriesId] = useState<string>();
+  const [budgetEpisodeId, setBudgetEpisodeId] = useState<string>();
   const [budgetRequestId, setBudgetRequestId] = useState(0);
-  const [approvalsOpen, setApprovalsOpen] = useState(false);
-  const [activityOpen, setActivityOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+
   const mutationLock = useRef(false);
 
+  const filterQuery = `${series ? `&series_id=${encodeURIComponent(series)}` : ''}${contentType ? `&feature=${contentType}` : ''}`;
   useEffect(() => {
     let current = true;
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setStopped(emptyPage); setHeld(emptyPage);
     async function registry() {
       const result: GenerationSeries[] = [];
       let offset: number | null = 0;
@@ -52,14 +55,14 @@ export function GenerationControl() {
     }
     Promise.all([
       generationRequest<GenerationOverview>(), registry(),
-      generationRequest<GenerationPage<GenerationRecord>>("/records/jobs?limit=25&state=needs_attention"),
-      generationRequest<GenerationPage<GenerationRecord>>("/records/jobs?limit=25&state=held"),
+      generationRequest<GenerationPage<GenerationRecord>>(`/records/jobs?limit=25&state=needs_attention${filterQuery}`),
+      generationRequest<GenerationPage<GenerationRecord>>(`/records/jobs?limit=25&state=held${filterQuery}`),
     ]).then(([summary, registered, failed, paused]) => {
       if (current) { setOverview(summary); setLeagues(registered); setStopped(failed); setHeld(paused); }
     }).catch(err => { if (current) setError(err.message || "AI controls could not load. Reload to try again."); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, [version]);
+  }, [version, filterQuery]);
 
   const run: RunAction = async (callback, message, reload = true) => {
     if (mutationLock.current) throw new Error("Another change is being saved. Wait for it to finish.");
@@ -75,79 +78,75 @@ export function GenerationControl() {
   const automatic = enabledModes.includes("automatic"), manual = enabledModes.includes("manual");
   const heading = globallyPaused ? "AI is paused" : automatic ? "Automatic writing is enabled" : manual ? "Waiting for your approval" : "AI writing is off";
   const reviewRows = [...stopped.records, ...held.records].filter((row, index, all) => all.findIndex(r => r.id === row.id) === index);
-  function openRecapBudget(seriesId: string) {
-    setBudgetSeriesId(seriesId); setBudgetRequestId(value => value + 1); setSettingsOpen(true);
+  function openRecapBudget(seriesId: string, episodeId?: string) {
+    setBudgetSeriesId(seriesId); setBudgetEpisodeId(episodeId); setBudgetRequestId(value => value + 1); setView("spend");
   }
 
-  return <section className="mt-10" aria-labelledby="generation-title">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h2 id="generation-title" className="font-display text-section font-bold">AI writing</h2><p className="mt-1 max-w-2xl text-prose text-dim">Review problems, approve content, and manage AI across your leagues.</p></div>
-      <button className={secondary} disabled={blocked} onClick={() => setVersion(v => v + 1)}>Reload status</button>
-    </div>
-    {error && <p role="alert" className="mt-3 text-prose text-neg-strong">{error}</p>}
-    {notice && <p role="status" className="mt-3 text-prose text-pos-strong">{notice}</p>}
-    {loading && <p role="status" className="mt-3 text-prose text-dim">Checking AI status…</p>}
-    {overview && <div className="mt-4 space-y-5">
-      <Panel className="p-4 sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0"><h3 className="font-display text-name font-bold">{heading}</h3>
-            <p className="mt-1 max-w-2xl text-prose text-dim">{globallyPaused ? "New paid writing is blocked. Review the reason below before resuming." : automatic ? "Features set to Automatic handle new eligible events. Historical catch-up is optional; features set to Ask me first still need approval." : manual ? "New writing needs approval. Previously approved work may still finish." : "No active league currently has an available writing feature. Check Settings to enable one."}</p>
-            <p className="mt-1 text-prose text-dim">League data refreshes run separately from paid AI writing.</p>
+  const contentTypes: { value: GenerationFeature | ''; label: string; description: string }[] = [
+    { value: '', label: 'All work', description: 'Writing and data refreshes' },
+    { value: 'recap_video', label: 'Weekly recap', description: 'Scripts, media and publication' },
+    { value: 'analyst', label: 'Weekly Analyst', description: 'Weekly league coverage' },
+    { value: 'trade_story', label: 'Trade stories', description: 'Every move, with context' },
+    { value: 'gm_rating_blurb', label: 'GM profiles', description: 'The managers behind the moves' },
+    { value: 'franchise_blurb', label: 'Franchise outlooks', description: 'Where each team is headed' },
+  ];
+  const scopeName = leagues.find(league => league.id === series)?.name || 'All leagues';
+  function openRecapEpisode(seriesId: string) {
+    setSeries(seriesId); setContentType('recap_video'); setWorkView('episodes'); setView('content');
+  }
+  async function loadMore(state: 'needs_attention' | 'held') {
+    const page = state === 'held' ? held : stopped;
+    if (page.next_offset === null) return;
+    setBusy(true); setError('');
+    try {
+      const more = await generationRequest<GenerationPage<GenerationRecord>>(`/records/jobs?limit=25&state=${state}&offset=${page.next_offset}${filterQuery}`);
+      const update = state === 'held' ? setHeld : setStopped;
+      update(old => ({ records: [...old.records, ...more.records], next_offset: more.next_offset }));
+    } catch (err) { setError(err instanceof Error ? err.message : 'More review work could not load. Try again.'); }
+    finally { setBusy(false); }
+  }
+  return <section className={styles.studio} aria-labelledby="generation-title">
+    <header className={styles.header}>
+      <div><h2 id="generation-title">AI writing</h2><p>Your leagues’ writing, from first draft to publication.</p></div>
+      <div className={styles.headerActions}><button className={secondary} disabled={blocked} onClick={() => setVersion(v => v + 1)}>Reload status</button><button className={secondary} disabled={blocked} onClick={() => setAction(action === 'pause' ? '' : 'pause')}>Pause all AI writing</button></div>
+    </header>
+    {error && <p role="alert" className="mb-4 text-prose text-neg-strong">{error}</p>}
+    {notice && <p role="status" className="mb-4 text-prose text-pos-strong">{notice}</p>}
+    {loading && <p role="status" className="mb-4 text-prose text-dim">Checking AI status…</p>}
+    {overview && <>
+      <div className={styles.status}><div><h3>{heading}</h3><span>{overview.jobs.needs_attention || 0} stopped · {overview.jobs.held || 0} held · Across all leagues</span></div><button disabled={busy} onClick={() => setView('spend')}>Tracked AI spend: <strong className="font-mono">{money(overview.known_cost_microusd)}</strong></button></div>
+      {overview.emergency_paused && <p className={styles.warning}>The deployment safety switch is on. Turn off the emergency pause in Railway before activating AI here.</p>}
+      {globallyPaused && overview.effective.blocked_by.length > 0 && <ul className={styles.warning}>{overview.effective.blocked_by.map(reason => <li key={reason}>{pauseReasons[reason] || `Writing is blocked: ${readable(reason)}.`}</li>)}</ul>}
+      {(overview.providers || []).filter(provider => provider.hold || provider.cooldown_until > Date.now() / 1000).map(provider => <p key={provider.provider + ':' + provider.account_key} className={styles.warning}>{provider.provider} / {provider.account_key} is blocked: {provider.hold ? readable(provider.hold) : 'rate limited'}. Review this account under Recovery.</p>)}
+      {(Object.keys(FEATURE_LABELS) as GenerationFeature[]).filter(f => breakers[f]?.open).map(f => <p key={f} className={styles.warning}>{FEATURE_LABELS[f]} is stopped after repeated failures. Review the failed work, then reset its safety stop under Recovery.</p>)}
+      {overview.unknown_cost_attempts > 0 && <p className="mb-4 text-prose text-warn-strong">{overview.unknown_cost_attempts} requests still have unknown cost. Review AI requests and costs under Recovery.</p>}
+      {action === 'pause' && <ActionForm title="Pause all AI writing" description="Block new paid requests across every league. Requests already sent may still finish and incur charges. Data refreshes continue separately." submitLabel="Confirm pause" busy={blocked} onCancel={() => setAction('')} onSubmit={reason => run(() => generationRequest('/control', { action: 'pause', feature: '', expected_revision: overview.control.revision, reason, workers_stopped: false }), 'AI writing paused across all leagues.')} />}
+      <nav className={styles.nav} aria-label="AI writing views">{Object.entries({ content: 'Content', rules: 'Writing rules', spend: 'Spend & limits', activity: 'Activity', recovery: 'Recovery' }).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} disabled={busy} onClick={() => setView(key)}>{label}</button>)}</nav>
+      {view === 'content' && <>
+        <div className={styles.scope}><div><h3 className={styles.sectionTitle}>Content studio</h3><p className="mt-1 text-prose text-dim">Choose a content type to review its work.</p></div><label>Content for league<select className={controlClass} disabled={blocked} value={series} onChange={event => setSeries(event.target.value)}><option value="">All leagues</option>{leagues.map(league => <option key={league.id} value={league.id}>{league.name || 'Unnamed league'}</option>)}</select></label></div>
+        <div className={styles.types} aria-label="Content workspaces">{contentTypes.map(type => <button key={type.value} aria-label={`${type.label} workspace`} aria-pressed={contentType === type.value} disabled={blocked} onClick={() => { setContentType(type.value); if (type.value === 'recap_video') setWorkView('episodes'); else if (workView === 'episodes') setWorkView('review'); }}>{type.label}<span>{type.description}</span></button>)}</div>
+        <div className={styles.workNav} aria-label="Content tasks">
+          {contentType === 'recap_video' && <button aria-pressed={workView === 'episodes'} disabled={busy} onClick={() => setWorkView('episodes')}>Episodes</button>}
+          <button aria-pressed={workView === 'review'} disabled={busy} onClick={() => setWorkView('review')}>Review problems</button><button aria-pressed={workView === 'approvals'} disabled={busy} onClick={() => setWorkView('approvals')}>Approve writing</button><button aria-pressed={workView === 'saved'} disabled={busy} onClick={() => setWorkView('saved')}>Saved content</button>
+        </div>
+        <div className={styles.columns}>
+          <div className={styles.main}>
+            {workView === 'episodes' && <><h3>Weekly recap</h3><GenerationRecapWorkspace key={series} leagues={leagues} busy={blocked} run={run} version={version} scopeSeries={series} budgetSeriesId={budgetSeriesId} initialEpisodeId={budgetEpisodeId} onRecapBudget={openRecapBudget} /></>}
+            {workView === 'review' && <section role="region" aria-labelledby="generation-review-title"><h3 id="generation-review-title">Needs your review</h3><p className="mt-2 text-prose text-dim">{contentTypes.find(type => type.value === contentType)?.label} · {scopeName}</p>
+              {!loading && !error && !reviewRows.length && <p className={styles.empty}>No stopped or held work in this workspace. Choose Approve writing to review new or historical content.</p>}
+              <GenerationBulkReview key={filterQuery} rows={reviewRows} leagues={leagues} busy={blocked} run={run} version={version} onRecapBudget={openRecapBudget} onRecapEpisode={openRecapEpisode} featureFilter={contentType || undefined} scopeSeries={series} hasMore={stopped.next_offset !== null || held.next_offset !== null} />
+              {stopped.next_offset !== null && <button className={secondary} disabled={blocked} onClick={() => loadMore('needs_attention')}>Load more stopped work</button>}{held.next_offset !== null && <button className={secondary} disabled={blocked} onClick={() => loadMore('held')}>Load more paused work</button>}
+            </section>}
+            {workView === 'approvals' && <section role="region" aria-label="Manual content and catch-up"><h3>Approve writing</h3><GenerationRecords key={`approvals:${filterQuery}`} leagues={leagues} busy={blocked} run={run} version={version} initialKind="candidates" featureFilter={contentType || undefined} scopeSeries={series} onRecapBudget={openRecapBudget} /></section>}
+            {workView === 'saved' && <><h3>Saved content</h3><GenerationRecords key={`saved:${filterQuery}`} leagues={leagues} busy={blocked} run={run} version={version} initialKind="artifacts" featureFilter={contentType || undefined} scopeSeries={series} onRecapBudget={openRecapBudget} /></>}
           </div>
-          <button className={secondary} disabled={blocked} onClick={() => setAction(action === "pause" ? "" : "pause")}>Pause all AI writing</button>
+          <aside className={styles.aside}><section><h3>Writing rules</h3><p>{globallyPaused ? 'New paid writing is blocked. Resolve the pause before approving more work.' : 'Automatic covers new eligible events. Manual and historical work needs your approval.'}</p><button className={secondary} disabled={busy} onClick={() => setView('rules')}>Manage writing rules</button></section><section><h3>Spend & limits</h3><dl><div><dt>Tracked across all leagues</dt><dd>{money(overview.known_cost_microusd)}</dd></div><div><dt>Unknown request costs</dt><dd>{overview.unknown_cost_attempts}</dd></div></dl><p>Excludes earlier spending and unrecorded charges.</p><button className={secondary} disabled={busy} onClick={() => { if (series) openRecapBudget(series); else setView('spend'); }}>Review spending limits</button></section></aside>
         </div>
-        {overview.emergency_paused && <p className="mt-3 text-prose text-neg-strong">The deployment safety switch is on. Turn off the emergency pause in Railway before activating AI here.</p>}
-        {(overview.providers || []).filter(provider => provider.hold || provider.cooldown_until > Date.now() / 1000).map(provider => <p key={provider.provider + ":" + provider.account_key} className="mt-3 text-prose text-warn-strong">{provider.provider} / {provider.account_key} is blocked: {provider.hold ? readable(provider.hold) : "rate limited"}. Review this account under Advanced → Activation and recovery.</p>)}
-        {globallyPaused && overview.effective.blocked_by.length > 0 && <ul className="mt-3 space-y-1 text-prose">{overview.effective.blocked_by.map(reason => <li key={reason}>{pauseReasons[reason] || `Writing is blocked: ${readable(reason)}.`}</li>)}</ul>}
-        {(Object.keys(FEATURE_LABELS) as GenerationFeature[]).filter(f => breakers[f]?.open).map(f => <p key={f} className="mt-3 text-prose text-warn-strong">{FEATURE_LABELS[f]} is stopped after repeated failures. Review the failed work, then reset its safety stop under Advanced → Activation and recovery.</p>)}
-        <div className="mt-4 border-t border-rule pt-3 text-prose"><p>Tracked AI spend: <strong className="font-mono">{money(overview.known_cost_microusd)}</strong></p><p className="mt-1 text-dim">Total recorded by these controls, across all leagues. Excludes earlier spending and unrecorded charges.</p>
-          {overview.unknown_cost_attempts > 0 && <p className="mt-2 text-warn-strong">{overview.unknown_cost_attempts} requests still have unknown cost. Review AI requests and costs under Advanced.</p>}
-        </div>
-        {action === "pause" && <ActionForm title="Pause all AI writing" description="Block new paid requests across every league. Requests already sent may still finish and incur charges. Data refreshes continue separately." submitLabel="Confirm pause" busy={blocked} onCancel={() => setAction("")} onSubmit={reason => run(() => generationRequest("/control", { action: "pause", feature: "", expected_revision: overview.control.revision, reason, workers_stopped: false }), "AI writing paused across all leagues.")} />}
-      </Panel>
-
-      <Panel className="p-4 sm:p-5" role="region" aria-labelledby="generation-review-title">
-        <h3 id="generation-review-title" className="font-display text-name font-bold">Needs your review</h3>
-        <p className="mt-1 text-prose text-dim">{overview.jobs.needs_attention || 0} stopped · {overview.jobs.held || 0} paused. Across all leagues.</p>
-        {!reviewRows.length && <p className="mt-3 text-prose">Stopped or paused work will appear here if it needs your attention.</p>}
-        <GenerationBulkReview rows={reviewRows} leagues={leagues} busy={blocked} run={run} version={version} onRecapBudget={openRecapBudget}
-          hasMore={stopped.next_offset !== null || held.next_offset !== null} />
-        {([["needs_attention", stopped, setStopped], ["held", held, setHeld]] as const).map(([state, page, update]) => page.next_offset !== null && <button key={state} className={secondary + " mt-3"} disabled={blocked} onClick={async () => {
-          setBusy(true); setError("");
-          try { const more = await generationRequest<GenerationPage<GenerationRecord>>(`/records/jobs?limit=25&state=${state}&offset=${page.next_offset}`); update(old => ({ records: [...old.records, ...more.records], next_offset: more.next_offset })); }
-          catch (err) { setError(err instanceof Error ? err.message : "More review items could not load."); }
-          finally { setBusy(false); }
-        }}>Load more {state === "held" ? "paused" : "stopped"} work</button>)}
-      </Panel>
-
-      <Panel className="p-4 sm:p-5" role="region" aria-label="Manual content and catch-up">
-        <details open={approvalsOpen} onToggle={e => setApprovalsOpen(e.currentTarget.open)}>
-          <summary className={summaryClass}>Manual content and catch-up</summary>
-          <p className="max-w-2xl text-prose text-dim">Choose content for features set to Ask me first, or optionally fill gaps in older content. New eligible events for Automatic features run without an approval here.</p>
-          {approvalsOpen && <GenerationRecords leagues={leagues} busy={blocked} run={run} version={version} initialKind="candidates" onRecapBudget={openRecapBudget} />}
-        </details>
-      </Panel>
-
-      <Panel className="p-4 sm:p-5"><details open={settingsOpen} onToggle={e => setSettingsOpen(e.currentTarget.open)}><summary className={summaryClass}>Settings</summary><p className="text-prose text-dim">Writing permissions, recap episode review and spending limits — for all leagues or individual leagues.</p>{settingsOpen && <GenerationSettings leagues={leagues} busy={blocked} run={run} version={version} budgetSeriesId={budgetSeriesId} budgetRequestId={budgetRequestId} />}</details></Panel>
-      <Panel className="p-4 sm:p-5"><details open={activityOpen} onToggle={e => setActivityOpen(e.currentTarget.open)}><summary className={summaryClass}>Recent activity</summary><p className="text-prose text-dim">What ran, when it ran, and how it ended. Open an item to see its recorded request cost.</p>{activityOpen && <GenerationRecords leagues={leagues} busy={blocked} run={run} version={version} onRecapBudget={openRecapBudget} />}</details></Panel>
-      <Panel className="p-4 sm:p-5"><details open={advancedOpen} onToggle={e => setAdvancedOpen(e.currentTarget.open)}><summary className={summaryClass}>Advanced</summary><p className="text-prose text-dim">AI request costs, saved content, change history, and recovery tools.</p>
-        {advancedOpen && <>
-          <details className="mt-3"><summary className={summaryClass}>Activation and recovery</summary><p className="max-w-2xl text-prose text-dim">Use after resolving a provider or deployment problem. Activation requires a configured deployment ID, stopped legacy workers, and completed receipt checks. Missed work stays held for separate approval.</p>
-            {!overview.execution_epoch_configured && <p className="mt-2 text-prose text-warn-strong">Setup required in Railway: configure the generation execution epoch before activation.</p>}
-            <div className="mt-3 flex flex-wrap gap-2"><button className={secondary} disabled={blocked || !overview.execution_epoch_configured || overview.emergency_paused} onClick={() => setAction("activate")}>Activate AI execution</button>
-              {(Object.keys(FEATURE_LABELS) as GenerationFeature[]).filter(f => breakers[f]?.open).map(f => <button key={f} className={secondary} disabled={blocked} onClick={() => { setFeature(f); setAction("reset_breaker"); }}>Reset {FEATURE_LABELS[f]} safety stop</button>)}
-            </div>
-            {(overview.providers || []).map(provider => <div key={provider.provider + ":" + provider.account_key} className="mt-3 text-prose">
-              <p>{provider.provider} / {provider.account_key}: {provider.hold ? readable(provider.hold) : provider.cooldown_until > Date.now() / 1000 ? "Rate limited" : "Available"}</p>
-              {(provider.hold || provider.cooldown_until > Date.now() / 1000) && <button className={secondary} disabled={blocked} onClick={() => setProviderKey(provider.provider + ":" + provider.account_key)}>Review {provider.provider} / {provider.account_key} recovery</button>}
-              {providerKey === provider.provider + ":" + provider.account_key && <ActionForm title={`Reset ${provider.provider} / ${provider.account_key}`} description="Resolve this account's failed or uncertain requests first. Resetting does not authorize a replacement take." submitLabel="Reset provider account" busy={blocked} onCancel={() => setProviderKey("")} onSubmit={reason => run(() => generationRequest("/provider/reset", { provider: provider.provider, account_key: provider.account_key, expected_revision: provider.revision, reason }), "Provider account controls updated.")} />}
-            </div>)}
-            {action && action !== "pause" && <ActionForm key={action + feature} title="Update AI recovery controls" description="Confirm the underlying problem is resolved. Existing policy limits still apply after this change." submitLabel="Confirm recovery" busy={blocked} requireStopped={action === "activate"} onCancel={() => setAction("")} onSubmit={(reason, workersStopped) => run(() => generationRequest("/control", { action, feature: action === "reset_breaker" ? feature : "", expected_revision: overview.control.revision, reason, workers_stopped: workersStopped }), "Recovery controls updated. Check AI status above.")} />}
-            <TechnicalDetails value={overview} label="Control state and deployment details" />
-          </details>
-          <GenerationRecords leagues={leagues} busy={blocked} run={run} version={version} initialKind="attempts" advanced />
-        </>}
-      </details></Panel>
-    </div>}
+      </>}
+      {view === 'rules' && <div className={styles.main}><h3>Writing rules</h3><GenerationSettings leagues={leagues} busy={blocked} run={run} version={version} /></div>}
+      {view === 'spend' && <div className={styles.main}><div className={styles.summary}><div><h3>Tracked AI spend</h3><p>All time, across all leagues. Excludes earlier spending and unrecorded charges. Recap limits below include reserved and carry-forward obligations.</p></div><strong>{money(overview.known_cost_microusd)}</strong></div><GenerationRecapWorkspace leagues={leagues} busy={blocked} run={run} version={version} budgetSeriesId={budgetSeriesId} budgetRequestId={budgetRequestId} initialEpisodeId={budgetEpisodeId} budgets /></div>}
+      {view === 'activity' && <div className={styles.main}><h3>Recent activity</h3><p className="mt-2 text-prose text-dim">What ran, when it ran, and how it ended.</p><GenerationRecords leagues={leagues} busy={blocked} run={run} version={version} onRecapBudget={openRecapBudget} onRecapEpisode={openRecapEpisode} /></div>}
+      {view === 'recovery' && <div className={styles.main}><h3>Recovery & records</h3><p className="mt-2 text-prose text-dim">Provider receipts, delivery, and change history. Review the evidence before changing execution controls.</p><GenerationRecovery overview={overview} leagues={leagues} busy={blocked} run={run} version={version} /></div>}
+    </>}
   </section>;
 }
