@@ -157,17 +157,31 @@ def price_usage(body: dict, snapshot: dict) -> tuple[str, dict, int | None]:
     for key in ("input_tokens", "output_tokens"):
         if type(usage.get(key)) is not int or usage[key] < 0:
             return "unknown", usage, None
-    counts = {key: usage.get(key) or 0 for key in (
+    counts = {key: 0 if usage.get(key) is None else usage[key] for key in (
         "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
     if any(type(value) is not int or value < 0 for value in counts.values()):
         return "unknown", usage, None
-    creation = usage.get("cache_creation") or {}
+    creation = usage.get("cache_creation")
+    if creation is None:
+        creation = {}
+    if not isinstance(creation, dict):
+        return "unknown", usage, None
+    if set(creation) - {"ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"}:
+        return "pricing_unknown", usage, None
     five = creation.get("ephemeral_5m_input_tokens", counts["cache_creation_input_tokens"])
     hour = creation.get("ephemeral_1h_input_tokens", 0)
     if (type(five) is not int or type(hour) is not int or min(five, hour) < 0
             or five + hour != counts["cache_creation_input_tokens"]):
         return "unknown", usage, None
-    server_tools = usage.get("server_tool_use") or {}
+    server_tools = usage.get("server_tool_use")
+    if server_tools is None:
+        server_tools = {}
+    if not isinstance(server_tools, dict):
+        return "unknown", usage, None
+    if set(server_tools) - {"web_search_requests", "web_fetch_requests"}:
+        return "pricing_unknown", usage, None
+    if any(type(value) is not int or value < 0 for value in server_tools.values()):
+        return "unknown", usage, None
     if any(server_tools.values()) or usage.get("service_tier", "standard") not in (None, "standard"):
         return "pricing_unknown", usage, None
     amount = (counts["input_tokens"] * Decimal(snapshot["input"])

@@ -81,6 +81,15 @@ def _caps(row):
 
 
 async def _obligations(db):
+    from app.services.generation.commands import UNRESOLVED_OUTCOMES
+    attempts = (await db.execute(select(ProviderAttempt, GenerationOperation).outerjoin(
+        GenerationOperation, GenerationOperation.id == ProviderAttempt.operation_id))).all()
+    attempts_by_id = {attempt.id: attempt for attempt, _ in attempts}
+
+    def unresolved_outcome(attempt):
+        return (attempt.state in UNRESOLVED_OUTCOMES or
+                (attempt.state == "received" and attempt.error_code == "response_invalid"))
+
     rows = (await db.execute(select(RecapBudgetAllocation, RecapBudgetPlan).join(
         RecapBudgetPlan, RecapBudgetPlan.id == RecapBudgetAllocation.plan_id))).all()
     bound = set()
@@ -92,11 +101,11 @@ async def _obligations(db):
             month=a.month_key, app_month=month_key(a.created_at, UTC),
             known=a.actual_microusd or 0, reserved=a.outstanding_microusd,
             unknown=a.actual_microusd is None and (a.attempt_id is not None or a.state in ("unknown", "unbounded")),
+            outcome_unknown=bool(a.attempt_id and (a.attempt_id not in attempts_by_id or
+                unresolved_outcome(attempts_by_id[a.attempt_id]))),
             unbounded=a.state == "unbounded",
             attempt_id=a.attempt_id, state=a.state))
     # Existing immutable receipts are visible before backfill, including cancelled jobs.
-    attempts = (await db.execute(select(ProviderAttempt, GenerationOperation).outerjoin(
-        GenerationOperation, GenerationOperation.id == ProviderAttempt.operation_id))).all()
     from app.services.generation.accounting import request_ceiling
     for a, job in attempts:
         if a.id in bound:
@@ -119,6 +128,7 @@ async def _obligations(db):
         result.append(dict(series=job.series_id if job else None, episode=episode,
             category=category, month=month_key(a.created_at), app_month=month_key(a.created_at, UTC),
             known=known or 0, reserved=exposure, unknown=known is None and a.state != "not_sent",
+            outcome_unknown=unresolved_outcome(a),
             unbounded=unbounded, attempt_id=a.id, state="historical_unknown" if known is None else "settled"))
     return result
 
@@ -276,7 +286,7 @@ async def _reserve(db, episode_id, series_id, plan_key, allocations, now, *, man
     if not managed:
         await backfill_written(db, series_id)
     rows = await _obligations(db)
-    if any(r["episode"] == episode_id and r["unknown"] for r in rows):
+    if any(r["episode"] == episode_id and (r["unknown"] or r["outcome_unknown"]) for r in rows):
         raise Held("recap_provider_outcome_unknown")
     proposed = rows + [dict(series=series_id, episode=episode_id, category=a["category"],
         known=0, reserved=a["max_microusd"], month=month_key(now), app_month=month_key(now, UTC),
@@ -423,7 +433,7 @@ async def admit_provider_allocation(db, job, stage, request, saved, current, now
     obligations = await _obligations(db)
     if recap:
         _check_balances(obligations, job.series_id, episode, _caps(policy), now)
-        if any(r["episode"] == episode and r["unknown"] for r in obligations):
+        if any(r["episode"] == episode and (r["unknown"] or r["outcome_unknown"]) for r in obligations):
             raise Held("recap_provider_outcome_unknown")
     await _check_app(db, obligations, now)
     return row

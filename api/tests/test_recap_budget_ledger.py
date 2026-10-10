@@ -380,3 +380,108 @@ async def test_historical_view_uses_requested_month_for_legacy_spend(maker, tmp_
     async with maker() as db:
         view = await budget.get_budget_view(db, "series", None, at("2020-02-12T12:00:00"))
         assert view["app_limit"]["balance"]["known_microusd"] == 1_250_000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gate", ["reservation", "authorization", "dispatch"])
+async def test_financially_settled_abandoned_outcome_cannot_authorize_replacement(maker, gate):
+    # Mutation: use remaining financial uncertainty as the replacement-authority gate.
+    from types import SimpleNamespace
+    from app.services.generation.administration import resolve_attempt
+    from app.services.generation.gateway import Gateway
+    from app.services.generation.models import GenerationOperation
+    from app.services.generation.store import data
+    from app.services.generation.recap_models import RecapBudgetAllocation
+    from tests.test_generation_gateway import REQUEST, FakeTransport
+    await analyst_job(maker)
+    episode = budget.episode_identity("series", 2026, "4")
+    if gate == "dispatch":
+        from app.services.generation.accounting import bounded_plan
+        async with maker.begin() as db:
+            original = await db.get(GenerationOperation, "job")
+            feature = json.loads(original.policy_json)["policy"]["features"]["analyst"]
+            db.add(GenerationOperation(**{**data(original), "id": "replacement-job", "max_calls": 2}))
+            await budget.reserve_plan(db, episode, "series", "operation:replacement-job",
+                bounded_plan("replacement-job", "analyst", feature, feature, 2), NOW)
+    with pytest.raises(Held):
+        await Gateway(maker, FakeTransport(lost=True), epoch="test-epoch").invoke(
+            "job", 1, 1, {**REQUEST, "model": "claude-sonnet-4-6"})
+    async with maker.begin() as db:
+        row = await db.scalar(select(RecapBudgetAllocation).where(RecapBudgetAllocation.attempt_id.is_not(None)))
+        await resolve_attempt(db, row.attempt_id, SimpleNamespace(action="abandon_unknown", expected_state="unknown",
+            workers_stopped=True, evidence="Worker stopped, response unavailable", reason="Abandon"), "owner")
+        await budget.reconcile_allocation(db, row.id, 123, {"invoice": "confirmed charge"}, "owner", "Settle dollars")
+        view = await budget.get_budget_view(db, "series", episode, NOW)
+        balance = view["balances"]["combined_episode_microusd"]
+        assert balance["known_microusd"] == 123
+        assert balance["uncertain_microusd"] == 0
+        assert (balance["reserved_microusd"] > 0) == (gate == "dispatch")
+        if gate == "reservation":
+            with pytest.raises(Held, match="recap_provider_outcome_unknown"):
+                await budget.reserve_plan(db, episode, "series", "replacement", [allocation(1)], NOW)
+        elif gate == "authorization":
+            from app.services.generation.commands import authorize_candidate
+            from app.services.generation.planner import observe
+            job = await db.get(GenerationOperation, "job")
+            candidate = await observe(db, series_id="series", league_id=job.league_id,
+                feature="analyst", subject=job.subject, event="correction", payload=json.loads(job.payload_json))
+            with pytest.raises(Held, match="provider_outcome_unknown"):
+                await authorize_candidate(db, candidate.key, actor_id="owner", actor_kind="admin",
+                    reason="Correction", authorization_key="replacement")
+    if gate == "dispatch":
+        transport = FakeTransport()
+        with pytest.raises(Held, match="recap_provider_outcome_unknown"):
+            await Gateway(maker, transport, epoch="test-epoch").invoke(
+                "replacement-job", 1, 1, {**REQUEST, "model": "claude-sonnet-4-6"})
+        assert transport.sends == 0
+
+
+@pytest.mark.parametrize("nested", [
+    {"cache_creation": {"ephemeral_24h_input_tokens": 1}},
+    {"cache_creation": {"ephemeral_5m_input_tokens": 0, "unknown_dimension": 0}},
+    {"server_tool_use": {"unqualified_tool": 0}},
+])
+def test_unknown_nested_rate_dimensions_remain_unpriced(nested):
+    # Mutation: validate top-level usage keys but silently ignore nested rate dimensions.
+    from app.services.generation.accounting import price_usage, pricing
+    from tests.test_generation_gateway import BODY, REQUEST
+    state, _, amount = price_usage({**BODY, "usage": {**BODY["usage"], **nested}}, pricing(REQUEST["model"]))
+    assert state == "pricing_unknown" and amount is None
+
+
+@pytest.mark.parametrize("invalid", [False, [], "invalid", 0])
+@pytest.mark.parametrize("field", ["cache_creation", "server_tool_use", "cache_creation_input_tokens"])
+def test_malformed_metered_usage_is_not_silently_zero(field, invalid):
+    # Mutation: falsy malformed usage falls through `value or {}` / `value or 0`.
+    from app.services.generation.accounting import price_usage, pricing
+    from tests.test_generation_gateway import BODY, REQUEST
+    state, _, amount = price_usage({**BODY, "usage": {**BODY["usage"], field: invalid}}, pricing(REQUEST["model"]))
+    if field == "cache_creation_input_tokens" and type(invalid) is int:
+        assert state == "known" and amount == 35  # Actual zero token counts remain valid.
+    else:
+        assert state == "unknown" and amount is None
+
+
+@pytest.mark.asyncio
+async def test_late_receipt_resolves_content_hold_after_financial_reconciliation(maker):
+    # Mutation: abandoned content hold becomes permanent even after a real matching receipt.
+    from types import SimpleNamespace
+    from app.services.generation.administration import resolve_attempt
+    from app.services.generation.gateway import Gateway
+    from app.services.generation.recap_models import RecapBudgetAllocation
+    from app.services.generation.transport import Receipt
+    from tests.test_generation_gateway import BODY, REQUEST, FakeTransport
+    await analyst_job(maker)
+    gateway = Gateway(maker, FakeTransport(lost=True), epoch="test-epoch")
+    with pytest.raises(Held):
+        await gateway.invoke("job", 1, 1, {**REQUEST, "model": "claude-sonnet-4-6"})
+    async with maker.begin() as db:
+        row = await db.scalar(select(RecapBudgetAllocation).where(RecapBudgetAllocation.attempt_id.is_not(None)))
+        attempt_id = row.attempt_id
+        await resolve_attempt(db, attempt_id, SimpleNamespace(action="abandon_unknown", expected_state="unknown",
+            workers_stopped=True, evidence="Stopped", reason="Abandon"), "owner")
+        await budget.reconcile_allocation(db, row.id, 123, {"invoice": "confirmed"}, "owner", "Settle dollars")
+    body = {**BODY, "model": "claude-sonnet-4-6", "usage": {"input_tokens": 1, "output_tokens": 8}}
+    await gateway.record_receipt(attempt_id, Receipt(200, json.dumps(body), {}))
+    async with maker.begin() as db:
+        await budget.reserve_plan(db, budget.episode_identity("series", 2026, "4"), "series", "correction", [allocation(1)], NOW)

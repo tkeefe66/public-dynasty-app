@@ -27,6 +27,9 @@ from app.services.generation.store import (
 
 LEASE_SECONDS = 600
 UNRESOLVED = ("dispatching", "unknown")
+# Abandoned work is not active concurrency, but its unknown content outcome
+# still prohibits replacement. Invoice reconciliation cannot grant authority.
+UNRESOLVED_OUTCOMES = (*UNRESOLVED, "abandoned")
 FREE_REFRESH_KINDS = ("refresh", "analyst_refresh")
 
 
@@ -225,7 +228,7 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
     unresolved = await db.scalar(select(ProviderAttempt.id).join(
         GenerationOperation, GenerationOperation.id == ProviderAttempt.operation_id).where(
             GenerationOperation.subject == candidate.subject,
-            ProviderAttempt.state.in_(UNRESOLVED)).limit(1))
+            ProviderAttempt.state.in_(UNRESOLVED_OUTCOMES)).limit(1))
     if unresolved:
         raise Held("provider_outcome_unknown")
     from app.services.generation.models import ArtifactHead
