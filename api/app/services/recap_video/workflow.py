@@ -369,7 +369,17 @@ async def complete_stage(db, stage_id: str, generation: int, epoch: str, input_d
             attempt = await db.scalar(select(RecapProviderAttempt).where(RecapProviderAttempt.stage_id == row.id))
             if not attempt or attempt.state != "received" or attempt.cost_microusd is None or attempt.error_code:
                 raise Held("provider_outcome_unknown")
-        verified = await validator(db, row, result)
+        try:
+            verified = await validator(db, row, result)
+        except Held as exc:
+            if row.kind not in ('speech_check','render','media_check'):
+                raise
+            row.result_json,row.state,row.reason,row.lease_until=dump(result),'held',exc.code,0
+            row.generation += 1
+            from app.services.recap_video.corrections import attention
+            await attention(db,row.episode_id,row.kind,exc.code)
+            audit(db,row.worker_id,'media_validation_held',row.id,exc.code)
+            return {'stage_id':row.id,'state':row.state}
         if row.kind == "preflight":
             result = {**result, "report": _evidence(verified, row.episode_id)}
         row.result_json, row.state = dump(result), "succeeded"
@@ -419,15 +429,17 @@ async def authorize_dispatch(db, stage_id, generation, epoch, input_digest, *, w
     provider, alias = "elevenlabs", account_alias("elevenlabs")
     if provider not in RECEIPT_SETTLERS:
         raise Held("provider_receipts_unqualified")
-    await require_provider_ready(db, provider, alias, now)
+    from app.services.recap_video.admin_actions import replacement_dispositions
+    dispositioned = await replacement_dispositions(db, row)
+    await require_provider_ready(db, provider, alias, now, dispositioned=dispositioned)
     episode, config = await _current(db, row, now=now)
-    if await active_attempts(db, provider=provider, account_key=alias) >= config["policy"]["max_concurrency"]:
+    if await active_attempts(db, provider=provider, account_key=alias,dispositioned=dispositioned) >= config["policy"]["max_concurrency"]:
         raise Held("concurrency_busy")
-    if await active_attempts(db, series_id=episode.series_id):
+    if await active_attempts(db, series_id=episode.series_id,dispositioned=dispositioned):
         raise Held("series_concurrency_busy")
     # Entire immutable narration plan reserved before its first physical request.
     narration = list((await db.scalars(select(RecapStage).where(RecapStage.script_id == row.script_id,
-        RecapStage.kind == "narrate").order_by(RecapStage.chunk))).all())
+        RecapStage.execution_revision == row.execution_revision, RecapStage.kind == "narrate").order_by(RecapStage.chunk))).all())
     allocations = []
     for stage in narration:
         paid = json.loads(stage.input_json).get("paid")
@@ -436,8 +448,9 @@ async def authorize_dispatch(db, stage_id, generation, epoch, input_digest, *, w
             raise Held("narration_plan_unqualified")
         allocations.append(dict(key=stage.id, category="video", operation_id=stage.id,
             max_microusd=paid["max_microusd"], rate_snapshot=paid["rate_snapshot"]))
-    plan = await reserve_plan(db, row.episode_id, episode.series_id, "media:" + row.script_id, allocations, now)
-    await require_episode_budget(db, row.episode_id, episode.series_id, now)
+    plan_key = "media:" + row.script_id + (":" + str(row.execution_revision) if row.execution_revision > 1 else "")
+    plan = await reserve_plan(db, row.episode_id, episode.series_id, plan_key, allocations, now)
+    await require_episode_budget(db, row.episode_id, episode.series_id, now, dispositioned=dispositioned)
     allocation = await db.scalar(select(RecapBudgetAllocation).where(RecapBudgetAllocation.plan_id == plan,
         RecapBudgetAllocation.key == row.id))
     if allocation.attempt_id or allocation.state != "reserved":
@@ -637,6 +650,13 @@ async def advance_media(maker):
         for episode in episodes:
             try:
                 async with db.begin_nested():
+                    from app.services.recap_video.qualification import qualification_status
+                    from app.services.generation.recap_models import RecapStandingAuthorization
+                    qualified=await qualification_status(db,episode.series_id,episode.season)
+                    if qualified['automatic']:
+                        standing=await db.get(RecapStandingAuthorization,qualified['standing_id'])
+                        await prepare_preflight(db,episode.episode_id,actor_id=standing.actor_id,
+                            reason='Current season standing policy metadata verification')
                     await require_media_preflight(db, episode.episode_id)
                     selections = await PUBLISHED_SCRIPT_SELECTIONS(db, episode.series_id) if PUBLISHED_SCRIPT_SELECTIONS else ()
                     await prepare_episode_script(db, episode.episode_id, cache_dir=get_settings().cache_dir,
@@ -659,3 +679,5 @@ async def advance_media(maker):
                 job = await db.get(GenerationOperation, script.operation_id)
                 if job:
                     job.reason = exc.code
+    from app.services.recap_video.qualification import advance_qualified_publication
+    await advance_qualified_publication(maker)

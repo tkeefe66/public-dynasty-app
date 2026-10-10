@@ -70,6 +70,12 @@ async def drain(maker, cache_dir, *, execution_role="api-projector"):
                         episode = await require_readiness(db, row.series_id, json.loads(row.facts_json), league_id=row.league_id)
                         previous = (await db.get(ContentArtifact, payload["expected_artifact"])
                                     if payload.get("expected_artifact") else None)
+                        if episode and episode.article_digest and episode.article_digest != row.digest:
+                            from app.services.recap_video.publication import edition_row, withdraw_edition
+                            public=await edition_row(db,episode.league_id,episode.season,episode.week)
+                            if public and not public.withdrawn:
+                                await withdraw_edition(db,episode.league_id,episode.season,episode.week,
+                                    expected_revision=public.authority_revision,actor_id='api-projector',reason='Article revision requires reviewed media reattachment')
                         project_analyst(cache_dir, row, previous)
                         if episode:
                             episode.article_digest = row.digest

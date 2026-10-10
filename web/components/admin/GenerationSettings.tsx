@@ -4,6 +4,7 @@ import { FEATURE_LABELS, FeatureSettings, GenerationFeature, GenerationSeries, P
 import { Button } from "@/components/furniture/Button";
 import { ActionForm, ActionProps, controlClass, readable, secondary, TechnicalDetails } from "./GenerationShared";
 import { GenerationRecapBudget } from "./GenerationRecapBudget";
+import { GenerationRecapEpisode } from "./GenerationRecapEpisode";
 
 const models = ["claude-haiku-4-5-20251001", "claude-haiku-4-5", "claude-sonnet-4-6"];
 const modes = { disabled: "Off", manual: "Ask me first", automatic: "Automatic" };
@@ -18,6 +19,7 @@ export function GenerationSettings({ leagues, busy, run, version, budgetSeriesId
   const [loading, setLoading] = useState(true);
   const [leagueAction, setLeagueAction] = useState("");
   const [profile, setProfile] = useState("dynasty");
+  const [episodeId, setEpisodeId] = useState<string | undefined>();
   const selectedLeague = leagues.find(l => scope === "series:" + l.id);
   useEffect(() => { if (budgetSeriesId) setScope("series:" + budgetSeriesId); }, [budgetSeriesId, budgetRequestId]);
   useEffect(() => {
@@ -122,7 +124,8 @@ export function GenerationSettings({ leagues, busy, run, version, budgetSeriesId
         <Button type="submit" className="mt-3 px-4 py-2" disabled={blocked || !reason.trim()}>Save configuration</Button>
       </fieldset>
     </form>}
-    {selectedLeague ? <GenerationRecapBudget key={selectedLeague.id} seriesId={selectedLeague.id} busy={busy} run={run} version={version} /> : <div className="mt-4 border-t border-rule pt-4">
+    {selectedLeague && <GenerationRecapEpisode key={selectedLeague.id} seriesId={selectedLeague.id} busy={busy} run={run} version={version} onEpisodeChange={setEpisodeId} />}
+    {selectedLeague ? <GenerationRecapBudget key={selectedLeague.id} seriesId={selectedLeague.id} episodeId={episodeId} busy={busy} run={run} version={version} /> : <div className="mt-4 border-t border-rule pt-4">
       <h4 className="font-display text-name font-bold">Weekly Analyst recap limits</h4>
       <p className="mt-1 text-prose text-dim">Select an individual league above to view and edit its recap spending limits.</p>
     </div>}

@@ -11,7 +11,7 @@ from decimal import Decimal, ROUND_CEILING
 from zoneinfo import ZoneInfo
 
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.repositories.app_settings import get_monthly_budget
 from app.services.generation.models import GenerationOperation, LeagueSeries, ProviderAttempt
@@ -207,12 +207,16 @@ async def get_budget_view(db, series_id: str, episode_id: str | None, now: int) 
     rows = await _obligations(db)
     uncertain = any(r["series"] == series_id and r["category"] != "managed" and
                     (r["unbounded"] or r["episode"] is None) for r in rows)
+    from app.services.generation.models import LeagueSeason
+    from app.services.recap_video.qualification import qualification_status
+    season = await db.scalar(select(func.max(LeagueSeason.season)).where(LeagueSeason.series_id == series_id))
+    qualification = await qualification_status(db, series_id, season or 0)
     return {"series_id": series_id, "revision": row.revision if row else 0,
         "caps": caps.model_dump(), "episode_id": episode_id,
         "month_key": month_key(now),
         "balances": _balances(rows, series_id, episode_id, caps, now),
         "app_limit": await _app_balance(db, rows, now),
-        "media_automation_enabled": False,
+        "media_automation_enabled": qualification['automatic'],
         "enforcement_state": {"active": True, "reason": "historical_accounting_attention" if uncertain else ""}}
 
 
@@ -275,18 +279,19 @@ async def reserve_plan(db, episode_id: str, series_id: str, plan_key: str,
     return await _reserve(db, episode_id, series_id, plan_key, allocations, now)
 
 
-async def require_episode_budget(db, episode_id, series_id, now):
+async def require_episode_budget(db, episode_id, series_id, now, *, dispositioned=frozenset()):
     """Recheck current caps and independent outcome uncertainty before each send."""
     await lock_control(db)
     policy = await _policy_lock(db, series_id)
     rows = await _obligations(db)
     _check_balances(rows, series_id, episode_id, _caps(policy), now)
-    if any(r["episode"] == episode_id and (r["unknown"] or r["outcome_unknown"]) for r in rows):
+    if any(r["episode"] == episode_id and (r["unknown"] or r["outcome_unknown"])
+            and r['attempt_id'] not in dispositioned for r in rows):
         raise Held("recap_provider_outcome_unknown")
     await _check_app(db, rows, now)
 
 
-async def _reserve(db, episode_id, series_id, plan_key, allocations, now, *, managed=False):
+async def _reserve(db, episode_id, series_id, plan_key, allocations, now, *, managed=False, allow_bounded_unknown=False):
     await lock_control(db)
     if not await db.get(LeagueSeries, series_id):
         raise UnknownSeries("League series not found")
@@ -313,7 +318,8 @@ async def _reserve(db, episode_id, series_id, plan_key, allocations, now, *, man
     if not managed:
         await backfill_written(db, series_id)
     rows = await _obligations(db)
-    if any(r["episode"] == episode_id and (r["unknown"] or r["outcome_unknown"]) for r in rows):
+    if any(r["episode"] == episode_id and (r["unknown"] or r["outcome_unknown"])
+            and (not allow_bounded_unknown or r['unbounded']) for r in rows):
         raise Held("recap_provider_outcome_unknown")
     proposed = rows + [dict(series=series_id, episode=episode_id, category=a["category"],
         known=0, reserved=a["max_microusd"], month=month_key(now), app_month=month_key(now, UTC),

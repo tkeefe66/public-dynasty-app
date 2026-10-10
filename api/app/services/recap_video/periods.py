@@ -11,6 +11,13 @@ from sleeper_dynasty.engine.playoff_phase import weeks_for_round
 from sleeper_dynasty.engine.lineup import BENCH_SLOTS, SLOT_ELIGIBILITY
 
 
+def next_reconciliation(eligible_at: int, now: int) -> int:
+    release = datetime.fromtimestamp(eligible_at or now, ZoneInfo("America/Denver"))
+    friday = release.date() + timedelta(days=(4 - release.weekday()) % 7)
+    cutoff = datetime.combine(friday + timedelta(days=1), time(), ZoneInfo("America/Denver"))
+    return now + (900 if now < cutoff.timestamp() else 86400)
+
+
 def eligible_release(last_game_day: str) -> int:
     day = date.fromisoformat(last_game_day)
     # Thursday through Monday belongs to the following Tuesday release.

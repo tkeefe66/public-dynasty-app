@@ -406,6 +406,7 @@ async def validate_speech(db, stage, result):
             or asset.media_type != "application/json" or result["asset_ids"] != [identity] or asset.size > 2_000_000):
         raise Held("speech_evidence_missing")
     narration = (await db.scalars(select(RecapStage).where(RecapStage.script_id == stage.script_id,
+        RecapStage.execution_revision == stage.execution_revision,
         RecapStage.kind == "narrate", RecapStage.state == "succeeded").order_by(RecapStage.chunk))).all()
     expected_audio = [identity for row in narration for identity in json.loads(row.result_json)["asset_ids"]]
     if result["report"].get("audio_asset_ids") != expected_audio or not expected_audio:

@@ -92,3 +92,16 @@ export const FEATURE_LABELS: Record<GenerationFeature, string> = {
   trade_story: "Trade stories", gm_rating_blurb: "GM profiles",
   franchise_blurb: "Franchise outlooks", analyst: "Weekly Analyst", recap_video: "Weekly recap script",
 };
+export interface RecapEpisodeSummary { episode_id: string; season: number; week: number; lifecycle: string; hold: string }
+export interface RecapEpisodeStage { id: string; kind: string; state: string; generation: number; reason: string; result_json: string; evidence_json?: string }
+export interface RecapEpisodeView {
+  configured_worker_id?: string;
+  recovery_requests?: { id:string; attempt_id:string; state:string; error:string; worker_id:string }[];
+  speech_entities?: { kind: string; id: string; name: string }[];
+  needed_microusd?: number; budget?: RecapBudgetView;
+  episode: RecapEpisodeSummary; revision: string; authority_revision: number; media_id: string | null;
+  stage: RecapEpisodeStage | null; stages: RecapEpisodeStage[];
+  attempts: { id: string; state: string; worker_id: string; identity: unknown; cost_microusd: number | null }[];
+  qualification: { passed: number; required: number; automatic: boolean; reason: string };
+  reason: string; actions: string[];
+}

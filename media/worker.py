@@ -59,8 +59,28 @@ async def run_claim(client, lease):
         await asyncio.gather(pulse, task, return_exceptions=True)
 
 
-async def tick(client):
+async def tick(client, *, recovery=None):
     """Claim only fixed server capabilities. Client transport must disable retries."""
+    if recovery is not None:
+        response = await client.post('/api/internal/media/recovery-claim',json={})
+        response.raise_for_status()
+        request = response.json()
+        if request:
+            import httpx
+            error, status = '', 0
+            try:
+                await recovery(request['attempt_id'])
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                error = 'history_unavailable' if status == 404 else 'history_request_failed'
+            except httpx.HTTPError:
+                error = 'history_request_failed'
+            except ValueError:
+                error = 'history_identity_mismatch'
+            response = await client.post('/api/internal/media/recovery-complete',json={
+                'recovery_id':request['recovery_id'],'generation':request['generation'],'error':error,'status':status})
+            response.raise_for_status()
+            return True
     response = await client.post("/api/internal/media/claim", json={})
     response.raise_for_status()
     lease = response.json()
@@ -213,9 +233,11 @@ async def main():
             transport=httpx.AsyncHTTPTransport(retries=0), follow_redirects=False, timeout=120) as client:
         install_narration_handlers(client, api_key=os.environ.get("ELEVENLABS_API_KEY", ""), model_directory="/opt/model")
         install(client, HANDLERS)
+        async def recovery(attempt_id):
+            return await recover_narration(client,attempt_id,api_key=os.environ.get('ELEVENLABS_API_KEY',''))
         while True:
             try:
-                if not await tick(client):
+                if not await tick(client,recovery=recovery):
                     await asyncio.sleep(5)
             except (httpx.HTTPError, RuntimeError):
                 # Original lease/attempt remains server-owned. Do not resend paid

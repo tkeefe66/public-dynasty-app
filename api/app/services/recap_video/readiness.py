@@ -140,6 +140,9 @@ async def observe_period(db, key: EpisodeKey, snapshot: dict, now: int) -> str:
         db.add(row)
     elif row.league_id != snapshot["league_id"] or row.week != snapshot["week"] or row.nfl_weeks_json != dump(snapshot.get("nfl_weeks", [])):
         raise ValueError("Episode period membership changed; review scoring rules")
+    from app.services.recap_video.corrections import withdraw_changed, bind_dependencies, invalidate_episode
+    was_new = not row.latest_observation_id
+    await withdraw_changed(db, row, snapshot)
     if now < row.observed_at:
         raise ValueError("Observation clock moved backwards")
     previous = None
@@ -158,24 +161,27 @@ async def observe_period(db, key: EpisodeKey, snapshot: dict, now: int) -> str:
     row.stable_since = (row.stable_since if same else now) if valid else 0
     row.lifecycle = "ready" if decision.ready and not admission else "held"
     row.hold = (admission or ("" if decision.ready else decision.code)) if valid else decision.code
-    progressed = {"waiting_for_article", "scripting", "narration", "speech_check", "rendering", "media_check", "review", "published", "withdrawn", "correction"}
+    progressed = {"waiting_for_article", "scripting", "narration", "speech_check", "rendering", "media_check", "review", "published", "withdrawn", "correction", "video_skipped"}
     if previous_lifecycle in progressed and previous_facts == decision.facts_digest and decision.ready and not admission:
         row.lifecycle, row.hold = previous_lifecycle, previous_hold
-    elif previous_facts and previous_facts != decision.facts_digest:
+    if valid and previous_hold in ('recap_facts_changed','recap_dependency_changed','recap_dependency_inventory_changed'):
+        row.lifecycle, row.hold = 'correction', previous_hold
+    if previous_facts and previous_facts != decision.facts_digest:
         # Invalidate selection immediately; retained receipts still settle money.
         from app.services.generation.recap_models import RecapStage, RecapProviderAttempt
         stages = (await db.scalars(select(RecapStage).where(RecapStage.episode_id == ident))).all()
         for stage in stages:
             stage.state, stage.reason, stage.lease_until = "held", "recap_facts_changed", 0
             stage.generation += 1
-        if stages:
+        if stages and valid:
             row.lifecycle, row.hold = "held", "recap_facts_changed"
         for attempt in (await db.scalars(select(RecapProviderAttempt).where(
                 RecapProviderAttempt.episode_id == ident, RecapProviderAttempt.state == "dispatching"))).all():
             attempt.state = "unknown"
     row.eligible_at, row.observed_at, row.facts_digest = decision.eligible_at, now, decision.facts_digest
     row.source_digest = digest(saved)
-    row.next_observation_at = now + 900
+    from app.services.recap_video.periods import next_reconciliation
+    row.next_observation_at = next_reconciliation(row.eligible_at, now)
     observation = RecapObservation(episode_id=ident, observed_at=now, snapshot_json=dump(saved),
         snapshot_digest=row.source_digest, facts_digest=decision.facts_digest,
         provider_timestamps_json=dump(saved.get("provider_timestamps", {})),
@@ -183,6 +189,14 @@ async def observe_period(db, key: EpisodeKey, snapshot: dict, now: int) -> str:
     db.add(observation)
     await db.flush()
     row.latest_observation_id = observation.id
+    await bind_dependencies(db, row)
+    if was_new:
+        # A late-discovered earlier period was never reviewed as context.
+        later_rows = (await db.scalars(select(RecapEpisode).where(RecapEpisode.series_id == row.series_id,
+            RecapEpisode.season == row.season, RecapEpisode.week > row.week))).all()
+        for later in later_rows:
+            await bind_dependencies(db, later)
+            await invalidate_episode(db, later, "recap_dependency_inventory_changed")
     log.info("Recap readiness episode=%s state=%s reason=%s due=%s", ident, row.lifecycle, row.hold, row.next_observation_at)
     return ident
 
@@ -227,7 +241,7 @@ async def require_readiness(db, series_id: str, payload: dict, *, league_id=None
         return row
     # Media progress does not revoke settled source facts for written recaps.
     # Media failures stay on RecapStage; row.hold is source/admission authority.
-    allowed = {"ready", "waiting_for_article", "scripting", "narration", "speech_check", "rendering", "media_check", "review", "published"}
+    allowed = {"ready", "waiting_for_article", "scripting", "narration", "speech_check", "rendering", "media_check", "review", "published", "video_skipped"}
     if row.lifecycle not in allowed or row.hold:
         raise Held(row.hold or "recap_not_ready")
     if not row.admitted_at:

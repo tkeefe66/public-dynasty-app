@@ -326,6 +326,8 @@ async def select_publication(db, episode_id: str, expected_revision: int, media_
     media, script_id = await verified_media(db, episode_id, media_id)
     await lock_control(db)
     proof = await db.get(RecapPublicationApproval, proof.id, populate_existing=True)
+    from app.services.recap_video.qualification import require_standing_proof
+    await require_standing_proof(db, proof)
     scope = await current_scope(db, episode_id, expected_revision, media_id)
     scope.update(media_digest=digest(media), script_id=script_id)
     if proof.consumed or dump(scope) != proof.scope_json:
@@ -402,6 +404,9 @@ async def project_publication(db, item, cache_dir):
     if not await article_current(db, row):
         raise Held('publication_article_changed')
     proof = await db.get(RecapPublicationApproval, row.approval_id)
+    if proof:
+        from app.services.recap_video.qualification import require_standing_proof
+        await require_standing_proof(db, proof)
     if not proof or not proof.consumed:
         raise Held('publication_approval_required')
     scope = json.loads(proof.scope_json)

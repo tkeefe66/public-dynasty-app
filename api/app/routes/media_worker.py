@@ -56,6 +56,34 @@ class Identity(Strict):
     identity: dict
 
 
+class RecoveryCompletion(Strict):
+    recovery_id: str = Field(min_length=1,max_length=64)
+    generation: int = Field(ge=1)
+    error: Literal['','history_unavailable','history_identity_mismatch','history_request_failed'] = ''
+    status: int = Field(default=0,ge=0,le=599)
+
+
+@router.post('/recovery-claim')
+async def claim_recovery(request: Request, worker=Depends(require_media_worker)):
+    require_narration(worker)
+    await parse(request,Claim)
+    from app.services.recap_video.recovery import claim_recovery as claim
+    async with get_sessionmaker().begin() as db:
+        return await claim(db,worker.worker_id,stamp())
+
+
+@router.post('/recovery-complete')
+async def complete_recovery(request: Request, worker=Depends(require_media_worker)):
+    require_narration(worker)
+    body = await parse(request,RecoveryCompletion)
+    from app.services.recap_video.recovery import complete_recovery as complete
+    try:
+        async with get_sessionmaker().begin() as db:
+            return await complete(db,**body.model_dump(),worker_id=worker.worker_id)
+    except (Held,Conflict) as exc:
+        raise translate(exc) from None
+
+
 def require_narration(worker):
     if "narrate" not in worker.capabilities:
         raise HTTPException(403, "Narration capability required")

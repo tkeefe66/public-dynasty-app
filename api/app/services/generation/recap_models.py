@@ -104,10 +104,11 @@ class RecapStage(Base):
     """API-created subordinate checkpoint, never an independent scheduler job."""
     __tablename__ = "recap_stages"
     evidence_json: Mapped[str] = mapped_column(String, default="{}")
-    __table_args__ = (UniqueConstraint("episode_id", "revision", "kind", "chunk", name="uq_recap_stage"),)
+    __table_args__ = (UniqueConstraint("episode_id", "revision", "execution_revision", "kind", "chunk", name="uq_recap_stage"),)
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
     episode_id: Mapped[str] = mapped_column(String, index=True)
     revision: Mapped[int] = mapped_column(Integer)
+    execution_revision: Mapped[int] = mapped_column(Integer, default=1)
     kind: Mapped[str] = mapped_column(String)
     chunk: Mapped[int] = mapped_column(Integer, default=0)
     script_id: Mapped[str] = mapped_column(String)
@@ -245,6 +246,8 @@ class RecapPublicationApproval(Base):
     reason: Mapped[str] = mapped_column(String)
     created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
     consumed: Mapped[bool] = mapped_column(Boolean, default=False)
+    authorization_kind: Mapped[str] = mapped_column(String, default="manual")
+    authorization_id: Mapped[str] = mapped_column(String, default="")
 
 
 class RecapPublicationSelection(Base):
@@ -257,3 +260,95 @@ class RecapPublicationSelection(Base):
     script_id: Mapped[str] = mapped_column(String)
     authority_revision: Mapped[int] = mapped_column(Integer)
     published_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class RecapCalibration(Base):
+    """Immutable explicit API administrator calibration, never worker metadata."""
+    __tablename__ = "recap_calibrations"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    series_id: Mapped[str] = mapped_column(String, index=True)
+    season: Mapped[int] = mapped_column(Integer)
+    config_json: Mapped[str] = mapped_column(String)
+    metadata_json: Mapped[str] = mapped_column(String)
+    rate_json: Mapped[str] = mapped_column(String)
+    versions_json: Mapped[str] = mapped_column(String)
+    evidence_json: Mapped[str] = mapped_column(String)
+    actor_id: Mapped[str] = mapped_column(String)
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class RecapQualificationReview(Base):
+    __tablename__ = "recap_qualification_reviews"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    episode_id: Mapped[str] = mapped_column(String, index=True)
+    series_id: Mapped[str] = mapped_column(String, index=True)
+    season: Mapped[int] = mapped_column(Integer)
+    calibration_id: Mapped[str] = mapped_column(String)
+    approval_id: Mapped[str] = mapped_column(String)
+    binding_json: Mapped[str] = mapped_column(String)
+    evidence_json: Mapped[str] = mapped_column(String)
+    actor_id: Mapped[str] = mapped_column(String)
+    passed: Mapped[bool] = mapped_column(Boolean)
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class RecapStandingAuthorization(Base):
+    __tablename__ = "recap_standing_authorizations"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    series_id: Mapped[str] = mapped_column(String, index=True)
+    season: Mapped[int] = mapped_column(Integer)
+    calibration_id: Mapped[str] = mapped_column(String)
+    review_ids_json: Mapped[str] = mapped_column(String)
+    actor_id: Mapped[str] = mapped_column(String)
+    policy: Mapped[str] = mapped_column(String, default="three-reviewed-episodes-v1")
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class RecapDependency(Base):
+    __tablename__ = "recap_dependencies"
+    __table_args__ = (UniqueConstraint("episode_id", "prior_episode_id", "observation_id", name="uq_recap_dependency"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    episode_id: Mapped[str] = mapped_column(String, index=True)
+    prior_episode_id: Mapped[str] = mapped_column(String, index=True)
+    observation_id: Mapped[str] = mapped_column(String)
+    facts_digest: Mapped[str] = mapped_column(String)
+
+
+class RecapRecovery(Base):
+    """Append-only old generation evidence and explicitly bounded recovery decisions."""
+    __tablename__ = "recap_recoveries"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    episode_id: Mapped[str] = mapped_column(String, index=True)
+    stage_id: Mapped[str] = mapped_column(String)
+    action: Mapped[str] = mapped_column(String)
+    before_json: Mapped[str] = mapped_column(String)
+    actor_id: Mapped[str] = mapped_column(String)
+    reason: Mapped[str] = mapped_column(String)
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class RecapAttention(Base):
+    __tablename__ = "recap_attention"
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    episode_id: Mapped[str] = mapped_column(String, index=True)
+    state: Mapped[str] = mapped_column(String)
+    reason: Mapped[str] = mapped_column(String)
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class RecapRecoveryRequest(Base):
+    """One explicit exact-history lookup; expiration requires fresh admin review."""
+    __tablename__ = "recap_recovery_requests"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    attempt_id: Mapped[str] = mapped_column(String, index=True)
+    worker_id: Mapped[str] = mapped_column(String)
+    actor_id: Mapped[str] = mapped_column(String)
+    identity_json: Mapped[str] = mapped_column(String)
+    request_digest: Mapped[str] = mapped_column(String)
+    epoch: Mapped[str] = mapped_column(String)
+    state: Mapped[str] = mapped_column(String, default="pending")
+    generation: Mapped[int] = mapped_column(Integer, default=1)
+    lease_until: Mapped[int] = mapped_column(BigInteger, default=0)
+    error: Mapped[str] = mapped_column(String, default="")
+    reason: Mapped[str] = mapped_column(String)
+    created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)

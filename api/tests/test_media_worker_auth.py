@@ -75,3 +75,32 @@ async def test_user_jwt_cannot_be_media_worker(app, monkeypatch):
     user_token = jwt.encode({"sub": "synthetic-owner", "email": "owner@test.local"}, "synthetic-backend-secret-" * 3, algorithm="HS256")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         assert (await client.post("/api/internal/media/claim", json={}, headers={"Authorization": "Bearer " + user_token})).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_exact_recovery_http_handoff_stops_on_missing_history(app,maker,tmp_path,monkeypatch):
+    from app.services.recap_video.recovery import enqueue_recovery
+    from app.services.generation.recap_models import RecapProviderAttempt,RecapRecoveryRequest
+    from app.routes import media_worker as routes
+    _,stage_id=await seed_media(maker,tmp_path,monkeypatch,'narrate')
+    monkeypatch.setenv('TRADE_GRADER_MEDIA_WORKER_TOKEN','synthetic-worker-secret-'*3)
+    monkeypatch.setenv('TRADE_GRADER_MEDIA_WORKER_ID','original')
+    monkeypatch.setenv('TRADE_GRADER_MEDIA_WORKER_CAPABILITIES','narrate')
+    monkeypatch.setattr(routes,'get_sessionmaker',lambda:maker)
+    async with maker.begin() as db:
+        lease=await work.claim_stage(db,'original',{'narrate'},stamp())
+        sent=await work.authorize_dispatch(db,**fence(lease),worker_id='original')
+        await work.persist_identity(db,sent['attempt_id'],{'request_id':'synthetic-request','history_item_id':'synthetic-history'},worker_id='original')
+        (await db.get(RecapProviderAttempt,sent['attempt_id'])).state='unknown'
+        recovery=await enqueue_recovery(db,sent['attempt_id'],actor_id='owner',reason='Exact history recovery')
+    async with AsyncClient(transport=ASGITransport(app=app),base_url='http://testserver',headers={'Authorization':'Bearer '+'synthetic-worker-secret-'*3}) as client:
+        claimed=await client.post('/api/internal/media/recovery-claim',json={})
+        assert claimed.json()=={'recovery_id':recovery.id,'attempt_id':sent['attempt_id'],'generation':1}
+        assert (await client.post('/api/internal/media/recovery-claim',json={})).json() is None
+        body={'recovery_id':recovery.id,'generation':1,'error':'history_unavailable','status':404}
+        assert (await client.post('/api/internal/media/recovery-complete',json=body)).status_code==200
+        assert (await client.post('/api/internal/media/recovery-complete',json=body)).status_code==403
+        assert (await client.post('/api/internal/media/recovery-claim',json={})).json() is None
+    async with maker() as db:
+        assert (await db.get(RecapRecoveryRequest,recovery.id)).error=='history_unavailable'
+        assert (await db.get(RecapProviderAttempt,sent['attempt_id'])).cost_microusd is None

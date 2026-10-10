@@ -16,7 +16,7 @@ export function GenerationJob({ row, leagues, busy, run, onRecapBudget, review =
   const stopped = ["needs_attention", "held"].includes(job.state || "");
   const freeRefresh = isDataRefresh(job);
   const retryable = failedFreeRefresh(job);
-  const resumable = (job.state === "held" && job.reason !== "restore_reapproval_required") || (job.state === "needs_attention" && job.reason === "provider_outcome_unknown");
+  const resumable = job.feature !== 'recap_video' && ((job.state === "held" && job.reason !== "restore_reapproval_required") || (job.state === "needs_attention" && job.reason === "provider_outcome_unknown"));
   const attempts = detail?.attempts || [];
   const blocked = busy || loading;
   const budgetHeld = job.reason?.startsWith("recap_budget_") || job.reason === "legacy_budget_reached";
@@ -67,6 +67,7 @@ export function GenerationJob({ row, leagues, busy, run, onRecapBudget, review =
       </div>
       <div className="flex shrink-0 flex-wrap gap-2">
       {budgetHeld && onRecapBudget && budgetSeries && <button className={secondary} disabled={blocked} onClick={() => onRecapBudget(budgetSeries)}>Review recap limits</button>}
+      {job.feature === 'recap_video' && onRecapBudget && budgetSeries && <button className={secondary} disabled={blocked} onClick={() => onRecapBudget(budgetSeries)}>Review recap episode</button>}
       {retryable && <button className={secondary} disabled={blocked} onClick={retryDataRefresh}>Retry data refresh</button>}
       <button className={secondary} disabled={blocked} aria-expanded={opened} onClick={async () => {
         if (opened) { setOpened(false); setAction(""); return; }

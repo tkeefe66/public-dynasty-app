@@ -147,6 +147,8 @@ async def prepare_script(db, episode_id, *, cache_dir, published_script_ids=()):
     observation = await db.get(RecapObservation, row.latest_observation_id) if row else None
     if not row or not observation:
         raise Held("recap_readiness_missing")
+    from app.services.recap_video.corrections import bind_dependencies
+    await bind_dependencies(db, row)
     source = json.loads(observation.snapshot_json)
     metadata = player_evidence(source, cache_dir)
     claims = compile_claims({**source, "player_metadata": metadata})

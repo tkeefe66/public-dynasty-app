@@ -143,6 +143,20 @@ async def test_generation_rows_roundtrip_without_receipt_or_artifact_changes(mak
             scope_json='{"article_revision":3}', reviewer_id='owner', reason='Reviewed synthetic preview', consumed=True))
         db.add(RecapPublicationSelection(episode_id='episode',series_id='series',script_id='script',authority_revision=3))
         db.add(RecapShareDecision(scope='edition:episode',revision=2,allowed=False,opted_out=True,token=None,token_digest=None))
+        from app.services.generation.recap_models import (RecapCalibration,RecapQualificationReview,
+            RecapStandingAuthorization,RecapDependency,RecapRecovery,RecapAttention,RecapRecoveryRequest)
+        db.add(RecapCalibration(id='calibration',series_id='series',season=2026,config_json='{"voice":"synthetic"}',
+            metadata_json='{"account":"synthetic"}',rate_json='{"unit":"character"}',versions_json='{"renderer":"1"}',
+            evidence_json='{"billing":"synthetic-proof"}',actor_id='owner'))
+        db.add(RecapQualificationReview(id='review',episode_id='episode',series_id='series',season=2026,
+            calibration_id='calibration',approval_id='publication-approval',binding_json='{"script":"retained"}',
+            evidence_json='{"phone":"synthetic-proof"}',actor_id='owner',passed=True))
+        db.add(RecapStandingAuthorization(id='standing',series_id='series',season=2026,calibration_id='calibration',
+            review_ids_json='["review"]',actor_id='owner'))
+        db.add(RecapDependency(episode_id='episode',prior_episode_id='prior',observation_id='observation',facts_digest='facts'))
+        db.add(RecapRecovery(episode_id='episode',stage_id='media-stage',action='resume_free',before_json='{"generation":1}',actor_id='owner',reason='synthetic'))
+        db.add(RecapRecoveryRequest(attempt_id='synthetic-attempt',worker_id='worker',actor_id='owner',identity_json='{}',request_digest='synthetic',epoch='test-epoch',reason='synthetic'))
+        db.add(RecapAttention(key='attention',episode_id='episode',state='held',reason='speech_verification_failed'))
     async with maker() as db:
         blob, counts = await dump_database(db)
     assert all(counts[t.name] for t in Base.metadata.sorted_tables if t.name not in

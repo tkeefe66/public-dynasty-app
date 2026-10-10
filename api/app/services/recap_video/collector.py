@@ -85,10 +85,10 @@ async def _persist_inventory(db, inventory, now):
     return inventory["version"]
 
 
-async def collect_recap(client, league_id, cache_dir, fence, now: int) -> bool:
+async def collect_recap(client, league_id, cache_dir, fence, now: int, *, force=False) -> bool:
     """Invalidation also covers malformed source shapes and unexpected errors."""
     try:
-        return await _collect_recap(client, league_id, cache_dir, fence, now)
+        return await _collect_recap(client, league_id, cache_dir, fence, now, force=force)
     except Exception as exc:
         if fence is not None:
             async with fence() as db:
@@ -104,7 +104,7 @@ async def collect_recap(client, league_id, cache_dir, fence, now: int) -> bool:
         raise RuntimeError("recap_collection_failed: " + str(exc)) from exc
 
 
-async def _collect_recap(client, league_id, cache_dir, fence, now: int) -> bool:
+async def _collect_recap(client, league_id, cache_dir, fence, now: int, *, force=False) -> bool:
     """True means workflow handled this league, including held/no-due periods.
 
     Source failures commit an invalidating observation before raising to the
@@ -119,7 +119,7 @@ async def _collect_recap(client, league_id, cache_dir, fence, now: int) -> bool:
         series_id = season.series_id
         existing = list((await db.scalars(select(RecapEpisode).where(
             RecapEpisode.league_id == league_id, RecapEpisode.lifecycle != "complete"))).all())
-        due = [r for r in existing if r.next_observation_at <= now]
+        due = [r for r in existing if force or r.next_observation_at <= now]
         if existing and not due:
             return True
     sources = {}

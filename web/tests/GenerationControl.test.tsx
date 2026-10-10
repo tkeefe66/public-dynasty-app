@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GenerationControl } from "../components/admin/GenerationControl";
 import { FEATURE_LABELS } from "../lib/generation";
@@ -37,7 +37,8 @@ beforeEach(() => {
     return {};
   });
 });
-afterEach(() => vi.restoreAllMocks());
+// Unmount before restoring request mocks; completed actions can schedule effects.
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("Generation controls", () => {
   it("names affected provider account and submits only scoped recovery", async () => {

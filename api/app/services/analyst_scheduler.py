@@ -21,6 +21,8 @@ async def analyst_loop(cache_dir: Path) -> None:
     retain private facts while managed generation pursues a reviewed AI roast.
     Enabled recap workflows persist next_observation_at; the collector skips
     early duplicate jobs and enforces stable evidence plus Tuesday release.
+    Each episode remains due every 15 minutes through release-week Friday
+    Denver, then daily. Explicit refresh bypasses only that observation cadence.
     """
     try:
         await asyncio.sleep(2)

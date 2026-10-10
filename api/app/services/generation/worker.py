@@ -132,7 +132,7 @@ class Worker:
                 from app.services.analyst import generate_analyst
                 from app.services.generation.planner import collect_analyst
                 await generate_analyst(client, SimpleNamespace(league_id=job.league_id), self.cache_dir,
-                    skip_llm=True, publication_fence=lambda: self.fence(job))
+                    skip_llm=True, publication_fence=lambda: self.fence(job),force_recap_observation=job.actor_kind != 'scheduler')
                 async with self.fence(job) as db:
                     season = await db.get(LeagueSeason, job.league_id)
                     if season:

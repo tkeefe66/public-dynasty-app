@@ -35,11 +35,13 @@ async def account_control(db, provider, account_key):
     return row
 
 
-async def active_attempts(db, *, provider=None, account_key=None, series_id=None):
+async def active_attempts(db, *, provider=None, account_key=None, series_id=None, dispositioned=frozenset()):
     from app.services.generation.models import GenerationOperation
     total = 0
     for model in (ProviderAttempt, RecapProviderAttempt):
         query = select(func.count()).select_from(model).where(model.state.in_(("dispatching", "unknown")))
+        if dispositioned and model is RecapProviderAttempt:
+            query = query.where(~model.id.in_(dispositioned))
         if provider is not None:
             query = query.where(model.provider == provider, model.account_key == account_key)
         if series_id is not None:
@@ -52,18 +54,25 @@ async def active_attempts(db, *, provider=None, account_key=None, series_id=None
     return total
 
 
-async def require_provider_ready(db, provider: str, account_key: str, now: int) -> None:
+async def require_provider_ready(db, provider: str, account_key: str, now: int, *, dispositioned=frozenset()) -> None:
     control = await lock_control(db)
     if get_settings().generation_emergency_pause:
         raise Held("emergency_pause")
     if control.hold:
         raise Held(control.hold)
     row = await account_control(db, provider, account_key)
-    if row.hold:
+    allow_accounting = False
+    if dispositioned and row.hold == 'accounting_attention':
+        unresolved = []
+        for model in (ProviderAttempt, RecapProviderAttempt):
+            unresolved.extend((await db.scalars(select(model.id).where(model.provider == provider,
+                model.account_key == account_key,model.state.in_(('dispatching','unknown','abandoned'))))).all())
+        allow_accounting = bool(unresolved) and set(unresolved).issubset(dispositioned)
+    if row.hold and not allow_accounting:
         raise Held(row.hold)
     if row.cooldown_until > now:
         raise Held("provider_cooldown")
-    if await active_attempts(db, provider=provider, account_key=account_key) >= row.max_concurrency:
+    if await active_attempts(db, provider=provider, account_key=account_key,dispositioned=dispositioned) >= row.max_concurrency:
         raise Held("concurrency_busy")
 
 

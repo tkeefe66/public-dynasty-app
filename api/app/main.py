@@ -48,6 +48,8 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         from app.services.recap_video.elevenlabs import install_api
         install_api()
+        from app.services.recap_video.qualification import install_api as install_qualification
+        install_qualification()
         # Create the identity DB engine eagerly (one pool, no first-request race).
         init_engine()
         tasks = [asyncio.create_task(worker_loop(settings.cache_dir))]
@@ -145,6 +147,7 @@ def create_app() -> FastAPI:
     app.include_router(generation_admin.router)
     from app.routes import recap_admin
     app.include_router(recap_admin.router)
+    app.include_router(recap_admin.episodes)
     from app.routes import media_worker
     app.include_router(media_worker.router)
     return app

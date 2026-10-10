@@ -177,3 +177,23 @@ async def test_process_failure_is_uploaded_and_completed_under_current_lease(mon
     assert raw['reason']==reason and raw['process']=='ffmpeg' and raw['stage_kind']=='render'
     assert client.calls[1][1]['json']['result']['asset_ids']==['diagnostic']
     assert client.calls[1][1]['json']['result']['status']=='input_failure'
+
+
+@pytest.mark.asyncio
+async def test_explicit_recovery_poll_never_claims_paid_work_and_reports_unavailable_history():
+    # Mutation: recovery polling falls through to a new paid claim or retries missing history.
+    import httpx,json
+    paths=[]
+    def api(request):
+        paths.append(request.url.path)
+        if request.url.path.endswith('recovery-claim'):
+            return httpx.Response(200,json={'recovery_id':'lookup','attempt_id':'original','generation':1})
+        assert json.loads(request.content)=={'recovery_id':'lookup','generation':1,'error':'history_unavailable','status':404}
+        return httpx.Response(200,json={'state':'held'})
+    async def recover(attempt):
+        assert attempt=='original'
+        response=httpx.Response(404,request=httpx.Request('GET','http://synthetic/history/original'))
+        response.raise_for_status()
+    async with httpx.AsyncClient(base_url='http://api',transport=httpx.MockTransport(api)) as client:
+        assert await worker.tick(client,recovery=recover)
+    assert paths==['/api/internal/media/recovery-claim','/api/internal/media/recovery-complete']

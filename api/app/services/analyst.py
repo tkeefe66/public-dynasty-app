@@ -68,7 +68,7 @@ def advance_standings(rosters, results):
 
 async def generate_analyst(client, entry, cache_dir: Path, *, skip_llm=False, writer=None,
                            correction_week: int | None = None, correction_reason: str | None = None,
-                           now: datetime | None = None, publication_fence=None):
+                           now: datetime | None = None, publication_fence=None, force_recap_observation=False):
     """Catch up missing regular-season editions in order; retry on next refresh.
 
 No historic-season bulk generation. The first current-season refresh catches up
@@ -85,7 +85,7 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
     # Enabled workflow has its own complete scoring-period collector. Its
     # failures must reach the free job, not the legacy best-effort logger.
     if await collect_recap(client, league_id, cache_dir, publication_fence,
-            int((now or datetime.now(timezone.utc)).timestamp())):
+            int((now or datetime.now(timezone.utc)).timestamp()), **({'force':True} if force_recap_observation or correction_week is not None else {})):
         return
     try:
         store = AnalystStore(cache_dir)
