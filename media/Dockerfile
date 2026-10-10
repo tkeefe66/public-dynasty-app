@@ -13,5 +13,6 @@ COPY api/app/services/recap_video/elevenlabs.py api/app/services/recap_video/ele
 COPY scripts/check_recap_media_runtime.py scripts/check_recap_media_runtime.py
 COPY scripts/benchmark_recap_media.py scripts/benchmark_recap_media.py
 COPY api/tests/test_recap_render_contract.py api/tests/test_recap_render_contract.py
+COPY api/tests/fixtures/recap_media api/tests/fixtures/recap_media
 ENV PATH=/opt/venv/bin:/usr/bin:/bin
 CMD ["python", "-m", "media.worker"]

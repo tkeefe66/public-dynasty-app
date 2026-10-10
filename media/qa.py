@@ -60,14 +60,19 @@ def measure_bundle(bundle_dir: Path, episode: dict) -> dict:
         issues.extend(check_sync(audio_start_ms=first["a"], video_start_ms=first["v"]))
         source_duration = float(source["format"]["duration"])
         m = report["measurements"]
-        from media.audio_seams import measure_seams, seam_issues, RULES
+        from media.audio_seams import measure_seams, seam_issues, RULES, pcm_frame_count, decoded_length_issues
         m['seam_rules']=RULES
         m['chunk_timing']=episode['chunk_timing']
-        m['source_seams']=measure_seams(root/'audio.wav',episode['chunk_timing'])
         encoded=root/'qa-decoded.wav'
         seam_decode=_call(['ffmpeg','-v','error','-nostdin','-protocol_whitelist','file,pipe','-i',str(root/'video.mp4'),'-vn','-ac','1','-ar','44100','-c:a','pcm_s16le','-y',str(encoded)])
         if seam_decode.returncode: raise ValueError()
-        m['encoded_seams']=measure_seams(encoded,episode['chunk_timing'])
+        m['source_audio_frames']=pcm_frame_count(root/'audio.wav')
+        m['decoded_audio_frames']=pcm_frame_count(encoded)
+        content_frames=episode['chunk_timing'][-1]['end_frame']
+        length_issues=decoded_length_issues(m['source_audio_frames'],m['decoded_audio_frames'],content_frames)
+        issues.extend(length_issues)
+        m['source_seams']=measure_seams(root/'audio.wav',episode['chunk_timing']) if m['source_audio_frames']>=content_frames else []
+        m['encoded_seams']=measure_seams(encoded,episode['chunk_timing']) if m['decoded_audio_frames']>=content_frames else []
         encoded.unlink()
         issues.extend(seam_issues(m['source_seams'],episode['chunk_timing']))
         issues.extend(seam_issues(m['encoded_seams'],episode['chunk_timing']))

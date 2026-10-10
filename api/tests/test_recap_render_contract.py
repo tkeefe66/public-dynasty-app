@@ -62,7 +62,7 @@ def test_api_accepts_measured_fixture_and_rejects_missing_frames_or_ending():
     assets = {name:SimpleNamespace(digest=digest_file(root/name),size=(root/name).stat().st_size)
         for name in ("video.mp4","audio.wav","render.json")}
     require_media_measurements(report,episode,assets)
-    for field,value in (("representative_frames",[]),("audio_duration",.5),("peak_db",[float("nan")])):
+    for field,value in (("representative_frames",[]),("audio_duration",.5),("peak_db",[float("nan")]),("decoded_audio_frames",87000),("decoded_audio_frames",100000),("decoded_audio_frames",float("nan")),("source_audio_frames",87000)):
         bad = copy.deepcopy(report);bad["measurements"][field]=value
         with pytest.raises(Held,match="media_measurements_invalid"):
             require_media_measurements(bad,episode,assets)
@@ -209,3 +209,37 @@ def test_real_multichunk_seams_and_runtime_failures(tmp_path):
     from scripts.check_recap_media_runtime import seam_contract, failure_contract
     seam_contract(tmp_path)
     failure_contract(tmp_path)
+
+@pytest.mark.skipif(os.environ.get('RECAP_LINUX_TEST') != '1', reason='Actual Linux AAC decode')
+def test_actual_aac_short_tail_uses_source_window_and_rejects_truncation(tmp_path):
+    import json
+    import shutil
+    import subprocess
+    import wave
+    from media.audio_seams import chunk_record, measure_seams, seam_issues
+    from media.qa import measure_bundle
+    root=Path(__file__).parent/'fixtures/recap_media'
+    for name in ('audio.wav','video.mp4','render.json'):
+        shutil.copyfile(root/name,tmp_path/name)
+    episode=json.loads((root/'episode.json').read_text())
+    episode['chunk_timing']=[chunk_record('synthetic-one','0'*64,74970),chunk_record('synthetic-two','1'*64,13230,74970)]
+    decoded=tmp_path/'actual.wav'
+    subprocess.run(['ffmpeg','-v','error','-i',str(tmp_path/'video.mp4'),'-ac','1','-ar','44100',str(decoded)],check=True)
+    with wave.open(str(decoded)) as wav:
+        count=wav.getnframes()
+    assert count==89088
+    source=measure_seams(tmp_path/'audio.wav',episode['chunk_timing'])
+    actual=measure_seams(decoded,episode['chunk_timing'])
+    assert source[0]['window_end_frame']==actual[0]['window_end_frame']==88200
+    assert seam_issues(actual,episode['chunk_timing'])==[]
+    report=measure_bundle(tmp_path,episode)
+    assert report['issues']==[],report['issues']
+    assert report['measurements']['decoded_audio_frames']==89088
+    assert report['measurements']['source_audio_frames']==88200
+    # Preserve full video while removing the last150ms of actual audio.
+    subprocess.run(['ffmpeg','-v','error','-i',str(tmp_path/'video.mp4'),'-i',str(tmp_path/'audio.wav'),
+        '-filter_complex','[1:a]atrim=end=1.85[a]','-map','0:v','-map','[a]','-c:v','copy','-c:a','aac',str(tmp_path/'short.mp4')],check=True)
+    (tmp_path/'video.mp4').write_bytes((tmp_path/'short.mp4').read_bytes())
+    bad=measure_bundle(tmp_path,episode)
+    assert 'audio_ending_missing' in bad['issues']
+    assert bad['measurements']['decoded_audio_frames']<88200

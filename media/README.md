@@ -79,3 +79,11 @@ records with process kind, reason, exit code and deadline, never command argumen
 raw stderr or credentials. The current lease uploads the record and holds the
 stage; heartbeat loss/cancellation propagates and cancels children without a
 completion. Failed upload/completion requires existing server reconciliation.
+
+Seam windows use the bound source-content end for both source and decoded AAC,
+including when the final chunk is shorter than500ms. AAC tail padding is measured
+separately: QA retains actual source and decoded sample counts. Source count must
+match the chunk inventory; decoded audio must contain all source samples and may
+have at most100ms extra tail padding (the existing ending tolerance). A missing
+tail holds; padding never expands the seam's measured content window. No samples
+are edited or removed by this measurement rule.

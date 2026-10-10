@@ -29,9 +29,10 @@ def require_media_measurements(report, episode, assets):
     try:
         m = report["measurements"]
         from media.geometry import geometry_issues
-        from media.audio_seams import seam_issues, RULES
+        from media.audio_seams import seam_issues, RULES, decoded_length_issues
         if (geometry_issues(report['render'].get('geometry'),episode) or m['seam_rules']!=RULES
                 or m['chunk_timing']!=episode['chunk_timing']
+                or decoded_length_issues(m['source_audio_frames'],m['decoded_audio_frames'],episode['chunk_timing'][-1]['end_frame'])
                 or seam_issues(m['source_seams'],episode['chunk_timing']) or seam_issues(m['encoded_seams'],episode['chunk_timing'])):
             raise ValueError()
         if (report["version"] != "recap-media-qa-1" or report["issues"] or report["decoded"] is not True
@@ -54,7 +55,7 @@ def require_media_measurements(report, episode, assets):
                 or m["bytes"] != assets["video.mp4"].size or m["silence_seconds"]
                 or not m["rms_db"] or max(m["rms_db"]) < -50 or not m["peak_db"] or max(m["peak_db"]) >= -.01):
             raise ValueError()
-    except (KeyError, TypeError, ValueError, AttributeError):
+    except (KeyError, TypeError, ValueError, AttributeError, IndexError):
         raise Held("media_measurements_invalid") from None
 
 

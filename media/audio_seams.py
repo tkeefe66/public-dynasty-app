@@ -31,22 +31,44 @@ def boundaries_valid(chunks, ids, frames):
     except (KeyError,TypeError):
         return False
 
+def pcm_frame_count(path):
+    with wave.open(str(path)) as wav:
+        if (wav.getframerate(),wav.getsampwidth(),wav.getnchannels())!=(RATE,2,1):
+            raise ValueError('seam_pcm_format')
+        return wav.getnframes()
+
+def decoded_length_issues(source_frames, encoded_frames, content_frames):
+    # Keep the existing100ms ending tolerance for extra decoded padding, while
+    # requiring every source-content sample to exist before measuring its window.
+    if any(type(n) is not int or n<=0 for n in (source_frames,encoded_frames,content_frames)):
+        return ['decoded_audio_length_invalid']
+    if source_frames!=content_frames:
+        return ['chunk_audio_length_invalid']
+    if encoded_frames<content_frames:
+        return ['audio_ending_missing']
+    if encoded_frames-content_frames>round(RATE*.1):
+        return ['decoded_audio_length_invalid']
+    return []
+
 def measure_seams(path, chunks):
     with wave.open(str(path)) as wav:
         if (wav.getframerate(),wav.getsampwidth(),wav.getnchannels())!=(RATE,2,1):
             raise ValueError('seam_pcm_format')
         frames=wav.getnframes(); samples=array.array('h',wav.readframes(frames))
     if sys.byteorder!='little': samples.byteswap()
+    content_frames=chunks[-1]['end_frame']
+    if frames<content_frames:
+        raise ValueError('seam_content_incomplete')
     rows=[]
     threshold=32768*10**(RULES['silence_db']/20)
     for left,right in zip(chunks,chunks[1:]):
         at=left['end_frame']; radius=round(RATE*RULES['window_ms']/1000)
-        lo,hi=max(0,at-radius),min(frames,at+radius)
+        lo,hi=max(0,at-radius),min(content_frames,at+radius)
         a,b=at,at
         while a>lo and abs(samples[a-1])<threshold: a-=1
         while b<hi and abs(samples[b])<threshold: b+=1
         small=round(RATE*RULES['step_window_ms']/1000)
-        steps=[abs(samples[i]-samples[i-1])/32768 for i in range(max(1,at-small),min(frames,at+small))]
+        steps=[abs(samples[i]-samples[i-1])/32768 for i in range(max(1,at-small),min(content_frames,at+small))]
         rows.append(dict(left_asset=left['asset_id'],right_asset=right['asset_id'],boundary_frame=at,
             window_start_frame=lo,window_end_frame=hi,jump=abs(samples[at]-samples[at-1])/32768,
             max_step=max(steps),silence_start_frame=a,silence_end_frame=b,gap_ms=(b-a)/RATE*1000))
