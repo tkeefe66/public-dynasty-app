@@ -112,7 +112,7 @@ export function LlmCostPanel() {
       {loading && <IndeterminateBar className="max-w-[220px]" label="Loading cost data" />}
       {!!data?.unknown_cost_attempts && <p role="status" className="mt-3 text-prose text-warn-strong">
         {data.unknown_cost_attempts} request(s) have an unknown cost. Totals include known costs only.
-        Review these requests in Generation controls.
+        Review these requests under AI writing → Recovery.
       </p>}
 
       {!loading && data && (

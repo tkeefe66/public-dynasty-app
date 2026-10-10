@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { generationRequest } from "@/lib/api";
 import { FEATURE_LABELS, GenerationFeature, GenerationOverview, GenerationPage, GenerationRecord, GenerationSeries } from "@/lib/generation";
 import { GenerationRecovery } from './GenerationRecovery';
@@ -18,7 +18,12 @@ const pauseReasons: Record<string, string> = {
   owner_paused: "You paused AI writing.", manual_pause: "You paused AI writing.",
 };
 
-export function GenerationControl() {
+export function GenerationControl({ adminSection, onOpenBudget, onBusyChange, budgetContent }: {
+  adminSection?: 'writing' | 'budget';
+  onOpenBudget?: () => void;
+  onBusyChange?: (busy: boolean) => void;
+  budgetContent?: ReactNode;
+} = {}) {
   const [overview, setOverview] = useState<GenerationOverview | null>(null);
   const [leagues, setLeagues] = useState<GenerationSeries[]>([]);
   const [stopped, setStopped] = useState(emptyPage);
@@ -29,7 +34,16 @@ export function GenerationControl() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [action, setAction] = useState("");
-  const [view, setView] = useState('content');
+  const [localView, setView] = useState('content');
+  const [budgetRecapVisited, setBudgetRecapVisited] = useState(false);
+  const [budgetView, setBudgetView] = useState<'overview' | 'recap'>('overview');
+  const view = adminSection === 'budget' ? 'spend' : adminSection === 'writing' && localView === 'spend' ? 'content' : localView;
+  useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
+  function openSpending(recap = false) {
+    setBudgetView(recap ? 'recap' : 'overview');
+    if (recap) setBudgetRecapVisited(true);
+    if (onOpenBudget) onOpenBudget(); else setView('spend');
+  }
   const [contentType, setContentType] = useState<GenerationFeature | ''>('');
   const [series, setSeries] = useState('');
   const [workView, setWorkView] = useState('review');
@@ -79,7 +93,7 @@ export function GenerationControl() {
   const heading = globallyPaused ? "AI is paused" : automatic ? "Automatic writing is enabled" : manual ? "Waiting for your approval" : "AI writing is off";
   const reviewRows = [...stopped.records, ...held.records].filter((row, index, all) => all.findIndex(r => r.id === row.id) === index);
   function openRecapBudget(seriesId: string, episodeId?: string) {
-    setBudgetSeriesId(seriesId); setBudgetEpisodeId(episodeId); setBudgetRequestId(value => value + 1); setView("spend");
+    setBudgetSeriesId(seriesId); setBudgetEpisodeId(episodeId); setBudgetRequestId(value => value + 1); openSpending(true);
   }
 
   const contentTypes: { value: GenerationFeature | ''; label: string; description: string }[] = [
@@ -105,24 +119,29 @@ export function GenerationControl() {
     } catch (err) { setError(err instanceof Error ? err.message : 'More review work could not load. Try again.'); }
     finally { setBusy(false); }
   }
-  return <section className={styles.studio} aria-labelledby="generation-title">
+  return <section className={`${styles.studio} ${adminSection ? styles.embedded : ""}`} aria-labelledby="generation-title">
     <header className={styles.header}>
-      <div><h2 id="generation-title">AI writing</h2><p>Your leagues’ writing, from first draft to publication.</p></div>
-      <div className={styles.headerActions}><button className={secondary} disabled={blocked} onClick={() => setVersion(v => v + 1)}>Reload status</button><button className={secondary} disabled={blocked} onClick={() => setAction(action === 'pause' ? '' : 'pause')}>Pause all AI writing</button></div>
+      <div><h2 id="generation-title">{adminSection === "budget" ? "Monthly LLM budget" : "AI writing"}</h2><p>{adminSection === "budget" ? "App-wide spending and recap limits, in one place." : "Your leagues’ writing, from first draft to publication."}</p></div>
+      {adminSection !== "budget" && <div className={styles.headerActions}><button className={secondary} disabled={blocked} onClick={() => setVersion(v => v + 1)}>Reload status</button><button className={secondary} disabled={blocked} onClick={() => setAction(action === 'pause' ? '' : 'pause')}>Pause all AI writing</button></div>}
     </header>
+    {adminSection && <div hidden={adminSection !== 'budget'}>
+      <div className={styles.workNav} aria-label="Budget views"><button aria-pressed={budgetView === 'overview'} disabled={busy} onClick={() => setBudgetView('overview')}>Spend overview</button><button aria-pressed={budgetView === 'recap'} disabled={busy} onClick={() => { setBudgetView('recap'); setBudgetRecapVisited(true); }}>Recap limits</button></div>
+      <div hidden={budgetView !== 'overview'} className="space-y-6">{budgetContent}</div>
+    </div>}
     {error && <p role="alert" className="mb-4 text-prose text-neg-strong">{error}</p>}
     {notice && <p role="status" className="mb-4 text-prose text-pos-strong">{notice}</p>}
     {loading && <p role="status" className="mb-4 text-prose text-dim">Checking AI status…</p>}
     {overview && <>
-      <div className={styles.status}><div><h3>{heading}</h3><span>{overview.jobs.needs_attention || 0} stopped · {overview.jobs.held || 0} held · Across all leagues</span></div><button disabled={busy} onClick={() => setView('spend')}>Tracked AI spend: <strong className="font-mono">{money(overview.known_cost_microusd)}</strong></button></div>
+      {adminSection !== "budget" && <><div className={styles.status}><div><h3>{heading}</h3><span>{overview.jobs.needs_attention || 0} stopped · {overview.jobs.held || 0} held · Across all leagues</span></div><button disabled={busy} onClick={() => openSpending()}>Tracked AI spend: <strong className="font-mono">{money(overview.known_cost_microusd)}</strong></button></div>
       {overview.emergency_paused && <p className={styles.warning}>The deployment safety switch is on. Turn off the emergency pause in Railway before activating AI here.</p>}
       {globallyPaused && overview.effective.blocked_by.length > 0 && <ul className={styles.warning}>{overview.effective.blocked_by.map(reason => <li key={reason}>{pauseReasons[reason] || `Writing is blocked: ${readable(reason)}.`}</li>)}</ul>}
       {(overview.providers || []).filter(provider => provider.hold || provider.cooldown_until > Date.now() / 1000).map(provider => <p key={provider.provider + ':' + provider.account_key} className={styles.warning}>{provider.provider} / {provider.account_key} is blocked: {provider.hold ? readable(provider.hold) : 'rate limited'}. Review this account under Recovery.</p>)}
       {(Object.keys(FEATURE_LABELS) as GenerationFeature[]).filter(f => breakers[f]?.open).map(f => <p key={f} className={styles.warning}>{FEATURE_LABELS[f]} is stopped after repeated failures. Review the failed work, then reset its safety stop under Recovery.</p>)}
       {overview.unknown_cost_attempts > 0 && <p className="mb-4 text-prose text-warn-strong">{overview.unknown_cost_attempts} requests still have unknown cost. Review AI requests and costs under Recovery.</p>}
       {action === 'pause' && <ActionForm title="Pause all AI writing" description="Block new paid requests across every league. Requests already sent may still finish and incur charges. Data refreshes continue separately." submitLabel="Confirm pause" busy={blocked} onCancel={() => setAction('')} onSubmit={reason => run(() => generationRequest('/control', { action: 'pause', feature: '', expected_revision: overview.control.revision, reason, workers_stopped: false }), 'AI writing paused across all leagues.')} />}
-      <nav className={styles.nav} aria-label="AI writing views">{Object.entries({ content: 'Content', rules: 'Writing rules', spend: 'Spend & limits', activity: 'Activity', recovery: 'Recovery' }).map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} disabled={busy} onClick={() => setView(key)}>{label}</button>)}</nav>
-      {view === 'content' && <>
+      </>}
+      {adminSection !== "budget" && <nav className={styles.nav} aria-label="AI writing views">{Object.entries({ content: 'Content', rules: 'Writing rules', spend: 'Spend & limits', activity: 'Activity', recovery: 'Recovery' }).filter(([key]) => !adminSection || key !== 'spend').map(([key, label]) => <button key={key} aria-current={view === key ? 'page' : undefined} disabled={busy} onClick={() => setView(key)}>{label}</button>)}</nav>}
+      {(view === 'content' || (adminSection && localView === 'content')) && <div hidden={view !== 'content'}>
         <div className={styles.scope}><div><h3 className={styles.sectionTitle}>Content studio</h3><p className="mt-1 text-prose text-dim">Choose a content type to review its work.</p></div><label>Content for league<select className={controlClass} disabled={blocked} value={series} onChange={event => setSeries(event.target.value)}><option value="">All leagues</option>{leagues.map(league => <option key={league.id} value={league.id}>{league.name || 'Unnamed league'}</option>)}</select></label></div>
         <div className={styles.types} aria-label="Content workspaces">{contentTypes.map(type => <button key={type.value} aria-label={`${type.label} workspace`} aria-pressed={contentType === type.value} disabled={blocked} onClick={() => { setContentType(type.value); if (type.value === 'recap_video') setWorkView('episodes'); else if (workView === 'episodes') setWorkView('review'); }}>{type.label}<span>{type.description}</span></button>)}</div>
         <div className={styles.workNav} aria-label="Content tasks">
@@ -140,11 +159,11 @@ export function GenerationControl() {
             {workView === 'approvals' && <section role="region" aria-label="Manual content and catch-up"><h3>Approve writing</h3><GenerationRecords key={`approvals:${filterQuery}`} leagues={leagues} busy={blocked} run={run} version={version} initialKind="candidates" featureFilter={contentType || undefined} scopeSeries={series} onRecapBudget={openRecapBudget} /></section>}
             {workView === 'saved' && <><h3>Saved content</h3><GenerationRecords key={`saved:${filterQuery}`} leagues={leagues} busy={blocked} run={run} version={version} initialKind="artifacts" featureFilter={contentType || undefined} scopeSeries={series} onRecapBudget={openRecapBudget} /></>}
           </div>
-          <aside className={styles.aside}><section><h3>Writing rules</h3><p>{globallyPaused ? 'New paid writing is blocked. Resolve the pause before approving more work.' : 'Automatic covers new eligible events. Manual and historical work needs your approval.'}</p><button className={secondary} disabled={busy} onClick={() => setView('rules')}>Manage writing rules</button></section><section><h3>Spend & limits</h3><dl><div><dt>Tracked across all leagues</dt><dd>{money(overview.known_cost_microusd)}</dd></div><div><dt>Unknown request costs</dt><dd>{overview.unknown_cost_attempts}</dd></div></dl><p>Excludes earlier spending and unrecorded charges.</p><button className={secondary} disabled={busy} onClick={() => { if (series) openRecapBudget(series); else setView('spend'); }}>Review spending limits</button></section></aside>
+          <aside className={styles.aside}><section><h3>Writing rules</h3><p>{globallyPaused ? 'New paid writing is blocked. Resolve the pause before approving more work.' : 'Automatic covers new eligible events. Manual and historical work needs your approval.'}</p><button className={secondary} disabled={busy} onClick={() => setView('rules')}>Manage writing rules</button></section><section><h3>Spend & limits</h3><dl><div><dt>Tracked across all leagues</dt><dd>{money(overview.known_cost_microusd)}</dd></div><div><dt>Unknown request costs</dt><dd>{overview.unknown_cost_attempts}</dd></div></dl><p>Excludes earlier spending and unrecorded charges.</p><button className={secondary} disabled={busy} onClick={() => { if (series) openRecapBudget(series); else openSpending(); }}>Review spending limits</button></section></aside>
         </div>
-      </>}
+      </div>}
       {view === 'rules' && <div className={styles.main}><h3>Writing rules</h3><GenerationSettings leagues={leagues} busy={blocked} run={run} version={version} /></div>}
-      {view === 'spend' && <div className={styles.main}><div className={styles.summary}><div><h3>Tracked AI spend</h3><p>All time, across all leagues. Excludes earlier spending and unrecorded charges. Recap limits below include reserved and carry-forward obligations.</p></div><strong>{money(overview.known_cost_microusd)}</strong></div><GenerationRecapWorkspace leagues={leagues} busy={blocked} run={run} version={version} budgetSeriesId={budgetSeriesId} budgetRequestId={budgetRequestId} initialEpisodeId={budgetEpisodeId} budgets /></div>}
+      {((view === 'spend' && !adminSection) || (adminSection && budgetRecapVisited)) && <div hidden={view !== 'spend' || (!!adminSection && budgetView !== 'recap')} className={styles.main}><div className={styles.summary}><div><h3>Tracked AI spend</h3><p>All time, across all leagues. Excludes earlier spending and unrecorded charges. Recap limits below include reserved and carry-forward obligations.</p></div><strong>{money(overview.known_cost_microusd)}</strong></div><GenerationRecapWorkspace key={`budget-link:${budgetRequestId}`} leagues={leagues} busy={blocked} run={run} version={version} budgetSeriesId={budgetSeriesId} budgetRequestId={budgetRequestId} initialEpisodeId={budgetEpisodeId} budgets /></div>}
       {view === 'activity' && <div className={styles.main}><h3>Recent activity</h3><p className="mt-2 text-prose text-dim">What ran, when it ran, and how it ended.</p><GenerationRecords leagues={leagues} busy={blocked} run={run} version={version} onRecapBudget={openRecapBudget} onRecapEpisode={openRecapEpisode} /></div>}
       {view === 'recovery' && <div className={styles.main}><h3>Recovery & records</h3><p className="mt-2 text-prose text-dim">Provider receipts, delivery, and change history. Review the evidence before changing execution controls.</p><GenerationRecovery overview={overview} leagues={leagues} busy={blocked} run={run} version={version} /></div>}
     </>}

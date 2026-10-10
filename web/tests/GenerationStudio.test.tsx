@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { AdminWorkspace } from '../components/admin/AdminWorkspace';
 import { GenerationControl } from '../components/admin/GenerationControl';
 import { FEATURE_LABELS } from '../lib/generation';
 
@@ -76,4 +77,63 @@ it('keeps the studio league and older recap episode when opening its limits', as
   await waitFor(() => expect(request).toHaveBeenCalledWith('/recap-budgets/other-league?episode_id=other-episode'));
   expect(screen.getByLabelText('Episode')).toHaveValue('other-episode');
   expect(request.mock.calls.filter(call => call[1])).toHaveLength(0);
+});
+
+it('routes recap limits through the Admin budget tab while preserving league and older episode', async () => {
+  // Mutation: keep an independent recap league picker, or discard the episode ID at the budget navigation boundary.
+  const normal = request.getMockImplementation()!;
+  request.mockImplementation(async (path = '', ...args) => {
+    if (path.startsWith('/leagues')) return { records: ['studio-league', 'other-league'].map(id => ({ id, name: id, lifecycle: 'active', hold: '', effective, seasons: [] })), next_offset: null };
+    if (path.startsWith('/recap-episodes?') && path.includes('other-league')) return { records: [{ episode_id: 'other-episode', season: 2026, week: 5 }] };
+    if (path.startsWith('/recap-episodes?')) return { records: [{ episode_id: 'new-episode', season: 2026, week: 5 }, { episode_id: 'old-episode', season: 2026, week: 4 }] };
+    if (path.startsWith('/recap-episodes/')) return { episode: {}, stage: null, attempts: [], qualification: { passed: 0, required: 3 }, reason: 'recap_budget_video_episode', actions: [] };
+    if (path.startsWith('/recap-budgets')) return { caps: {}, balances: {}, month_key: '2026-10', app_limit: { balance: {} }, enforcement_state: { active: true } };
+    return normal(path, ...args);
+  });
+  window.history.replaceState(null, '', '/admin');
+  render(<AdminWorkspace counts={{ leagues: 2, users: 1 }} backup={null} leagues={<p>League report</p>} users={<p>User report</p>} budget={<p>App-wide spending</p>} />);
+  expect(screen.getByRole('tab', { name: 'AI writing' })).toHaveAttribute('aria-selected', 'true');
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Content for league' }), { target: { value: 'studio-league' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Weekly recap workspace' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Weekly recap workspace' }));
+  expect(screen.queryByLabelText('Recap episode for league')).not.toBeInTheDocument();
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Episode' }), { target: { value: 'old-episode' } });
+  await waitFor(() => expect(request).toHaveBeenCalledWith('/recap-episodes/old-episode'));
+  fireEvent.click(screen.getByRole('tab', { name: 'Monthly LLM budget' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'AI writing' }));
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Episode' })).toHaveValue('old-episode'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit recap limits' }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith('/recap-budgets/studio-league?episode_id=old-episode'));
+  expect(screen.getByRole('combobox', { name: 'Episode' })).toHaveValue('old-episode');
+  expect(screen.getByRole('tab', { name: 'Monthly LLM budget' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.queryByRole('navigation', { name: 'AI writing views' })).not.toBeInTheDocument();
+  // Mutation: omit the deep-link request key after preserving the budget workspace.
+  fireEvent.change(screen.getByRole('combobox', { name: 'Episode' }), { target: { value: 'new-episode' } });
+  fireEvent.click(screen.getByRole('tab', { name: 'AI writing' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit recap limits' }));
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Episode' })).toHaveValue('old-episode'));
+  fireEvent.click(screen.getByRole('tab', { name: 'AI writing' }));
+  expect(screen.queryByRole('button', { name: 'Spend & limits' })).not.toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Episode' })).toHaveValue('old-episode'));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Content for league' }), { target: { value: 'other-league' } });
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Episode' })).toHaveValue('other-episode'));
+  fireEvent.click(screen.getByRole('button', { name: 'Review spending limits' }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith('/recap-budgets/other-league?episode_id=other-episode'));
+  expect(screen.getByRole('combobox', { name: 'Episode' })).toHaveValue('other-episode');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Recap limits for league' }), { target: { value: 'studio-league' } });
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Episode' })).toHaveValue('new-episode'));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Episode' }), { target: { value: 'old-episode' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Spend overview' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Recap limits' }));
+  expect(screen.getByRole('combobox', { name: 'Episode' })).toHaveValue('old-episode');
+  expect(screen.getByRole('combobox', { name: 'Recap limits for league' })).toHaveValue('studio-league');
+  fireEvent.click(screen.getByRole('button', { name: 'Spend overview' }));
+  expect(screen.getByText('App-wide spending')).toBeVisible();
+  fireEvent.click(screen.getByRole('tab', { name: /Leagues/ }));
+  expect(screen.getByText('League report')).toBeVisible();
+  fireEvent.click(screen.getByRole('tab', { name: 'AI writing' }));
+  expect(screen.getByRole('combobox', { name: 'Content for league' })).toHaveValue('other-league');
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Episode' })).toHaveValue('other-episode'));
+  expect(request.mock.calls.filter(call => call[1])).toHaveLength(0);
+  window.history.replaceState(null, '', '/admin');
 });

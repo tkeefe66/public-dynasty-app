@@ -43,3 +43,5 @@
 @media(min-width:1200px) { .types { grid-template-columns: repeat(6,minmax(0,1fr)); } }
 @media(max-width:900px) { .columns { grid-template-columns: 1fr; } .aside { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; } }
 @media(max-width:600px) { .header { flex-direction: column; gap: 16px; } .nav button { padding-inline: 10px; } .types { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; } .types button { padding: 12px; } .main { padding: 20px 16px; } .aside { display: block; } .scope label { min-width: 0; width: 100%; } .workNav { gap: 4px; } .workNav button { padding-inline: 10px; } }
+
+.embedded { margin-top: 0; }

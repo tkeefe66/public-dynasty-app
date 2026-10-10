@@ -9,7 +9,7 @@ function usd(n: number) {
   return `$${n.toFixed(2)}`;
 }
 
-export function BudgetEditor({ initial }: { initial: BudgetStatus }) {
+export function BudgetEditor({ initial, title = "Monthly LLM budget" }: { initial: BudgetStatus; title?: string }) {
   const [status, setStatus] = useState<BudgetStatus>(initial);
   const [value, setValue] = useState(String(initial.monthly_budget_usd));
   const [saving, setSaving] = useState(false);
@@ -42,7 +42,7 @@ export function BudgetEditor({ initial }: { initial: BudgetStatus }) {
 
   return (
     <Card>
-      <CardHead title="Monthly LLM budget" />
+      <CardHead title={title} />
       <div className="mb-1 flex items-baseline gap-2">
         <span className="font-mono text-2xl font-semibold tabular tracking-[-0.02em]">
           {usd(status.month_to_date_usd)}
