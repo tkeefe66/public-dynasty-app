@@ -29,6 +29,24 @@ pytestmark = pytest.mark.skipif(os.getenv('RECAP_ACCEPTANCE') != '1', reason='Op
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.fixture(autouse=True)
+def isolated_acceptance_config(monkeypatch, tmp_path, isolate_cache_dir):
+    """Never inherit operator accounts, storage, epochs or dotenv settings."""
+    from app.config import Settings, get_settings
+
+    monkeypatch.setitem(Settings.model_config, 'env_file', None)
+    for name in list(os.environ):
+        if name.upper().startswith('TRADE_GRADER_'):
+            monkeypatch.delenv(name)
+    monkeypatch.setenv('TRADE_GRADER_CACHE_DIR', str(tmp_path))
+    monkeypatch.setenv('TRADE_GRADER_MEDIA_ASSET_ROOT', str(tmp_path/'objects'))
+    settings = get_settings()
+    assert settings.media_bucket == ''
+    assert settings.media_asset_root == tmp_path/'objects'
+    assert settings.auth_backend_secret == ''
+    assert settings.elevenlabs_voice_id == ''
+
+
 class CountedProse:
     """Physical provider sends; gateway retries must reuse saved unique identities."""
     def __init__(self, maker):
