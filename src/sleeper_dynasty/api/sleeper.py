@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 import httpx
@@ -208,6 +209,34 @@ class SleeperClient:
         resp = await self._client.get(f"/league/{league_id}/matchups/{week}")
         resp.raise_for_status()
         return resp.json() or []
+
+    async def get_recap_source(self, path: str) -> dict:
+        """Dedicated lossless evidence path; legacy float consumers stay unchanged.
+
+        Floats parse directly to their original lexical strings. Integer score
+        leaves normalize to strings downstream; roster/match IDs remain integers.
+        Empty successful brackets and failed requests are distinct evidence.
+        """
+        source = BASE_URL + path
+        log.info("Fetching recap evidence source=%s", source)
+        try:
+            response = await self._client.get(path)
+            response.raise_for_status()
+            def invalid(value):
+                raise ValueError("nonfinite JSON number")
+            data = json.loads(response.text, parse_float=str, parse_constant=invalid)
+            return {"ok": True, "source": source, "raw": response.text, "data": data,
+                    "provider_timestamp": response.headers.get("date", "")}
+        except httpx.HTTPStatusError as exc:
+            code = f"http_{exc.response.status_code}"
+        except httpx.TimeoutException:
+            code = "timeout"
+        except httpx.RequestError:
+            code = "connection_failed"
+        except (ValueError, TypeError):
+            code = "invalid_json"
+        log.warning("Recap source failed source=%s reason=%s; retry collection", source, code)
+        return {"ok": False, "source": source, "error": code}
 
     async def _all_week_transactions(self, league_id: str) -> list[dict]:
         """Every transaction across the fantasy season, in week order.

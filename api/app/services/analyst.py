@@ -81,6 +81,12 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
     # Analyst archives currently support Sleeper leagues only.
     if ".l." in league_id:
         return
+    from app.services.recap_video.collector import collect_recap
+    # Enabled workflow has its own complete scoring-period collector. Its
+    # failures must reach the free job, not the legacy best-effort logger.
+    if await collect_recap(client, league_id, cache_dir, publication_fence,
+            int((now or datetime.now(timezone.utc)).timestamp())):
+        return
     try:
         store = AnalystStore(cache_dir)
         with store.claim(league_id) as claimed:

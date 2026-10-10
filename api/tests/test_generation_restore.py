@@ -75,6 +75,7 @@ async def test_quarantine_cannot_be_cleared_by_pause_then_old_epoch_activation(m
 async def test_generation_rows_roundtrip_without_receipt_or_artifact_changes(maker, tmp_path):
     from app.services.generation.recap_budget import RecapCaps
     from app.services.generation.recap_models import RecapBudgetPolicy, RecapBudgetPlan, RecapBudgetAllocation
+    from app.services.generation.recap_models import RecapEpisode, RecapObservation, RecapScheduleInventory
     from app.services.backup_service import load_database
     from app.services.generation.models import (
         ArtifactHead,
@@ -106,6 +107,13 @@ async def test_generation_rows_roundtrip_without_receipt_or_artifact_changes(mak
         db.add(RecapBudgetAllocation(plan_id="plan", key="1", category="written", operation_id="job",
             attempt_id="attempt", month_key="2026-10", max_microusd=500, outstanding_microusd=0,
             actual_microusd=123, rate_json="{}", state="settled", evidence_json='{"receipt":"saved"}'))
+        db.add(RecapEpisode(episode_id="episode", series_id="series", season=2026,
+            period_id="2", league_id="synthetic", week=2, nfl_weeks_json="[2]",
+            admitted_at=123, latest_observation_id="observation", facts_digest="facts"))
+        db.add(RecapObservation(id="observation", episode_id="episode", observed_at=123,
+            snapshot_json='{"score":"100.0100"}', snapshot_digest="raw", facts_digest="facts", decision="ready"))
+        db.add(RecapScheduleInventory(version="source", season=2026, revision="schedule",
+            qualified_at=123, inventory_json='{"source_bytes":"synthetic"}'))
     async with maker() as db:
         blob, counts = await dump_database(db)
     assert all(counts[t.name] for t in Base.metadata.sorted_tables if t.name not in

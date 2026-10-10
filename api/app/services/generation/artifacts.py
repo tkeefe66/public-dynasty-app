@@ -84,6 +84,9 @@ async def save_artifact(db, operation_id, generation, validated):
         raise Held("validation_checkpoints_missing")
     payload = validated.payload
     await require_actor(db, job)
+    if job.feature == "analyst":
+        from app.services.recap_video.readiness import require_readiness
+        await require_readiness(db, job.series_id, json.loads(job.payload_json), league_id=job.league_id)
     policy = await resolve_policy(db, job.series_id)
     if policy["blocked_by"]:
         raise Held(policy["blocked_by"][0])

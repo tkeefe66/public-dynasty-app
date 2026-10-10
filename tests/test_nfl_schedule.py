@@ -42,3 +42,18 @@ def test_derive_byes_returns_non_playing_teams():
 def test_derive_byes_empty_schedule_returns_empty():
     # No schedule data must NOT mean "all 32 teams on bye".
     assert derive_byes([]) == set()
+
+
+def test_scoreboard_evidence_retains_identity_status_and_rejects_missing_competitor():
+    from sleeper_dynasty.api.nfl_schedule import parse_scoreboard
+    data = {"events": [{"id": "synthetic-event", "status": {"type": {
+        "completed": True, "name": "STATUS_FINAL", "state": "post"}}, "competitions": [{
+        "date": "2026-10-11T17:00:00Z", "competitors": [
+        {"homeAway": "home", "team": {"abbreviation": "BUF"}},
+        {"homeAway": "away", "team": {"abbreviation": "NE"}}]}]}]}
+    game = parse_scoreboard(data, strict=True)[0]
+    assert game["event_id"] == "synthetic-event" and game["completed"] is True
+    assert game["status"] == "STATUS_FINAL"
+    data["events"][0]["competitions"][0]["competitors"].pop()
+    with pytest.raises(ValueError, match="scoreboard"):
+        parse_scoreboard(data, strict=True)

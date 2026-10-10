@@ -42,3 +42,49 @@ class RecapBudgetAllocation(Base):
     evidence_json: Mapped[str] = mapped_column(String, default="{}")
     state: Mapped[str] = mapped_column(String, default="reserved")
     created_at: Mapped[int] = mapped_column(BigInteger, default=stamp)
+
+
+class RecapEpisode(Base):
+    __tablename__ = "recap_episodes"
+    __table_args__ = (UniqueConstraint("series_id", "season", "period_id", name="uq_recap_episode_period"),)
+    episode_id: Mapped[str] = mapped_column(String, primary_key=True)
+    series_id: Mapped[str] = mapped_column(String, index=True)
+    season: Mapped[int] = mapped_column(Integer)
+    period_id: Mapped[str] = mapped_column(String)
+    league_id: Mapped[str] = mapped_column(String, index=True)
+    week: Mapped[int] = mapped_column(Integer)
+    round: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    nfl_weeks_json: Mapped[str] = mapped_column(String)
+    lifecycle: Mapped[str] = mapped_column(String, default="observing")
+    hold: Mapped[str] = mapped_column(String, default="")
+    admitted_at: Mapped[int] = mapped_column(BigInteger, default=0)
+    eligible_at: Mapped[int] = mapped_column(BigInteger, default=0)
+    observed_at: Mapped[int] = mapped_column(BigInteger, default=0)
+    stable_since: Mapped[int] = mapped_column(BigInteger, default=0)
+    next_observation_at: Mapped[int] = mapped_column(BigInteger, default=0, index=True)
+    facts_digest: Mapped[str] = mapped_column(String, default="")
+    source_digest: Mapped[str] = mapped_column(String, default="")
+    article_digest: Mapped[str] = mapped_column(String, default="")
+    latest_observation_id: Mapped[str] = mapped_column(String, default="")
+
+
+class RecapObservation(Base):
+    __tablename__ = "recap_observations"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    episode_id: Mapped[str] = mapped_column(String, index=True)
+    observed_at: Mapped[int] = mapped_column(BigInteger)
+    snapshot_json: Mapped[str] = mapped_column(String)
+    snapshot_digest: Mapped[str] = mapped_column(String)
+    facts_digest: Mapped[str] = mapped_column(String)
+    provider_timestamps_json: Mapped[str] = mapped_column(String, default="{}")
+    source_pointers_json: Mapped[str] = mapped_column(String, default="{}")
+    decision: Mapped[str] = mapped_column(String)
+
+
+class RecapScheduleInventory(Base):
+    __tablename__ = "recap_schedule_inventories"
+    version: Mapped[str] = mapped_column(String, primary_key=True)
+    season: Mapped[int] = mapped_column(Integer, index=True)
+    revision: Mapped[str] = mapped_column(String)
+    qualified_at: Mapped[int] = mapped_column(BigInteger)
+    inventory_json: Mapped[str] = mapped_column(String)

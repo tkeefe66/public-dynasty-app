@@ -218,6 +218,9 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
         raise Held("feature_paused")
     if actor_kind == "scheduler" and feature["mode"] != "automatic":
         raise Held("manual_only")
+    if candidate.feature == "analyst":
+        from app.services.recap_video.readiness import require_readiness
+        await require_readiness(db, candidate.series_id, json.loads(candidate.payload_json), league_id=candidate.league_id)
     pending = await db.scalar(select(GenerationOperation).where(
         GenerationOperation.subject == candidate.subject,
         GenerationOperation.state.in_(("queued", "running", "held", "needs_attention"))))

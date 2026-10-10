@@ -59,9 +59,13 @@ async def drain(maker, cache_dir):
                 if item.kind == "artifact":
                     row = await db.get(ContentArtifact, payload["artifact_id"])
                     if row.feature == "analyst":
+                        from app.services.recap_video.readiness import require_readiness
+                        episode = await require_readiness(db, row.series_id, json.loads(row.facts_json), league_id=row.league_id)
                         previous = (await db.get(ContentArtifact, payload["expected_artifact"])
                                     if payload.get("expected_artifact") else None)
                         project_analyst(cache_dir, row, previous)
+                        if episode:
+                            episode.article_digest = row.digest
                     else:
                         from app.services.chain_cache import ChainCache
                         from app.services.generation.artifacts import overlay
@@ -73,7 +77,8 @@ async def drain(maker, cache_dir):
                 # Telemetry is read from the ledger; do not duplicate legacy JSONL spend.
                 item.delivered = True
             except Held as exc:
-                if exc.code != "archive_busy":
+                if exc.code not in ("archive_busy", "schedule_incomplete", "source_error", "games_unresolved",
+                        "facts_unstable", "release_not_due", "schedule_inventory_unqualified", "bracket_unavailable"):
                     item.error = exc.code
                 log.warning("publication held id=%s reason=%s", ident, exc.code)
             except Exception:

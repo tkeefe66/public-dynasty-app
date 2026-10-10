@@ -15,10 +15,12 @@ async def generate_member_editions(cache_dir: Path) -> None:
 
 
 async def analyst_loop(cache_dir: Path) -> None:
-    """Publication starts after the upstream week rollover and complete results.
+    """Observe due scoring periods through durable free refresh jobs.
 
     Check every 15 minutes, including overnight Monday/Tuesday. AI failures
     retain private facts while managed generation pursues a reviewed AI roast.
+    Enabled recap workflows persist next_observation_at; the collector skips
+    early duplicate jobs and enforces stable evidence plus Tuesday release.
     """
     try:
         await asyncio.sleep(2)

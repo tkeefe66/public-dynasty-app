@@ -72,6 +72,17 @@ def automatic_reason(season, feature, payload, now):
 
 
 async def automatic_eligibility(db, season, feature, payload, now):
+    if feature == "analyst":
+        from app.services.recap_video.readiness import require_readiness
+        from app.services.generation.store import Held
+        try:
+            admitted = await require_readiness(db, season.series_id, payload, league_id=season.league_id)
+        except Held as exc:
+            return exc.code
+        if admitted:
+            # Exact admitted identity remains usable at rollover. Permission,
+            # feature and actor checks remain at admission/dispatch/publication.
+            return ""
     current_year = await db.scalar(select(func.max(LeagueSeason.season)).where(
         LeagueSeason.series_id == season.series_id))
     if season.season != current_year or (payload.get("season") and payload["season"] != current_year):
@@ -163,9 +174,30 @@ async def collect_analyst(db, league_id, series_id, cache_dir):
     for edition in latest.values():
         if edition["edition_type"] != "results":
             continue
-        await observe(db, series_id=series_id, league_id=league_id, feature="analyst",
+        extra = {}
+        from app.services.recap_video.readiness import workflow_enabled, require_readiness
+        if await workflow_enabled(db, series_id):
+            from app.services.generation.recap_models import RecapEpisode, RecapObservation
+            from app.services.recap_video.collector import edition_from_snapshot, source_facts
+            episode = await db.scalar(select(RecapEpisode).where(RecapEpisode.series_id == series_id,
+                RecapEpisode.season == edition["season"], RecapEpisode.week == edition["week"]))
+            if episode and episode.lifecycle == "ready" and episode.admitted_at:
+                observation = await db.get(RecapObservation, episode.latest_observation_id)
+                snapshot = json.loads(observation.snapshot_json)
+                edition = edition_from_snapshot(snapshot, generated_at=episode.admitted_at)
+                extra = {"period_id": episode.period_id, "recap_facts_digest": episode.facts_digest,
+                         "source_snapshot": source_facts(snapshot)}
+        row = await observe(db, series_id=series_id, league_id=league_id, feature="analyst",
             subject=subject_key("analyst", series_id, edition["season"], edition["week"]),
             event=f'{edition["season"]}:week:{edition["week"]:02d}',
-            payload={"facts": edition["facts"], "edition": edition, "week": edition["week"],
+            payload={**extra, "facts": edition["facts"], "edition": edition, "week": edition["week"],
                 "season": edition["season"], "event_at": int(datetime.fromisoformat(
                     edition["generated_at"]).timestamp())})
+        if await workflow_enabled(db, series_id):
+            from app.services.generation.store import Held
+            try:
+                await require_readiness(db, series_id, json.loads(row.payload_json), league_id=league_id)
+                if row.hold == "historical_approval_required":
+                    row.hold = ""
+            except Held as exc:
+                row.hold = exc.code

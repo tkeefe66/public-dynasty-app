@@ -66,7 +66,13 @@ def operation_episode(job) -> str:
     edition = payload.get("edition", {})
     if edition.get("season", season) != season or edition.get("week", week) != week:
         raise Held("recap_episode_identity_conflict")
-    return episode_identity(job.series_id, season, str(week))
+    period = payload.get("period_id", str(week))
+    if period != str(week):
+        if (not isinstance(period, str) or not period.startswith("playoff:")
+                or not period[8:].isdigit() or int(period[8:]) < 1
+                or edition.get("facts", {}).get("period_id") != period):
+            raise Held("recap_episode_identity_conflict")
+    return episode_identity(job.series_id, season, period)
 
 
 async def _policy_lock(db, series_id):

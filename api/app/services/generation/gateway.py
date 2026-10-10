@@ -61,6 +61,9 @@ class Gateway:
             if get_settings().generation_emergency_pause:
                 raise Held("emergency_pause")
             await require_actor(db, job)
+            if job.feature == "analyst":
+                from app.services.recap_video.readiness import require_readiness
+                await require_readiness(db, job.series_id, json.loads(job.payload_json), league_id=job.league_id)
             season = await db.get(LeagueSeason, job.league_id)
             if not season or not season.verified_at or not paid_capabilities(json.loads(season.capabilities_json)):
                 raise Held("capability_unknown")

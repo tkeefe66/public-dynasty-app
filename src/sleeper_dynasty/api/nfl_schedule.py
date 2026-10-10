@@ -36,8 +36,16 @@ async def fetch_week_schedule(season: int, week: int) -> list[dict]:
         resp.raise_for_status()
         data = resp.json()
 
+    return parse_scoreboard(data)
+
+
+def parse_scoreboard(data: dict, *, strict=False) -> list[dict]:
+    if strict and not isinstance(data.get("events"), list):
+        raise ValueError("scoreboard events missing")
     games = []
     for event in data.get("events", []):
+        if strict and (not event.get("id") or len(event.get("competitions", [])) != 1):
+            raise ValueError("scoreboard event identity or competition missing")
         for comp in event.get("competitions", []):
             venue = comp.get("venue") or {}
             home = away = None
@@ -47,14 +55,33 @@ async def fetch_week_schedule(season: int, week: int) -> list[dict]:
                     home = abbr
                 elif c.get("homeAway") == "away":
                     away = abbr
+            if strict and (not home or not away or home == away or len(comp.get("competitors", [])) != 2):
+                raise ValueError("scoreboard competitors incomplete")
             if home and away:
+                status = (event.get("status") or comp.get("status") or {}).get("type") or {}
                 games.append({
                     "home": home, "away": away,
                     "kickoff": comp.get("date"),
                     "venue": venue.get("fullName"),
                     "indoor": bool(venue.get("indoor", False)),
+                    "event_id": str(event.get("id") or ""),
+                    "completed": status.get("completed") is True,
+                    "status": status.get("name") or "UNKNOWN",
+                    "state": status.get("state") or "unknown",
                 })
     return games
+
+
+async def fetch_week_evidence(season: int, week: int) -> dict:
+    """Strict evidence path. Errors remain visible, never masquerade as an empty week."""
+    params = {"seasontype": 2, "week": week, "dates": season}
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        logger.info("Fetching NFL completion evidence season=%s week=%s", season, week)
+        response = await client.get(_SCOREBOARD, params=params)
+        response.raise_for_status()
+        data = response.json()
+        return {"games": parse_scoreboard(data, strict=True), "raw": response.text,
+                "source": str(response.url), "provider_timestamp": response.headers.get("date", "")}
 
 
 def derive_byes(games: list[dict]) -> set[str]:
