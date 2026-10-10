@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 MAX_ASSET = 64 * 1024 * 1024
+ORPHAN_GRACE_SECONDS = 7 * 86400
 
 
 class PrivateMediaStore(Protocol):
@@ -89,7 +90,7 @@ class LocalPrivateMediaStore:
                 valid_key(path.name)
             except ValueError:
                 continue
-            if not path.is_symlink() and path.is_file() and path.stat().st_mtime < cutoff:
+            if not path.is_symlink() and path.is_file() and path.stat().st_mtime <= cutoff:
                 yield path.name
 
 
@@ -128,7 +129,7 @@ class S3PrivateMediaStore:
                     valid_key(row["Key"])
                 except ValueError:
                     continue
-                if row["LastModified"].timestamp() < cutoff:
+                if row["LastModified"].timestamp() <= cutoff:
                     yield row["Key"]
 
 
@@ -146,18 +147,18 @@ def configured_store():
     raise Held("media_storage_unconfigured")
 
 
-async def cleanup_unregistered(db, store, now, *, grace_seconds=86400):
+async def cleanup_unregistered(db, store, now, *, grace_seconds=ORPHAN_GRACE_SECONDS):
     """API maintenance hook for Task10; no new scheduler or worker deletion route.
 
     Preserve every registered object, including unselected late receipt evidence.
-    Only incomplete uploads without any DB reference age out, after at least a day.
+    Only incomplete uploads without any DB reference age out, after seven days.
     """
     from sqlalchemy import select
     from app.services.generation.recap_models import RecapAsset
     from app.services.generation.store import lock_control
     import asyncio
-    if grace_seconds < 86400:
-        raise ValueError("Private media orphan grace must be at least one day")
+    if grace_seconds < ORPHAN_GRACE_SECONDS:
+        raise ValueError("Private media orphan grace must be at least seven days")
     candidates = await asyncio.to_thread(lambda: list(store.older_than(now - grace_seconds)))
     await lock_control(db)
     registered = set((await db.scalars(select(RecapAsset.storage_key))).all())

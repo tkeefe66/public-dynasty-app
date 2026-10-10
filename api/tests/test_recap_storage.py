@@ -61,6 +61,9 @@ async def test_orphan_grace_preserves_registered_receipt_assets(maker, tmp_path)
         db.add(RecapAsset(stage_id="synthetic", generation=1, digest=hashlib.sha256(b"test").hexdigest(),
             size=4, media_type="audio/mpeg", storage_key=registered))
     async with maker.begin() as db:
-        assert await cleanup_unregistered(db, store, 100000) == 1
+        with pytest.raises(ValueError, match="seven days"):
+            await cleanup_unregistered(db, store, 604801, grace_seconds=604799)
+        assert await cleanup_unregistered(db, store, 604800) == 0
+        assert await cleanup_unregistered(db, store, 604801) == 1
     assert not (tmp_path / old).exists()
     assert (tmp_path / registered).exists() and (tmp_path / young).exists()
