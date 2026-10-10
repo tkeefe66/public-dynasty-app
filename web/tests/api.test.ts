@@ -139,4 +139,17 @@ describe("api client", () => {
       dashboard("ghost-league"),
     ).rejects.toThrow(ApiError);
   });
+  it("preserves structured error detail and code with a readable message", async () => {
+    // Mutation: stringify structured API detail into [object Object], losing acknowledgment data.
+    const detail = { code: "recap_budget_overcommitted", message: "Limits need acknowledgment.", acknowledgment_required: true, affected: [] };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ detail }), { status: 409 }));
+    await expect(dashboard("synthetic")).rejects.toMatchObject({ status: 409, message: detail.message, code: detail.code, detail });
+  });
+  it("renders validation arrays readably and preserves ordinary string errors", async () => {
+    // Mutation: erase existing error strings or expose [object Object] for FastAPI validation.
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ detail: [{ loc: ["body", "caps"], msg: "Input must be positive" }] }), { status: 422 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Stale budget revision" }), { status: 409 }));
+    await expect(dashboard("synthetic")).rejects.toMatchObject({ message: "body.caps: Input must be positive", status: 422 });
+    await expect(dashboard("synthetic")).rejects.toMatchObject({ message: "Stale budget revision", detail: "Stale budget revision", status: 409 });
+  });
 });

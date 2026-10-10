@@ -10,7 +10,7 @@ interface BatchPreview {
   items: { id: string }[]; skipped: { id: string; reason: string }[];
 }
 
-export function GenerationBulkReview({ rows, leagues, busy, run, version, hasMore = false }: ActionProps & {
+export function GenerationBulkReview({ rows, leagues, busy, run, onRecapBudget, version, hasMore = false }: ActionProps & {
   rows: GenerationRecord[]; leagues: GenerationSeries[]; version: number; hasMore?: boolean;
 }) {
   const [batchOpen, setBatchOpen] = useState(false);
@@ -77,7 +77,7 @@ export function GenerationBulkReview({ rows, leagues, busy, run, version, hasMor
       }}>Confirm {preview.action} {preview.items.length} jobs</Button>
     </div>}
     </details>}
-    <ul className="mt-3 divide-y divide-rule">{displayed.map(row => <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} review
+    <ul className="mt-3 divide-y divide-rule">{displayed.map(row => <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} onRecapBudget={onRecapBudget} review
       selected={selected.includes(row.id!)} onSelect={batchOpen && !failedFreeRefresh(row) ? checked => { setPreview(null); setSelected(old => checked ? [...old, row.id!] : old.filter(id => id !== row.id)); } : undefined} />)}</ul>
   </div>;
 }

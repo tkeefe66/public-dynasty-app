@@ -60,6 +60,23 @@ export interface GenerationRecord {
   kind?: string; delivered?: boolean;
   before_json?: string; after_json?: string;
 }
+export type RecapCapKey = "video_episode_microusd" | "video_month_microusd" | "combined_episode_microusd" | "combined_month_microusd";
+export type RecapCaps = Record<RecapCapKey, number>;
+export interface RecapBalance {
+  known_microusd: number; reserved_microusd: number; carry_forward_microusd: number;
+  uncertain_microusd: number; unknown_count: number; unbounded_unknown_count: number;
+  remaining_microusd: number | null; overcommitted: boolean;
+}
+export interface RecapBudgetView {
+  series_id: string; revision: number; caps: RecapCaps; episode_id: string | null; month_key: string;
+  balances: Record<RecapCapKey, RecapBalance | null>;
+  app_limit: { month_microusd: number | null; balance: RecapBalance };
+  enforcement_state: { active: boolean; reason: string }; media_automation_enabled: boolean;
+}
+export interface RecapBudgetOvercommit {
+  code: "recap_budget_overcommitted"; acknowledgment_required: true;
+  affected: (RecapBalance & { scope: string; episode_id?: string | null })[];
+}
 export interface GenerationPage<T> { records: T[]; next_offset: number | null }
 export interface CampaignPreview {
   skipped?: Record<string, number>;

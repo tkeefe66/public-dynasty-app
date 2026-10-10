@@ -5,7 +5,7 @@ import { ActionForm, ActionProps, contentName, dateLabel, failedFreeRefresh, isD
 
 interface JobDetail { job?: GenerationRecord; attempts?: GenerationRecord[] }
 
-export function GenerationJob({ row, leagues, busy, run, review = false, selected, onSelect }: ActionProps & { row: GenerationRecord; leagues: GenerationSeries[]; review?: boolean; selected?: boolean; onSelect?: (checked: boolean) => void }) {
+export function GenerationJob({ row, leagues, busy, run, onRecapBudget, review = false, selected, onSelect }: ActionProps & { row: GenerationRecord; leagues: GenerationSeries[]; review?: boolean; selected?: boolean; onSelect?: (checked: boolean) => void }) {
   const [opened, setOpened] = useState(false);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -19,6 +19,8 @@ export function GenerationJob({ row, leagues, busy, run, review = false, selecte
   const resumable = (job.state === "held" && job.reason !== "restore_reapproval_required") || (job.state === "needs_attention" && job.reason === "provider_outcome_unknown");
   const attempts = detail?.attempts || [];
   const blocked = busy || loading;
+  const budgetHeld = job.reason?.startsWith("recap_budget_") || job.reason === "legacy_budget_reached";
+  const budgetSeries = job.series_id || leagues.find(league => league.seasons.some(season => season.league_id === job.league_id))?.id;
 
   async function retryDataRefresh() {
     if (blocked) return;
@@ -64,6 +66,7 @@ export function GenerationJob({ row, leagues, busy, run, review = false, selecte
         {review && stopped && <p className="mt-1 max-w-2xl text-dim">{retryable ? "Retry this league's data import with the original account after the problem is fixed. This makes no paid AI request." : job.state === "held" ? problemExplanation(job) : job.reason === "provider_outcome_unknown" ? "The provider’s response needs to be confirmed before any retry." : "Review the problem before deciding what happens next."}</p>}
       </div>
       <div className="flex shrink-0 flex-wrap gap-2">
+      {budgetHeld && onRecapBudget && budgetSeries && <button className={secondary} disabled={blocked} onClick={() => onRecapBudget(budgetSeries)}>Review recap limits</button>}
       {retryable && <button className={secondary} disabled={blocked} onClick={retryDataRefresh}>Retry data refresh</button>}
       <button className={secondary} disabled={blocked} aria-expanded={opened} onClick={async () => {
         if (opened) { setOpened(false); setAction(""); return; }

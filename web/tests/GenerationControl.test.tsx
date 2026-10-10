@@ -11,6 +11,12 @@ const features = Object.fromEntries(Object.keys(FEATURE_LABELS).map(k => [k, { .
 const effective = { policy: { paused: false, refresh_interval_seconds: 10800, max_concurrency: 1, features },
   sources: {}, revisions: { app: 7 }, blocked_by: [] };
 const config = { scope: "app", revision: 7, value: { paused: false }, effective };
+const recapBalance = { known_microusd: 0, reserved_microusd: 0, carry_forward_microusd: 0,
+  uncertain_microusd: 0, unknown_count: 0, unbounded_unknown_count: 0, remaining_microusd: 15_000_000, overcommitted: false };
+const recapBudget = { series_id: "series-one", revision: 1, episode_id: null, month_key: "2026-10",
+  caps: { video_episode_microusd: 3_000_000, video_month_microusd: 15_000_000, combined_episode_microusd: 5_000_000, combined_month_microusd: 25_000_000 },
+  balances: { video_episode_microusd: null, video_month_microusd: recapBalance, combined_episode_microusd: null, combined_month_microusd: recapBalance },
+  app_limit: { month_microusd: null, balance: recapBalance }, enforcement_state: { active: true, reason: "" }, media_automation_enabled: false };
 
 beforeEach(() => {
   request.mockReset();
@@ -19,6 +25,7 @@ beforeEach(() => {
       effective, jobs: {}, known_cost_microusd: 1000000, unknown_cost_attempts: 2, execution_epoch_configured: false };
     if (path.startsWith("/leagues")) return { records: [{ id: "series-one", name: "Example League", lifecycle: "active", profile: "dynasty", revision: 1, hold: "", members: 2, seasons: [{ league_id: "synthetic", season: 2026, verified_at: 1 }], effective }], next_offset: null };
     if (path.startsWith("/policy")) return body ? { ...config, revision: 8, value: body.value } : config;
+    if (path.startsWith("/recap-budgets")) return recapBudget;
     if (path.startsWith("/records/candidates")) return { records: [{ key: "candidate-1", label: "Owner One", feature: "gm_rating_blurb",
       league_id: "synthetic", event: "week:02", hold: "historical_approval_required", availability: "available",
       reviewable: true, review_reason: "historical_approval_required" }], next_offset: null };
@@ -33,6 +40,55 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Generation controls", () => {
+  it("opens a held job's selected-league recap limits without approving requests", async () => {
+    // Mutation: navigate to app defaults rather than the held job's league budget.
+    const normal = request.getMockImplementation()!;
+    request.mockImplementation((path = "", ...args) => path.includes("state=held") ? Promise.resolve({ records: [{ id: "budget-job", feature: "analyst", state: "held", reason: "recap_budget_video_month", league_id: "synthetic", generation: 1 }], next_offset: null }) : normal(path, ...args));
+    render(<GenerationControl />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review recap limits" }));
+    expect(await screen.findByLabelText("Video per episode ($)")).toHaveValue("3.00");
+    expect(screen.getByLabelText("Apply settings to")).toHaveValue("series:series-one");
+    expect(request).toHaveBeenCalledWith("/recap-budgets/series-one");
+    expect(request.mock.calls.filter(c => c[1])).toHaveLength(0);
+    expect(screen.getByRole("region", { name: "Weekly Analyst recap limits" })).toHaveFocus();
+    fireEvent.change(screen.getByLabelText("Apply settings to"), { target: { value: "app" } });
+    expect(await screen.findByText(/Select an individual league above/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review recap limits" }));
+    expect(await screen.findByLabelText("Video per episode ($)")).toHaveValue("3.00");
+    expect(screen.getByLabelText("Apply settings to")).toHaveValue("series:series-one");
+  });
+  it("requires an individual league and uses a separate visible budget form", async () => {
+    // Mutation: expose ambiguous all-league budgets or nest the budget form in policy settings.
+    render(<GenerationControl />);
+    fireEvent.click(await screen.findByText("Settings", { selector: "summary" }));
+    expect(await screen.findByText(/Select an individual league above/)).toBeInTheDocument();
+    expect(request.mock.calls.some(c => c[0]?.startsWith("/recap-budgets"))).toBe(false);
+    fireEvent.change(screen.getByLabelText("Apply settings to"), { target: { value: "series:series-one" } });
+    const input = await screen.findByLabelText("Video per episode ($)");
+    expect(input.closest("form")?.parentElement?.closest("form")).toBeNull();
+    expect(input.closest("details")?.querySelector("summary")).toHaveTextContent("Settings");
+  });
+  it("limits the bulk Automatic action to its four named writing features", async () => {
+    // Mutation: derive bulk opt-in from every registered feature, including a future video feature.
+    const labels = FEATURE_LABELS as Record<string, string>;
+    labels.recap_video = "Recap video";
+    const normal = request.getMockImplementation()!;
+    request.mockImplementation((path = "", ...args) => path.startsWith("/policy") && !args[0] ? Promise.resolve({ ...config,
+      value: { features: { recap_video: { mode: "manual" } } },
+      effective: { ...effective, policy: { ...effective.policy, features: { ...features, recap_video: featureSettings } } },
+    }) : normal(path, ...args));
+    try {
+      render(<GenerationControl />);
+      fireEvent.click(await screen.findByText("Settings", { selector: "summary" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Set all four to Automatic" }));
+      expect(screen.getByText(/Set trade stories, GM profiles, franchise outlooks, and Weekly Analyst together/)).toBeInTheDocument();
+      expect(screen.getByLabelText("Recap video mode")).toHaveValue("manual");
+      fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+      await waitFor(() => expect(request.mock.calls.find(c => c[0] === "/policy/app" && c[1])?.[1].value.features).toMatchObject({
+        recap_video: { mode: "manual" }, analyst: { mode: "automatic" }, trade_story: { mode: "automatic" }, gm_rating_blurb: { mode: "automatic" }, franchise_blurb: { mode: "automatic" },
+      }));
+    } finally { delete labels.recap_video; }
+  });
   it("keeps free-refresh details read-only until the direct retry is clicked", async () => {
     const normal = request.getMockImplementation()!;
     const job = { id: "data-job", kind: "refresh", state: "needs_attention",

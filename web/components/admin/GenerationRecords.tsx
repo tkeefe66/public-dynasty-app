@@ -15,7 +15,7 @@ const reviewReasons: Record<string, string> = {
 };
 const recordKinds = { attempts: "AI requests and costs", artifacts: "Saved content", audit: "Change history", outbox: "Publication delivery" };
 
-export function GenerationRecords({ leagues, busy, run, version, initialKind = "jobs", advanced = false }: ActionProps & {
+export function GenerationRecords({ leagues, busy, run, onRecapBudget, version, initialKind = "jobs", advanced = false }: ActionProps & {
   leagues: GenerationSeries[]; version: number; initialKind?: string; advanced?: boolean;
 }) {
   const [kind, setKind] = useState(initialKind);
@@ -119,7 +119,7 @@ export function GenerationRecords({ leagues, busy, run, version, initialKind = "
     {error && <p role="alert" className="mt-3 text-prose text-neg-strong">{error}</p>}
     {!loading && !error && !visibleRecords.length && <p className="mt-3 text-prose text-dim">{kind === "candidates" ? "Available manual and historical content will appear here after a league data refresh." : "Records will appear here as work runs for these leagues."}</p>}
     <ul className="mt-3 divide-y divide-rule">
-      {visibleRecords.map(row => kind === "jobs" ? <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} /> : <li key={row.id || row.key} className="py-4 text-prose">
+      {visibleRecords.map(row => kind === "jobs" ? <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} onRecapBudget={onRecapBudget} /> : <li key={row.id || row.key} className="py-4 text-prose">
         <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
           <div className="min-w-0">
             <label className="flex items-start gap-3 font-semibold">

@@ -11,9 +11,21 @@ const BASE = typeof window === "undefined"
   : "/api";
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  readonly code?: string;
+  constructor(public status: number, message: string, public detail: unknown = message) {
     super(message);
+    if (detail && typeof detail === "object" && "code" in detail && typeof detail.code === "string") this.code = detail.code;
   }
+}
+
+function apiErrorMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail.map(item => {
+    const location = Array.isArray(item?.loc) ? item.loc.join(".") + ": " : "";
+    return location + (typeof item?.msg === "string" ? item.msg : fallback);
+  }).join("; ") || fallback;
+  if (detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string") return detail.message;
+  return fallback;
 }
 
 // Server-side auth-header provider. Client fetches go through the same-origin
@@ -42,7 +54,7 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   if (!resp.ok) {
     const detail = await resp
       .json().then((d) => d.detail).catch(() => resp.statusText);
-    throw new ApiError(resp.status, String(detail));
+    throw new ApiError(resp.status, apiErrorMessage(detail, resp.statusText || `Request failed (${resp.status}).`), detail);
   }
   return (await resp.json()) as T;
 }

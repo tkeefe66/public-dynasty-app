@@ -29,6 +29,8 @@ export function GenerationControl() {
   const [action, setAction] = useState("");
   const [feature, setFeature] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [budgetSeriesId, setBudgetSeriesId] = useState<string>();
+  const [budgetRequestId, setBudgetRequestId] = useState(0);
   const [approvalsOpen, setApprovalsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -72,6 +74,9 @@ export function GenerationControl() {
   const automatic = enabledModes.includes("automatic"), manual = enabledModes.includes("manual");
   const heading = globallyPaused ? "AI is paused" : automatic ? "Automatic writing is enabled" : manual ? "Waiting for your approval" : "AI writing is off";
   const reviewRows = [...stopped.records, ...held.records].filter((row, index, all) => all.findIndex(r => r.id === row.id) === index);
+  function openRecapBudget(seriesId: string) {
+    setBudgetSeriesId(seriesId); setBudgetRequestId(value => value + 1); setSettingsOpen(true);
+  }
 
   return <section className="mt-10" aria-labelledby="generation-title">
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -103,7 +108,7 @@ export function GenerationControl() {
         <h3 id="generation-review-title" className="font-display text-name font-bold">Needs your review</h3>
         <p className="mt-1 text-prose text-dim">{overview.jobs.needs_attention || 0} stopped · {overview.jobs.held || 0} paused. Across all leagues.</p>
         {!reviewRows.length && <p className="mt-3 text-prose">Stopped or paused work will appear here if it needs your attention.</p>}
-        <GenerationBulkReview rows={reviewRows} leagues={leagues} busy={blocked} run={run} version={version}
+        <GenerationBulkReview rows={reviewRows} leagues={leagues} busy={blocked} run={run} version={version} onRecapBudget={openRecapBudget}
           hasMore={stopped.next_offset !== null || held.next_offset !== null} />
         {([["needs_attention", stopped, setStopped], ["held", held, setHeld]] as const).map(([state, page, update]) => page.next_offset !== null && <button key={state} className={secondary + " mt-3"} disabled={blocked} onClick={async () => {
           setBusy(true); setError("");
@@ -117,12 +122,12 @@ export function GenerationControl() {
         <details open={approvalsOpen} onToggle={e => setApprovalsOpen(e.currentTarget.open)}>
           <summary className={summaryClass}>Manual content and catch-up</summary>
           <p className="max-w-2xl text-prose text-dim">Choose content for features set to Ask me first, or optionally fill gaps in older content. New eligible events for Automatic features run without an approval here.</p>
-          {approvalsOpen && <GenerationRecords leagues={leagues} busy={blocked} run={run} version={version} initialKind="candidates" />}
+          {approvalsOpen && <GenerationRecords leagues={leagues} busy={blocked} run={run} version={version} initialKind="candidates" onRecapBudget={openRecapBudget} />}
         </details>
       </Panel>
 
-      <Panel className="p-4 sm:p-5"><details open={settingsOpen} onToggle={e => setSettingsOpen(e.currentTarget.open)}><summary className={summaryClass}>Settings</summary><p className="text-prose text-dim">Off, ask me first, or automatic — for all leagues or individual leagues.</p>{settingsOpen && <GenerationSettings leagues={leagues} busy={blocked} run={run} version={version} />}</details></Panel>
-      <Panel className="p-4 sm:p-5"><details open={activityOpen} onToggle={e => setActivityOpen(e.currentTarget.open)}><summary className={summaryClass}>Recent activity</summary><p className="text-prose text-dim">What ran, when it ran, and how it ended. Open an item to see its recorded request cost.</p>{activityOpen && <GenerationRecords leagues={leagues} busy={blocked} run={run} version={version} />}</details></Panel>
+      <Panel className="p-4 sm:p-5"><details open={settingsOpen} onToggle={e => setSettingsOpen(e.currentTarget.open)}><summary className={summaryClass}>Settings</summary><p className="text-prose text-dim">Off, ask me first, or automatic — for all leagues or individual leagues.</p>{settingsOpen && <GenerationSettings leagues={leagues} busy={blocked} run={run} version={version} budgetSeriesId={budgetSeriesId} budgetRequestId={budgetRequestId} />}</details></Panel>
+      <Panel className="p-4 sm:p-5"><details open={activityOpen} onToggle={e => setActivityOpen(e.currentTarget.open)}><summary className={summaryClass}>Recent activity</summary><p className="text-prose text-dim">What ran, when it ran, and how it ended. Open an item to see its recorded request cost.</p>{activityOpen && <GenerationRecords leagues={leagues} busy={blocked} run={run} version={version} onRecapBudget={openRecapBudget} />}</details></Panel>
       <Panel className="p-4 sm:p-5"><details open={advancedOpen} onToggle={e => setAdvancedOpen(e.currentTarget.open)}><summary className={summaryClass}>Advanced</summary><p className="text-prose text-dim">AI request costs, saved content, change history, and recovery tools.</p>
         {advancedOpen && <>
           <details className="mt-3"><summary className={summaryClass}>Activation and recovery</summary><p className="max-w-2xl text-prose text-dim">Use after resolving a provider or deployment problem. Activation requires a configured deployment ID, stopped legacy workers, and completed receipt checks. Missed work stays held for separate approval.</p>
