@@ -139,6 +139,8 @@ def create_app() -> FastAPI:
     app.include_router(admin.router)
     from app.routes import generation_admin
     app.include_router(generation_admin.router)
+    from app.routes import recap_admin
+    app.include_router(recap_admin.router)
     return app
 
 

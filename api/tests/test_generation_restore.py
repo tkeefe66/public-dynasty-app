@@ -73,6 +73,8 @@ async def test_quarantine_cannot_be_cleared_by_pause_then_old_epoch_activation(m
 
 @pytest.mark.asyncio
 async def test_generation_rows_roundtrip_without_receipt_or_artifact_changes(maker, tmp_path):
+    from app.services.generation.recap_budget import RecapCaps
+    from app.services.generation.recap_models import RecapBudgetPolicy
     from app.services.backup_service import load_database
     from app.services.generation.models import (
         ArtifactHead,
@@ -98,6 +100,8 @@ async def test_generation_rows_roundtrip_without_receipt_or_artifact_changes(mak
         db.add(GenerationOutbox(key="outbox", kind="artifact", payload_json="{}"))
         db.add(GenerationSubmission(key="submission", request_digest="request", operation_id="job"))
         db.add(GenerationAudit(actor_id="owner", action="audit", target="job", reason="test"))
+        db.add(RecapBudgetPolicy(series_id="series", revision=2,
+            caps_json=dump(RecapCaps().model_dump()), updated_at=123))
     async with maker() as db:
         blob, counts = await dump_database(db)
     assert all(counts[t.name] for t in Base.metadata.sorted_tables if t.name not in
