@@ -209,11 +209,19 @@ async def episode(maker, tmp_path, store, prose, narration_calls, week, metadata
     if automatic:
         await w.advance_media(maker)
     async with maker.begin() as db:
-        stages = await w.start_media(db,artifact_row.id)
-        ids = [row.id for row in stages]
+        if automatic:
+            # Observe the real projector's committed transition before any
+            # idempotence helper could create/heal missing stages.
+            stages = list((await db.scalars(select(m.RecapStage).where(m.RecapStage.script_id == artifact_row.id))).all())
+            assert len(stages) == 4 and {row.kind for row in stages} == {'narrate','speech_check','render','media_check'}, 'Automatic script-to-media handoff missing'
+            assert all(row.episode_id == ident and row.operation_id == job.id for row in stages)
+        else:
+            stages = await w.start_media(db,artifact_row.id)
+        ids = {row.id for row in stages}
     async with maker.begin() as db:
-        assert [row.id for row in await w.start_media(db,artifact_row.id)] == ids
+        assert {row.id for row in await w.start_media(db,artifact_row.id)} == ids
     lease = await claim(maker,'narrate')
+    assert lease['stage_id'] in ids
     async with maker.begin() as db:
         authority = await w.authorize_dispatch(db,**fence(lease),worker_id='acceptance-worker')
     text = authority['request']['inputs'][0]['text']
