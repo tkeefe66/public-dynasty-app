@@ -127,7 +127,16 @@ async def paid_artifact(maker, transport, job_id, payload, tool_blocks=None):
     return saved
 
 
-async def episode(maker, tmp_path, store, prose, narration_calls, week, metadata):
+async def automatic_job(maker, candidate):
+    from app.services.generation.worker import admit_automatic
+    await admit_automatic(maker)
+    async with maker() as db:
+        job = await db.scalar(select(g.GenerationOperation).where(g.GenerationOperation.candidate_key == candidate.key))
+        assert job and job.actor_kind == 'scheduler', 'Automatic admission did not create scheduler-owned work'
+        return job
+
+
+async def episode(maker, tmp_path, store, prose, narration_calls, week, metadata, *, automatic=False):
     from app.services.recap_video.readiness import observe_period
     from app.services.recap_video.contracts import EpisodeKey
     from app.services.recap_video.periods import build_participants, eligible_release
@@ -155,28 +164,50 @@ async def episode(maker, tmp_path, store, prose, narration_calls, week, metadata
             'markdown':f'# Week {week}\n\nAvery and Blake tied. Synthetic reviewed recap.'}
         candidate = await observe(db, series_id='series',league_id='synthetic',feature='analyst',
             subject=f'article-{week}',event=str(week),payload={'edition':article,'season':2026,'week':week,
-                'period_id':str(week),'recap_facts_digest':current.facts_digest})
-        job = await authorize_candidate(db,candidate.key,actor_id='owner',actor_kind='admin',reason='Synthetic article review',authorization_key=f'article-{week}')
+                'period_id':str(week),'recap_facts_digest':current.facts_digest,'event_at':start})
+        if not automatic:
+            job = await authorize_candidate(db,candidate.key,actor_id='owner',actor_kind='admin',reason='Synthetic article review',authorization_key=f'article-{week}')
+    if automatic:
+        job = await automatic_job(maker,candidate)
     written = await paid_artifact(maker,prose,job.id,article)
     await drain(maker,tmp_path)
     await drain(maker,tmp_path)  # projection crash/restart is idempotent
     async with maker.begin() as db:
         assert (await db.get(m.RecapEpisode,ident)).article_digest == written.digest
-        await w.prepare_preflight(db,ident,actor_id='owner',reason='Synthetic account metadata fixture')
+        if not automatic:
+            await w.prepare_preflight(db,ident,actor_id='owner',reason='Synthetic account metadata fixture')
+    if automatic:
+        await w.advance_media(maker)
+        await w.advance_media(maker)  # Repeated ticks retain one claimable free challenge.
+        async with maker() as db:
+            pending = list((await db.scalars(select(m.RecapStage).where(m.RecapStage.episode_id == ident))).all())
+            assert len(pending) == 1 and pending[0].kind == 'preflight' and pending[0].state == 'queued'
+            assert not await db.scalar(select(m.RecapProviderAttempt.id).where(m.RecapProviderAttempt.stage_id == pending[0].id))
     lease = await claim(maker,'preflight')
     await complete(maker,lease,{'status':'ok','asset_ids':[],'report':metadata})
+    if automatic:
+        await w.advance_media(maker)
     async with maker.begin() as db:
-        candidate = await w.prepare_episode_script(db,ident,cache_dir=tmp_path)
+        if automatic:
+            candidates = (await db.scalars(select(g.GenerationCandidate).where(g.GenerationCandidate.feature == 'recap_video'))).all()
+            candidate = next(c for c in candidates if json.loads(c.payload_json).get('episode_id') == ident)
+        else:
+            candidate = await w.prepare_episode_script(db,ident,cache_dir=tmp_path)
         saved = json.loads(candidate.payload_json)
         payload = approved_payload(saved)
         payload['script']['opening']='Welcome.'
         payload['script']['closing']='That is all.'
         payload['script']['segments'][0]['text']='Avery and Blake tied.'
-        job = await authorize_candidate(db,candidate.key,actor_id='owner',actor_kind='admin',reason='Synthetic script review',authorization_key=f'script-{week}')
+        if not automatic:
+            job = await authorize_candidate(db,candidate.key,actor_id='owner',actor_kind='admin',reason='Synthetic script review',authorization_key=f'script-{week}')
+    if automatic:
+        job = await automatic_job(maker,candidate)
     script = payload['script']
     blocks = [[{'type':'tool_use','id':'synthetic-tool','name':name,'input':value}] for name,value in (
         ('submit_script',{k:v for k,v in script.items() if k != 'reviews'}),('review_script',script['reviews'][-1]))]
     artifact_row = await paid_artifact(maker,prose,job.id,payload,blocks)
+    if automatic:
+        await w.advance_media(maker)
     async with maker.begin() as db:
         stages = await w.start_media(db,artifact_row.id)
         ids = [row.id for row in stages]
@@ -274,8 +305,20 @@ async def test_tuesday_to_three_reviews_real_linux_postgres_and_authenticated_ad
             assert status['passed']==len(episodes)+1,status
             assert status['automatic'] == (week==6),status
         episodes.append((ident,media_id,source))
-    assert len(prose.calls)==12
-    assert len(narration_calls)==len(set(narration_calls))==3
+    fourth = await episode(pgmaker,tmp_path,store,prose,narration_calls,7,metadata,automatic=True)
+    await w.advance_media(pgmaker)
+    await drain(pgmaker,tmp_path)
+    async with pgmaker() as db:
+        status = await q.qualification_status(db,'series',2026)
+        assert status['automatic'] and status['passed'] == 3
+        assert len(list((await db.scalars(select(m.RecapQualificationReview))).all())) == 3
+        approved = list((await db.scalars(select(m.RecapPublicationApproval).where(m.RecapPublicationApproval.episode_id == fourth[0]))).all())
+        assert len(approved) == 1 and approved[0].authorization_kind == 'standing' and not approved[0].reviewer_id
+        publication = await p.authority_for_episode(db,await db.get(m.RecapEpisode,fourth[0]))
+        assert publication.media_id == fourth[1] and publication.projected_revision == publication.authority_revision
+    episodes.append(fourth)
+    assert len(prose.calls)==16
+    assert len(narration_calls)==len(set(narration_calls))==4
     async with pgmaker() as db:
         assert {a.id for a in (await db.scalars(select(g.ProviderAttempt))).all()}==set(prose.calls)
         assert {a.id for a in (await db.scalars(select(m.RecapProviderAttempt))).all()}==set(narration_calls)

@@ -349,3 +349,34 @@ async def test_recovered_target_revalidates_after_review_at_selection_and_projec
             row=await p.authority_for_episode(db,await db.get(m.RecapEpisode,ident))
             assert row.media_id==mid
             if boundary=='projection':assert row.projected_revision==1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('projection', ['pending', 'held', 'delivered'])
+async def test_manual_selection_is_idempotent_under_automatic_ticks(maker,tmp_path,monkeypatch,projection):
+    from app.services.recap_video import qualification as q,publication as p
+    from app.services.generation import recap_models as m
+    from app.services.generation.models import GenerationPolicy,GenerationOutbox
+    ident,mid,proof=await reviewed_recovered_fourth(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        await p.select_publication(db,ident,0,mid,proof)
+        (await db.get(m.RecapEpisode,ident)).lifecycle='review'
+        if projection=='held':
+            policy=await db.get(GenerationPolicy,'app')
+            value=json.loads(policy.value_json);value['features']['recap_video']['paused']=True
+            policy.value_json=dump(value)
+    if projection!='pending':
+        async with maker.begin() as db:
+            item=await db.scalar(select(GenerationOutbox).where(GenerationOutbox.key==f'recap-publication:{ident}:1'))
+            if projection=='held':
+                with pytest.raises(Held):await p.project_publication(db,item,tmp_path)
+            else:await p.project_publication(db,item,tmp_path)
+    async with maker() as db:
+        before=list((await db.scalars(select(m.RecapPublicationApproval.id))).all())
+    await q.advance_qualified_publication(maker)
+    await q.advance_qualified_publication(maker)
+    async with maker() as db:
+        assert list((await db.scalars(select(m.RecapPublicationApproval.id))).all())==before
+        assert not await db.scalar(select(m.RecapAttention).where(m.RecapAttention.episode_id==ident))
+        row=await p.authority_for_episode(db,await db.get(m.RecapEpisode,ident))
+        assert row.authority_revision==1 and row.projected_revision==(1 if projection=='delivered' else 0)

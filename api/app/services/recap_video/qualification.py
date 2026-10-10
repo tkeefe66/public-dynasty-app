@@ -341,6 +341,13 @@ async def advance_qualified_publication(maker):
                 media_id=finished.id
                 from app.services.recap_video.publication import authority_for_episode
                 authority=await authority_for_episode(db,await db.get(RecapEpisode,ident))
+                episode=await db.get(RecapEpisode,ident)
+                if (authority and authority.media_id == media_id and not authority.withdrawn and not authority.hold
+                        and authority.article_digest == episode.article_digest and authority.facts_digest == episode.facts_digest):
+                    # Selection already owns this exact content (possibly still
+                    # awaiting its outbox). The projector owns delivery/rechecks;
+                    # a tick must not invent a new approval or recovery warning.
+                    continue
                 expected_revision=authority.authority_revision if authority else 0
                 proof=await record_standing_approval(db,ident,expected_revision,media_id)
             async with maker.begin() as db:

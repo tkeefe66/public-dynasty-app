@@ -437,6 +437,8 @@ implementer's self-check; release evidence must identify their final commit.
 | 12 period discovery | Lightweight current season/period discovery precedes due filtering; historical snapshots only when due, current season only. Daily previous period cannot suppress next Tuesday/new season; manual/paused/member gates remain independent. |
 | 12 preview transport | Narrow authenticated preview forwards Range/If-Range, keeps lengths, HEAD bodylessness and caller abort. Preserve streaming/JWT authority; no object redirect or buffering. |
 | 12 historical fixtures | Full PG sweep exposed latest-ORM fields in old-schema receipts and head downgrade crossing guarded migrations. Build actual old schemas, seed historical columns, roundtrip only reversible 0013 and assert later downgrade refusal; no product migration/constraint change. |
+| 12 automatic preflight | Persist the free challenge in its own savepoint before checking for its completed result. Otherwise the expected readiness hold rolls back the queued stage forever. Repeated ticks retain one claimable challenge; unauthorized work still fails current policy/actor fences. |
+| 12 selected-content idempotence | Automatic advancement skips exact already-selected current media without changing lifecycle or delivery. The existing outbox still owns checks/retries, including pending and policy-held projections; prevents false review attention without claiming content was delivered. |
 | 12 sibling identity | Namespace episode/budget React keys. Duplicate series keys repeatedly remounted real populated panels and hid cap controls; unit collision check plus real saved-cap acceptance cover the defect. |
 
 Proposed skill candidate (not created): project-scoped
@@ -463,8 +465,9 @@ proof. CI runs the same contracts but has not been executed remotely by this tas
   concurrency, budgets, receipt recovery, publication and quarantined restore.
   Two initial fixture failures were fixed without changing product migrations.
 - Integrated PG/Linux/Next acceptance: six passed; three distinct synthetic
-  episodes, twelve unique admitted prose physical submissions and three unique
-  admitted narration submissions. Saved receipt replay sent zero new requests.
+  reviewed episodes then a fourth episode admitted and published by the existing
+  automatic loop without another manual review. Sixteen unique admitted prose
+  physical submissions and four unique admitted narration submissions. Saved receipt replay sent zero new requests.
   One unknown prose attempt remained one physical send across three new Gateway
   instances. Supplementary crash contracts cover raw receipt, unknown response,
   free-stage expiry and durable checkpoint restart.
@@ -484,7 +487,8 @@ proof. CI runs the same contracts but has not been executed remotely by this tas
 Failures exposed by integration: previous daily cadence suppressed new Tuesday/
 season discovery; private authenticated proxy dropped Range/length/HEAD semantics;
 nonempty episode and budget panels shared a React key, repeatedly remounting and
-hiding cap controls. Each has a regression and actual boundary evidence. Harness
+hiding cap controls; automatic preflight was rolled back by its own expected
+readiness hold; repeated ticks on manual selections created false attention. Each has a regression and actual boundary evidence. Harness
 adjustments (env-free copy needs local fonts, synthetic future clock, rotated token,
 Node Headers versus jsdom, historical schema fixtures) are not product defects.
 

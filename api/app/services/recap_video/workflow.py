@@ -657,6 +657,9 @@ async def advance_media(maker):
                         standing=await db.get(RecapStandingAuthorization,qualified['standing_id'])
                         await prepare_preflight(db,episode.episode_id,actor_id=standing.actor_id,
                             reason='Current season standing policy metadata verification')
+                # A queued free preflight is useful durable progress. Waiting for
+                # its result must not roll that stage back with script admission.
+                async with db.begin_nested():
                     await require_media_preflight(db, episode.episode_id)
                     selections = await PUBLISHED_SCRIPT_SELECTIONS(db, episode.series_id) if PUBLISHED_SCRIPT_SELECTIONS else ()
                     await prepare_episode_script(db, episode.episode_id, cache_dir=get_settings().cache_dir,
