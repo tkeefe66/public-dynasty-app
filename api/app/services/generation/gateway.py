@@ -160,7 +160,7 @@ class Gateway:
         except (TypeError, ValueError, KeyError):
             raise Held("response_invalid") from None
 
-    async def record_receipt(self, attempt_id: str, receipt: Receipt):
+    async def record_receipt(self, attempt_id: str, receipt: Receipt, *, reprice: bool = False):
         """A late response settles accounting regardless of worker ownership."""
         # Save raw body first, in a separate durable transaction from decoding.
         async with self.maker.begin() as db:
@@ -177,14 +177,25 @@ class Gateway:
         async with self.maker.begin() as db:
             control = await lock_control(db)
             row = await db.get(ProviderAttempt, attempt_id)
-            if row.settled_at:
+            if row.settled_at and (not reprice or row.cost_microusd is not None):
                 return
             before = {"state": row.state, "error_code": row.error_code, "usage_state": row.usage_state}
             try:
                 body = json.loads(receipt.body)
                 usage_state, usage, amount = price_usage(body, json.loads(row.pricing_json))
+                # A saved validation rejection proves no generation occurred.
+                # Never infer zero for transport failures, 5xx, or partial usage.
+                if (receipt.status == 400 and body.get("type") == "error"
+                        and isinstance(body.get("error"), dict)
+                        and body["error"].get("type") == "invalid_request_error"
+                        and "usage" not in body and "content" not in body):
+                    usage_state, usage, amount = "not_billed", {}, 0
             except (ValueError, TypeError, AttributeError):
                 usage_state, usage, amount = "unknown", {}, None
+            if row.settled_at and reprice and amount is None:
+                # No new financial evidence: do not restart old cooldowns/holds
+                # or duplicate settlement events during operator recovery.
+                return
             row.state = "received"
             row.usage_state = usage_state
             row.usage_json = dump(usage)
@@ -208,7 +219,7 @@ class Gateway:
             audit(db, "provider", "attempt_settled", attempt_id, "Saved receipt settled provider outcome",
                 before, {"state": row.state, "error_code": row.error_code,
                     "usage_state": row.usage_state, "cost_microusd": amount})
-            if amount is not None:
+            if amount is not None and usage_state == "known":
                 db.add(GenerationOutbox(key="usage:" + attempt_id, kind="telemetry",
                     payload_json=dump({"attempt_id": attempt_id, "operation_id": row.operation_id,
                         "model": row.model, "usage": usage, "cost_microusd": amount})))
