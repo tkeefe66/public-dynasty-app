@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from app.services.generation.store import digest
 from sleeper_dynasty.llm.managed import ManagedClient
 
+GM_HIGHLIGHT_MAX_WORDS = 24
+
 
 @dataclass(frozen=True)
 class ValidatedOutput:
@@ -45,8 +47,8 @@ def validate(feature, result, facts, raw=None):
                     errors.append(f"Unsupported pillar {label!r}; use only {', '.join(sorted(pillars))}")
                 elif not isinstance(value, str):
                     errors.append(f"{label} highlight must be text")
-                elif len(value.split()) > 16:
-                    errors.append(f"{label} highlight has {len(value.split())} words; shorten it to at most 16 words, preferably 12")
+                elif len(value.split()) > GM_HIGHLIGHT_MAX_WORDS:
+                    errors.append(f"{label} highlight has {len(value.split())} words; shorten it to at most {GM_HIGHLIGHT_MAX_WORDS} words, preferably 12")
             if errors:
                 return errors
     if feature == "trade_story":
@@ -71,8 +73,8 @@ def validate(feature, result, facts, raw=None):
     if not isinstance(highlights, dict):
         return [*errors, "Highlights must be an object"]
     for pillar, text in highlights.items():
-        if pillar not in pillars or not isinstance(text, str) or len(text.split()) > 16:
-            errors.append("Use only supported pillar highlights of at most 16 words")
+        if pillar not in pillars or not isinstance(text, str) or len(text.split()) > GM_HIGHLIGHT_MAX_WORDS:
+            errors.append(f"Use only supported pillar highlights of at most {GM_HIGHLIGHT_MAX_WORDS} words")
     return errors
 
 

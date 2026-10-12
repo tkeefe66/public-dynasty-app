@@ -45,16 +45,35 @@ def test_trade_prose_contract_keeps_semantic_validation():
 
 
 def test_gm_feedback_identifies_the_overlong_highlight():
+    # Mutation: accepting 25 words or giving stale 16-word correction feedback.
     from app.services.generation.features import validate
 
     from sleeper_dynasty.models.gm_rating_blurb import OwnerRatingFacts
     facts = OwnerRatingFacts(user_id="u", owner_name="Owner", team_name=None,
         scope_label="career", rank=1, rating=80, pillars={"results": {}})
     raw = {"content": [{"type": "text", "text": json.dumps({"blurb": "Profile",
-        "highlights": {"Results": " ".join(["word"] * 17)}})}]}
+        "highlights": {"Results": " ".join(["word"] * 25)}})}]}
     errors = validate("gm_rating_blurb", {"blurb": "Profile"}, facts, raw)
     assert len(errors) == 1
-    assert "Results highlight has 17 words" in errors[0]
+    assert "Results highlight has 25 words" in errors[0]
+    assert "at most 24 words" in errors[0]
+
+
+@pytest.mark.parametrize("words", [17, 18, 24])
+def test_gm_highlights_accept_the_reviewed_limit_without_truncation(words):
+    # Mutation: retaining either 16-word check rejects approved saved highlights.
+    from app.services.generation.features import validate
+
+    from sleeper_dynasty.llm.gm_rating_blurb_writer import parse_blurb
+    from sleeper_dynasty.models.gm_rating_blurb import OwnerRatingFacts
+    facts = OwnerRatingFacts(user_id="u", owner_name="Owner", team_name=None,
+        scope_label="career", rank=1, rating=80, pillars=[{"label": "Results"}])
+    highlight = " ".join(["word"] * words)
+    text = json.dumps({"blurb": "Profile", "highlights": {"Results": highlight}})
+    result = parse_blurb(text)
+    assert validate("gm_rating_blurb", result, facts,
+        {"content": [{"type": "text", "text": text}]}) == []
+    assert result["pillars"]["results"] == highlight
 
 
 @pytest.mark.asyncio

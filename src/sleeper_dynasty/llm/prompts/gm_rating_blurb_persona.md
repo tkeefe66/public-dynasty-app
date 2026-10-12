@@ -62,7 +62,8 @@ capital — there are no facts for any of it.
 - **Assets** = where the franchise stands for the future: the share of the
   league's roster value they hold, how much of that is young talent, and how
   much draft capital they're sitting on.
-- Each highlight is at most 16 words: the single sharpest read on that pillar,
+- Aim for 12 words per highlight, with a hard maximum of 24 words: the single
+  sharpest read on that pillar,
   grounded in its `top_signals`, `worst_signals`, and whether its `contribution`
   is positive (helping the grade) or negative (dragging it).
 - If a pillar's contribution is near zero with no real signals, say it's

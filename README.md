@@ -473,6 +473,14 @@ Surfaces: a league-wide board at `/league/{id}/draft/{season}`, a **Draft** tab 
 
 ### Admin & product telemetry
 
+GM profile highlights allow up to 24 words. For failed profiles with complete,
+priced provider receipts, operators can run `python scripts/recover_gm_profiles.py
+--job JOB_ID:GENERATION --actor ADMIN_USER_ID --reason "Reviewed saved profile"`
+inside the configured API environment. This previews recovery and rolls back;
+add `--apply` to save the latest response through normal publication checks.
+Repeat `--job` for an atomic batch. Recovery never invokes an AI provider,
+changes the request allowance, or edits the original receipts.
+
 Admin has four top-level tabs: **AI writing**, **Leagues**, **Users**, and **Monthly LLM budget**. Leagues and Users support search; usage telemetry sits under Users. Monthly LLM budget brings together the app-wide cap, spending breakdown, and recap limits. Links from a held recap open the relevant league and episode in that tab. Tab selection uses `?tab=writing|leagues|users|budget`, supports browser history and keyboard navigation, and retains recap selection while moving between sections. Backup status and its latest recorded outcome remain available in the Admin header.
 
 The `/admin` surface (gated to `TRADE_GRADER_ADMIN_EMAILS` users) shows users, leagues, LLM spend + a budget editor, and **product telemetry**. A client beacon posts each route change to `POST /api/events` (user-scoped, query strings stripped) into a `page_events` table; the admin views then surface **active users** (DAU/7d/30d), **per-league activity**, and a **per-user activity drill-down** (`/admin/user/{id}`). User **engagement** is tracked as distinct active days (`users.active_days` / `last_active_at`, stamped once per user per UTC day). No extra config — telemetry uses the existing identity DB and migrations.
