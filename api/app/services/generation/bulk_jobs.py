@@ -42,6 +42,8 @@ async def blocked_reason(db, job, control):
     feature = policy["policy"]["features"].get(job.feature, {})
     if policy["blocked_by"] or feature.get("paused") or feature.get("mode") == "disabled":
         return "feature_paused"
+    if job.kind not in FREE_REFRESH_KINDS and job.actor_kind == "scheduler" and feature.get("mode") != "automatic":
+        return "manual_only"
     attempts = (await db.scalars(select(ProviderAttempt).where(ProviderAttempt.operation_id == job.id))).all()
     if any(a.state in UNRESOLVED for a in attempts):
         return "provider_outcome_unknown"

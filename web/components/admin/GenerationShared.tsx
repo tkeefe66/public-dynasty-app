@@ -9,7 +9,7 @@ export const readable = (value?: string) => value ? value.replaceAll("_", " ") :
 export const money = (value?: number | null) => value == null ? "Cost unknown" : `$${(value / 1_000_000).toFixed(4)}`;
 export const dateLabel = (value?: number) => value ? new Date(value * 1000).toLocaleString() : "Time not recorded";
 export type RunAction = (action: () => Promise<unknown>, notice: string, reload?: boolean) => Promise<void>;
-export interface ActionProps { busy: boolean; run: RunAction; onRecapBudget?: (seriesId: string, episodeId?: string) => void; onRecapEpisode?: (seriesId: string) => void }
+export interface ActionProps { busy: boolean; run: RunAction; onRecapBudget?: (seriesId: string, episodeId?: string) => void; onRecapEpisode?: (seriesId: string) => void; onWritingRules?: () => void; onActivity?: () => void }
 export function leagueName(row: GenerationRecord, leagues: GenerationSeries[]) {
   return row.league_name || leagues.find(l => l.id === row.series_id || l.seasons.some(s => s.league_id === row.league_id))?.name
     || (row.league_id ? `League ${row.league_id}` : "No league recorded");
@@ -64,12 +64,12 @@ export function TechnicalDetails({ value, label = "Technical details" }: { value
 }
 
 /** Reason and recovery evidence belong to the action, not a page-wide unlock field. */
-export function ActionForm({ title, description, submitLabel, busy, onSubmit, onCancel, requireStopped = false, requireEvidence = false }: {
+export function ActionForm({ title, description, submitLabel, busy, onSubmit, onCancel, requireStopped = false, requireEvidence = false, defaultReason }: {
   title: string; description: string; submitLabel: string; busy: boolean;
   onSubmit: (reason: string, workersStopped: boolean, evidence: string) => Promise<void>;
-  onCancel: () => void; requireStopped?: boolean; requireEvidence?: boolean;
+  onCancel: () => void; requireStopped?: boolean; requireEvidence?: boolean; defaultReason?: string;
 }) {
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(defaultReason || "");
   const [stopped, setStopped] = useState(false);
   const [evidence, setEvidence] = useState("");
   const [error, setError] = useState("");
@@ -84,9 +84,9 @@ export function ActionForm({ title, description, submitLabel, busy, onSubmit, on
   }}>
     <h4 className="font-semibold text-prose">{title}</h4>
     <p className="max-w-2xl text-prose text-dim">{description}</p>
-    <label className="block text-prose">Reason for this action
+    {!defaultReason && <label className="block text-prose">Reason for this action
       <input autoFocus className={controlClass + " mt-1"} value={reason} onChange={e => setReason(e.target.value)} required maxLength={1000} placeholder="Briefly explain this decision for the change history." />
-    </label>
+    </label>}
     {requireStopped && <label className="flex min-h-tap items-center gap-2 text-prose"><input type="checkbox" checked={stopped} onChange={e => setStopped(e.target.checked)} />I verified that the original sending processes and legacy workers are stopped.</label>}
     {requireEvidence && <label className="block text-prose">Recovery evidence<textarea className={controlClass} value={evidence} onChange={e => setEvidence(e.target.value)} maxLength={4000} placeholder="Provider evidence and how you verified the sending process is stopped. Time elapsed is not proof." /></label>}
     {error && <p role="alert" className="text-prose text-neg-strong">{error}</p>}

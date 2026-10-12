@@ -10,7 +10,7 @@ interface BatchPreview {
   items: { id: string }[]; skipped: { id: string; reason: string }[];
 }
 
-export function GenerationBulkReview({ rows, leagues, busy, run, onRecapBudget, onRecapEpisode, version, hasMore = false, featureFilter, scopeSeries = "" }: ActionProps & {
+export function GenerationBulkReview({ rows, leagues, busy, run, onRecapBudget, onRecapEpisode, onWritingRules, onActivity, version, hasMore = false, featureFilter, scopeSeries = "" }: ActionProps & {
   rows: GenerationRecord[]; leagues: GenerationSeries[]; version: number; hasMore?: boolean; featureFilter?: GenerationFeature; scopeSeries?: string;
 }) {
   const [batchOpen, setBatchOpen] = useState(false);
@@ -21,6 +21,11 @@ export function GenerationBulkReview({ rows, leagues, busy, run, onRecapBudget, 
   const [error, setError] = useState("");
   useEffect(() => { setAllRows(null); setSelected([]); setPreview(null); setBatchOpen(false); }, [version]);
   const displayed = allRows || rows;
+  const groups = [...displayed.reduce((groups, row) => {
+    const key = batchOpen ? row.id! : row.review_group || row.id!;
+    groups.set(key, [...(groups.get(key) || []), row]);
+    return groups;
+  }, new Map<string, GenerationRecord[]>()).values()].map(group => group.sort((a, b) => (b.created_at || 0) - (a.created_at || 0)));
   const blocked = busy || loading;
   async function selectAll() {
     setLoading(true); setError(""); setPreview(null);
@@ -77,7 +82,12 @@ export function GenerationBulkReview({ rows, leagues, busy, run, onRecapBudget, 
       }}>Confirm {preview.action} {preview.items.length} jobs</Button>
     </div>}
     </details>}
-    <ul className="mt-3 divide-y divide-rule">{displayed.map(row => <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} onRecapBudget={onRecapBudget} onRecapEpisode={onRecapEpisode} review
-      selected={selected.includes(row.id!)} onSelect={batchOpen && !failedFreeRefresh(row) ? checked => { setPreview(null); setSelected(old => checked ? [...old, row.id!] : old.filter(id => id !== row.id)); } : undefined} />)}</ul>
+    <p className="mt-3 text-prose text-dim">{displayed.length} stopped or paused {displayed.length === 1 ? 'attempt' : 'attempts'} shown{hasMore ? ' · More available below' : ''}. Each issue includes its next action.</p>
+    <ul className="mt-3 divide-y divide-rule">{groups.map(group => {
+      const row = group[0];
+      const entry = <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} onRecapBudget={onRecapBudget} onRecapEpisode={onRecapEpisode} onWritingRules={onWritingRules} onActivity={onActivity} review
+        selected={selected.includes(row.id!)} onSelect={batchOpen && !failedFreeRefresh(row) ? checked => { setPreview(null); setSelected(old => checked ? [...old, row.id!] : old.filter(id => id !== row.id)); } : undefined} />;
+      return group.length === 1 ? entry : <li key={row.review_group} className="py-2"><ul>{entry}</ul><details className="pb-3"><summary className={summaryClass}>{group.length - 1} other stopped {group.length === 2 ? 'attempt' : 'attempts'} for this content</summary><p className="text-prose text-dim">These attempts concern the same content. Review or cancel each unwanted attempt; their saved history is kept.</p><ul className="divide-y divide-rule">{group.slice(1).map(older => <GenerationJob key={`${older.id}:${older.state}:${older.generation}`} row={older} leagues={leagues} busy={blocked} run={run} onRecapBudget={onRecapBudget} onRecapEpisode={onRecapEpisode} onWritingRules={onWritingRules} onActivity={onActivity} review />)}</ul></details></li>;
+    })}</ul>
   </div>;
 }

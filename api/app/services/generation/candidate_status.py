@@ -17,6 +17,7 @@ from app.services.generation.commands import UNRESOLVED, require_actor
 from app.services.generation.models import (
     ArtifactHead,
     ContentArtifact,
+    GenerationAudit,
     GenerationControl,
     GenerationOperation,
     LeagueSeason,
@@ -24,10 +25,21 @@ from app.services.generation.models import (
     stamp,
 )
 from app.services.generation.policy import paid_capabilities, supports_feature
-from app.services.generation.store import Held, resolve_policy
+from app.services.generation.store import Held, digest, resolve_policy
 
 REVIEWABLE_HOLDS = ("", "historical_approval_required", "missed_event_approval_required", "manual_approval_required")
 ACTIVE_STATES = ("queued", "running", "held", "needs_attention")
+
+
+def replacement_review_target(subject, event):
+    return digest([subject, event])
+
+
+async def replacement_requires_approval(db, subject, event):
+    """A reviewed replacement stays manual, even after collection or policy changes."""
+    return bool(await db.scalar(select(GenerationAudit.id).where(
+        GenerationAudit.action == "replacement_review_required",
+        GenerationAudit.target == replacement_review_target(subject, event)).limit(1)))
 
 
 def _period(payload):

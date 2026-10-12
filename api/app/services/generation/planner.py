@@ -51,6 +51,12 @@ async def observe(db, *, series_id, league_id, feature, subject, event, payload)
         GenerationOperation.state.in_(("needs_attention", "held"))).limit(1))
     if pending:
         row.hold = "subject_needs_attention"
+    if not row.hold or row.hold in ("historical_approval_required", "missed_event_approval_required"):
+        from app.services.generation.candidate_status import (
+            replacement_requires_approval,
+        )
+        if await replacement_requires_approval(db, subject, event):
+            row.hold = "manual_approval_required"
     if not row.hold:
         row.eligible_at = stamp()
     await db.flush()

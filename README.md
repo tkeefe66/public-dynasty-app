@@ -370,10 +370,21 @@ initial bonus release remain readable alongside the typed scoring model.
 
 ### Automatic writing and review
 
-**Needs your review** contains stopped or paused jobs. **Manual content and
-catch-up** is a separate, initially collapsed panel for optional historical
-writing and features set to **Ask me first**. The candidate catalog is a record
-of observed content, not a count of failed jobs or required approvals.
+**Review problems** explains stopped work and publication failures, shows the
+next supported action and its cost consequences, and groups attempts for the
+same event. Cancellation keeps history. **Copy issue details** supplies a
+diagnostic report for Codex when an app fix or uncertain request needs investigation.
+Saved writing is reused for publication retries without another AI request.
+
+**Start writing** provides selection, request review, then a visible **Approve &
+start writing** button. Selection and review make no provider calls. Historical
+catch-up and features set to **Ask me first** use this explicit approval flow.
+The candidate catalog records observed content, not failed jobs or required approvals.
+
+A replacement review cancels the stopped attempt and prepares a separate paid
+approval. Its semantic event receives a durable manual-approval audit gate:
+collection and automatic scheduling cannot start it while approval is pending.
+Unknown earlier outcomes or charges require investigation before replacement.
 
 **Automatic** handles new eligible events under each league's effective policy.
 Enabling or resuming it does not approve historical work accumulated before

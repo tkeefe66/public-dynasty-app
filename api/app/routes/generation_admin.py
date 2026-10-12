@@ -13,6 +13,7 @@ from app.services.generation import administration as commands
 from app.services.generation.candidate_status import classify_candidates
 from app.services.generation.league_names import attach_league_names
 from app.services.generation.models import (
+    ArtifactHead,
     ContentArtifact,
     GenerationAudit,
     GenerationCandidate,
@@ -77,6 +78,11 @@ class JobAction(Reason):
     expected_generation: int
     expected_state: str
     action: Literal["cancel", "resume"]
+
+
+class Replacement(Reason):
+    expected_generation: int
+    expected_state: str
 
 
 class AttemptAction(Reason):
@@ -168,10 +174,17 @@ async def records(kind: Literal["jobs", "attempts", "candidates", "artifacts", "
     model = {"jobs": GenerationOperation, "attempts": ProviderAttempt, "candidates": GenerationCandidate,
         "artifacts": ContentArtifact, "audit": GenerationAudit, "outbox": GenerationOutbox}[kind]
     query = select(model)
+    review_delivery = kind == "outbox" and view == "review"
+    if review_delivery:
+        query = query.join(ContentArtifact, GenerationOutbox.key == "artifact:" + ContentArtifact.id).join(
+            ArtifactHead, ArtifactHead.artifact_id == ContentArtifact.id).where(
+            GenerationOutbox.delivered.is_(False), GenerationOutbox.error != "")
+        if series_id:
+            query = query.where(ContentArtifact.series_id == series_id)
     if feature:
-        if kind not in ("jobs", "candidates", "artifacts"):
+        if kind not in ("jobs", "candidates", "artifacts") and not review_delivery:
             raise HTTPException(422, "Content filtering is available for jobs, candidates, and saved content only")
-        query = query.where(model.feature == feature)
+        query = query.where((ContentArtifact.feature if review_delivery else model.feature) == feature)
     if series_id and hasattr(model, "series_id"):
         query = query.where(model.series_id == series_id)
     if state and hasattr(model, "state"):
@@ -210,19 +223,27 @@ async def records(kind: Literal["jobs", "attempts", "candidates", "artifacts", "
         item = data(row)
         if kind in ("candidates", "jobs"):
             item["label"] = commands.candidate_label(row)
+        if kind == "jobs":
+            from app.services.generation.resolution import review_group
+            item["review_group"] = review_group(row)
+        if review_delivery:
+            artifact = await db.get(ContentArtifact, row.key.removeprefix("artifact:"))
+            item.update({"label": commands.candidate_label(artifact), "feature": artifact.feature,
+                "league_id": artifact.league_id, "series_id": artifact.series_id})
         if kind == "candidates":
             item.update(statuses[row.key])
         for name in ("payload_json", "facts_json", "request_json", "receipt_json", "policy_json"):
             if name in item:
                 item["has_" + name.removesuffix("_json")] = bool(item.pop(name))
         safe.append(item)
-    if kind in ("jobs", "candidates"):
+    if kind in ("jobs", "candidates") or review_delivery:
         await attach_league_names(db, safe)
     return {"records": safe, "next_offset": offset + limit if len(rows) > limit else None}
 
 
 @router.get("/jobs/{job_id}")
 async def job_detail(job_id: str, db: DB):
+    from app.services.generation.resolution import resolution
     row = await db.get(GenerationOperation, job_id)
     if not row:
         raise HTTPException(404, "Job not found")
@@ -230,7 +251,13 @@ async def job_detail(job_id: str, db: DB):
         ProviderAttempt.operation_id == job_id).order_by(ProviderAttempt.stage))).all()
     job = data(row)
     await attach_league_names(db, [job])
-    return {"job": job, "attempts": [data(a) for a in attempts]}
+    return {"job": job, "attempts": [data(a) for a in attempts], "resolution": await resolution(db, row)}
+
+
+@router.post("/jobs/{job_id}/replacement")
+async def replacement(job_id: str, body: Replacement, db: DB, owner: Owner):
+    from app.services.generation.resolution import prepare_replacement
+    return await execute(prepare_replacement(db, job_id, body, owner.id))
 
 
 @router.post("/jobs/{job_id}")

@@ -62,7 +62,13 @@ export interface GenerationRecord {
   cost_microusd?: number | null; usage_state?: string; action?: string; actor_id?: string;
   target?: string; error?: string; created_at?: number; observed_at?: number;
   kind?: string; delivered?: boolean;
-  before_json?: string; after_json?: string;
+  before_json?: string; after_json?: string; review_group?: string;
+}
+export interface JobResolution {
+  action: 'none' | 'support' | 'retry_refresh' | 'episode' | 'retry_publication' | 'wait' | 'saved' | 'related' | 'budget' | 'settings' | 'replacement' | 'resume';
+  title: string; explanation: string; cost: string; report: string;
+  related_jobs: { id: string; state: string; reason: string; created_at: number }[];
+  outbox_id?: string; expected_error?: string;
 }
 export type RecapCapKey = "video_episode_microusd" | "video_month_microusd" | "combined_episode_microusd" | "combined_month_microusd";
 export type RecapCaps = Record<RecapCapKey, number>;

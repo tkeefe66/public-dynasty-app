@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { generationRequest } from "@/lib/api";
 import { FEATURE_LABELS, CampaignPreview, GenerationFeature, GenerationPage, GenerationRecord, GenerationSeries } from "@/lib/generation";
 import { Button } from "@/components/furniture/Button";
+import { GenerationApproval } from "./GenerationApproval";
+import { CopyIssueDetails } from './CopyIssueDetails';
 import { GenerationJob } from "./GenerationJob";
 import { ActionForm, ActionProps, contentName, controlClass, dateLabel, leagueName, money, readable, secondary, TechnicalDetails } from "./GenerationShared";
 
@@ -15,8 +17,8 @@ const reviewReasons: Record<string, string> = {
 };
 const recordKinds = { attempts: "AI requests and costs", artifacts: "Saved content", audit: "Change history", outbox: "Publication delivery" };
 
-export function GenerationRecords({ leagues, busy, run, onRecapBudget, onRecapEpisode, version, initialKind = "jobs", advanced = false, featureFilter, scopeSeries }: ActionProps & {
-  leagues: GenerationSeries[]; version: number; initialKind?: string; advanced?: boolean; featureFilter?: GenerationFeature; scopeSeries?: string;
+export function GenerationRecords({ leagues, busy, run, onRecapBudget, onRecapEpisode, onActivity, version, initialKind = "jobs", advanced = false, featureFilter, scopeSeries, reviewOnly = false }: ActionProps & {
+  leagues: GenerationSeries[]; version: number; initialKind?: string; advanced?: boolean; featureFilter?: GenerationFeature; scopeSeries?: string; reviewOnly?: boolean;
 }) {
   const [kind, setKind] = useState(initialKind);
   const [localSeries, setSeries] = useState("");
@@ -26,23 +28,23 @@ export function GenerationRecords({ leagues, busy, run, onRecapBudget, onRecapEp
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState("Approve selected available content across leagues");
+  const [queued, setQueued] = useState(false);
   const [preview, setPreview] = useState<CampaignPreview | null>(null);
   const [pendingPreview, setPendingPreview] = useState(false);
   const [action, setAction] = useState<{ row: GenerationRecord; name: string } | null>(null);
-  const [catchup, setCatchup] = useState(false);
-  const supportsLeagueFilter = ["jobs", "candidates", "artifacts"].includes(kind);
+  const supportsLeagueFilter = ["jobs", "candidates", "artifacts"].includes(kind) || (reviewOnly && kind === 'outbox');
   const featureQuery = featureFilter && supportsLeagueFilter ? `&feature=${featureFilter}` : "";
   useEffect(() => {
     let current = true;
     setLoading(true); setError(""); setPage({ records: [], next_offset: null });
     setSelected([]); setPreview(null); setAction(null);
-    generationRequest<GenerationPage<GenerationRecord>>(`/records/${kind}?limit=25&offset=${offset}${series && supportsLeagueFilter ? `&series_id=${encodeURIComponent(series)}` : ""}${kind === "candidates" ? "&view=review" : ""}${featureQuery}`)
+    generationRequest<GenerationPage<GenerationRecord>>(`/records/${kind}?limit=25&offset=${offset}${series && supportsLeagueFilter ? `&series_id=${encodeURIComponent(series)}` : ""}${kind === "candidates" || reviewOnly ? "&view=review" : ""}${featureQuery}`)
       .then(value => { if (current) setPage(value); })
       .catch(err => { if (current) setError(err.message || "Activity could not load. Try reloading."); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, [kind, series, offset, version, supportsLeagueFilter, featureQuery]);
+  }, [kind, series, offset, version, supportsLeagueFilter, featureQuery, reviewOnly]);
   const blocked = busy || loading || pendingPreview;
   const visibleRecords = kind === "candidates" ? page.records.filter(available) : page.records;
   async function selectAll() {
@@ -62,7 +64,6 @@ export function GenerationRecords({ leagues, busy, run, onRecapBudget, onRecapEp
     finally { setPendingPreview(false); }
   }
   async function makePreview(keys: string[]) {
-    setCatchup(false);
     setPendingPreview(true); setError(""); setPreview(null);
     try { setPreview(await generationRequest<CampaignPreview>("/campaigns/preview", { candidates: keys, reason: reason.trim() })); }
     catch (err) { setError(err instanceof Error ? err.message : "Preview could not load. Try again."); }
@@ -70,12 +71,14 @@ export function GenerationRecords({ leagues, busy, run, onRecapBudget, onRecapEp
   }
   async function previewCatchup() {
     const explanation = "One-time catch-up of missing current content across leagues";
-    setPendingPreview(true); setError(""); setPreview(null); setReason(explanation); setCatchup(true);
+    setPendingPreview(true); setError(""); setPreview(null); setReason(explanation);
     try { setPreview(await generationRequest<CampaignPreview>("/campaigns/catch-up/preview", { series_id: series, reason: explanation })); }
     catch (err) { setError(err instanceof Error ? err.message : "Catch-up preview failed. Reload and try again."); }
     finally { setPendingPreview(false); }
   }
+  if (reviewOnly && !loading && !error && !visibleRecords.length) return null;
   return <div className="mt-3">
+    {reviewOnly && <h4 className="font-display text-name font-bold">Publication problems</h4>}
     <div className="grid gap-3 sm:grid-cols-2">
       {supportsLeagueFilter && scopeSeries === undefined && <label className="text-prose">{advanced ? "Records for league" : kind === "candidates" ? "Content for league" : "Activity for league"}
         <select className={controlClass + " mt-1"} disabled={blocked} value={series} onChange={e => { setSeries(e.target.value); setOffset(0); }}><option value="">All leagues</option>{leagues.map(l => <option key={l.id} value={l.id}>{l.name || "Unnamed league"}</option>)}</select>
@@ -83,46 +86,34 @@ export function GenerationRecords({ leagues, busy, run, onRecapBudget, onRecapEp
       {advanced && <label className="text-prose">Record type<select className={controlClass + " mt-1"} disabled={blocked} value={kind} onChange={e => { setKind(e.target.value); setOffset(0); }}>{Object.entries(recordKinds).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
     </div>
     {!supportsLeagueFilter && <p className="mt-2 text-prose text-dim">Records across all leagues.</p>}
-    {kind === "candidates" && <p className="mt-3 max-w-2xl text-prose text-dim">Only available manual or historical content appears here. Select what you want, review its request allowance, then approve paid writing. Selection and preview do not call the AI provider.</p>}
+    {kind === "candidates" && <p className="mt-3 max-w-2xl text-prose text-dim">Choose the content you want written. Review the request and spending allowance before you approve. Selecting content does not start writing.</p>}
     {kind === "candidates" && !featureFilter && <details className="mt-4 border-y border-rule py-3"><summary className="min-h-tap cursor-pointer py-2 text-prose font-semibold">Historical catch-up across content types</summary><div className="pb-3">
       <h4 className="font-display text-name font-bold">One-time catch-up</h4>
       <p className="mt-1 max-w-2xl text-prose text-dim">Gather missing completed-week Analyst roasts, current GM profiles and franchise outlooks, and trade stories from the last seven days. Completed content and work already running or needing repair are skipped.</p>
       <button className={secondary + " mt-3"} disabled={blocked} onClick={previewCatchup}>{series ? "Preview catch-up for this league" : "Preview catch-up across all leagues"}</button>
     </div></details>}
-    {kind === "candidates" && <div className="mt-3 flex flex-wrap items-center gap-3">
+    {kind === "candidates" && <ol aria-label="Writing approval steps" className="mt-4 flex flex-wrap gap-4 text-prose">
+      <li aria-current={!preview && !queued ? 'step' : undefined}>1. Select content</li>
+      <li aria-current={preview ? 'step' : undefined}>2. Review request</li>
+      <li aria-current={queued ? 'step' : undefined}>3. Approve & start</li>
+    </ol>}
+    {queued && <div role="status" className="mt-4 text-prose"><p>Writing queued. You can follow its progress in Activity.</p>{onActivity && <button className={secondary + " mt-2"} onClick={onActivity}>Follow writing progress</button>}</div>}
+    {kind === "candidates" && !preview && <div className="sticky top-0 z-10 mt-3 flex flex-wrap items-center gap-3 border-y border-rule bg-surface py-3">
+      <span role="status">{selected.length} selected across {series ? "this league" : "all leagues"}</span>
+      <Button className="px-4 py-2" disabled={blocked || !selected.length} onClick={() => { setQueued(false); makePreview(selected); }}>{pendingPreview ? "Checking request…" : `Review & approve ${selected.length} ${selected.length === 1 ? 'item' : 'items'}`}</Button>
       <button className={secondary} disabled={blocked} onClick={selectAll}>Select all available content</button>
       <button className={secondary} disabled={blocked || !selected.length} onClick={() => { setSelected([]); setPreview(null); }}>Clear selection</button>
-      <span role="status">{selected.length} selected across {series ? "this league" : "all leagues"}</span>
-      <button className={secondary} disabled={blocked || !selected.length} onClick={() => makePreview(selected)}>Preview {selected.length} selected</button>
-      <label className="w-full text-prose">Reason for this approval<input className={controlClass + " mt-1"} value={reason} maxLength={1000} disabled={blocked} onChange={e => { setReason(e.target.value); setPreview(null); }} placeholder="Why should this content be written?" /></label>
     </div>}
-    {preview && <div className="mt-5 border-t border-rule pt-4 text-prose">
-      <h4 className="font-display text-name font-bold">Review before paying for AI writing</h4>
-      <p className="mt-2">{preview.items.length} content items · At most {preview.max_calls} AI requests.</p>
-      <p className="mt-1 text-dim">This is a request limit, not a dollar quote. Review expires at {new Date(preview.expires_at * 1000).toLocaleTimeString()}.</p>
-      {catchup ? <>
-        <ul className="mt-3 space-y-3">{leagues.map(league => {
-          const items = preview.items.filter(item => league.seasons.some(s => s.league_id === item.league_id));
-          return items.length ? <li key={league.id}><strong>{league.name || "Unnamed league"}</strong><p>{(Object.keys(FEATURE_LABELS) as (keyof typeof FEATURE_LABELS)[]).map(feature => {
-            const count = items.filter(item => item.feature === feature).length;
-            return count ? `${count} ${FEATURE_LABELS[feature].toLowerCase()}` : null;
-          }).filter(Boolean).join(" · ")}</p></li> : null;
-        })}</ul>
-        <details className="mt-3"><summary className="min-h-tap cursor-pointer py-2 text-dim">Review individual items</summary><ul className="space-y-2">{preview.items.map(item => <li key={item.key}>{leagueName(item, leagues)} · {item.label} · {FEATURE_LABELS[item.feature]} · up to {item.max_calls} requests</li>)}</ul></details>
-        {!!preview.skipped && <p className="mt-3 text-dim">Skipped: {Object.entries(preview.skipped).map(([why, count]) => `${count} ${readable(why).toLowerCase()}`).join(" · ") || "none"}.</p>}
-      </> : <details className="mt-3"><summary className="min-h-tap cursor-pointer py-2">Review individual items</summary><ul className="space-y-3">{preview.items.map(item => <li key={item.key}><strong>{item.label} · {FEATURE_LABELS[item.feature]}</strong><p>{leagueName(item, leagues)} · {readable(item.event)}</p><p className="text-dim">{item.model} · up to {item.max_calls} requests</p>{item.blocked_by.length > 0 && <p className="text-neg-strong">Blocked: {item.blocked_by.map(readable).join("; ")}</p>}</li>)}</ul></details>}
-      <Button className="mt-3 px-4 py-2" disabled={blocked || !reason.trim() || !preview.items.length || preview.items.some(i => i.blocked_by.length > 0)} onClick={async () => {
-        setError("");
-        try { await run(() => generationRequest("/campaigns/apply", { preview_id: preview.id, digest: preview.digest, reason }), "Paid writing approved for the reviewed content."); setPreview(null); }
-        catch (err) { setError(err instanceof Error ? err.message : "Approval failed. Reload and preview again."); }
-      }}>Approve paid writing</Button>
-    </div>}
+    {preview && <GenerationApproval preview={preview} leagues={leagues} busy={blocked} onBack={() => setPreview(null)} onApprove={async () => {
+      await run(() => generationRequest("/campaigns/apply", { preview_id: preview.id, digest: preview.digest, reason }), "Writing queued. Follow its progress in Activity.");
+      setPreview(null); setSelected([]); setQueued(true);
+    }} />}
     {loading && <p role="status" className="mt-3 text-prose">Loading records…</p>}
     {error && <p role="alert" className="mt-3 text-prose text-neg-strong">{error}</p>}
     {!loading && !error && !visibleRecords.length && <p className="mt-3 text-prose text-dim">{kind === "candidates" ? "Available manual and historical content will appear here after a league data refresh." : "Records will appear here as work runs for these leagues."}</p>}
-    <ul className="mt-3 divide-y divide-rule">
+    <ul hidden={kind === "candidates" && !!preview} className="mt-3 divide-y divide-rule">
       {visibleRecords.map(row => kind === "jobs" ? <GenerationJob key={`${row.id}:${row.state}:${row.generation}`} row={row} leagues={leagues} busy={blocked} run={run} onRecapBudget={onRecapBudget} onRecapEpisode={onRecapEpisode} /> : <li key={row.id || row.key} className="py-4 text-prose">
-        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
+        <div className={reviewOnly ? 'flex flex-col items-start gap-3' : 'flex flex-col items-start justify-between gap-3 sm:flex-row'}>
           <div className="min-w-0">
             <label className="flex items-start gap-3 font-semibold">
               {kind === "candidates" && <input type="checkbox" className="mt-1" checked={selected.includes(row.key!)} disabled={blocked || !available(row)} aria-label={"Select " + row.label} onChange={e => { setPreview(null); setReason(old => old || "Approve selected available content across leagues"); setSelected(old => e.target.checked ? [...old, row.key!].slice(0, 1000) : old.filter(k => k !== row.key)); }} />}
@@ -136,7 +127,8 @@ export function GenerationRecords({ leagues, busy, run, onRecapBudget, onRecapEp
             {kind === "audit" && <p className="mt-1 break-words">{row.reason}</p>}
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            {kind === "outbox" && !!row.error && <button className={secondary} disabled={blocked} onClick={() => setAction({ row, name: "retry" })}>Retry saved publication</button>}
+            {kind === "outbox" && !!row.error && <button className={secondary} disabled={blocked} onClick={() => setAction({ row, name: "retry" })}>{reviewOnly ? 'Publish saved content' : 'Retry saved publication'}</button>}
+            {reviewOnly && kind === 'outbox' && <CopyIssueDetails busy={blocked} report={`Publication issue — please investigate the saved content delivery.\nDelivery: ${row.id}\nArtifact reference: ${row.key}\nLeague: ${row.league_id || 'not recorded'}\nFailure: ${row.error || 'not recorded'}\nRetrying publication makes no new AI request.\nDo not generate replacement writing before checking the saved content.`} />}
             {kind === "artifacts" && <button className={secondary} disabled={blocked} onClick={() => setAction({ row, name: "correction" })}>Propose correction</button>}
             {kind === "attempts" && row.cost_microusd == null && <button className={secondary} disabled={blocked} onClick={() => setAction({ row, name: "recovery" })}>Review uncertain request</button>}
           </div>
@@ -144,6 +136,7 @@ export function GenerationRecords({ leagues, busy, run, onRecapBudget, onRecapEp
         {action?.row.id === row.id && action && <>
           {action.name === "recovery" && <div className="mt-3 flex flex-wrap gap-2"><button className={secondary} disabled={blocked} onClick={() => setAction({ row, name: "abandon_unknown" })}>Keep cost unknown and close request</button><button className={secondary} disabled={blocked} onClick={() => setAction({ row, name: "not_sent" })}>Record proof it was not sent</button></div>}
           {action.name !== "recovery" && <ActionForm key={`${row.id}:${action.name}`} title={action.name === "retry" ? "Retry saved publication" : action.name === "correction" ? "Propose a correction" : "Resolve uncertain request"}
+            defaultReason={reviewOnly && action.name === 'retry' ? 'Retry saved publication from issue review' : undefined}
             description={action.name === "correction" ? "Creates a proposal for replacement content. Review and separately approve its AI request allowance before any paid writing." : action.name === "retry" ? "Deliver the content already saved. This makes no new AI request." : "Record provider evidence and verify the original sender has stopped. Closing this request does not authorize replacement work."}
             submitLabel={action.name === "correction" ? "Create correction proposal" : "Confirm action"} busy={blocked} onCancel={() => setAction(null)}
             requireStopped={["abandon_unknown", "not_sent"].includes(action.name)} requireEvidence={["abandon_unknown", "not_sent"].includes(action.name)}
@@ -162,7 +155,7 @@ export function GenerationRecords({ leagues, busy, run, onRecapBudget, onRecapEp
         <TechnicalDetails value={row} />
       </li>)}
     </ul>
-    {(offset > 0 || page.next_offset !== null) && <div className="mt-3 flex flex-wrap items-center gap-3 text-prose"><button className={secondary} disabled={blocked || offset === 0} onClick={() => setOffset(Math.max(0, offset - 25))}>Previous</button><span>{visibleRecords.length ? `Showing ${offset + 1}–${offset + visibleRecords.length}` : "No available items on this page"}</span><button className={secondary} disabled={blocked || page.next_offset === null} onClick={() => setOffset(page.next_offset!)}>Next</button></div>}
+    {!preview && (offset > 0 || page.next_offset !== null) && <div className="mt-3 flex flex-wrap items-center gap-3 text-prose"><button className={secondary} disabled={blocked || offset === 0} onClick={() => setOffset(Math.max(0, offset - 25))}>Previous</button><span>{visibleRecords.length ? `Showing ${offset + 1}–${offset + visibleRecords.length}` : "No available items on this page"}</span><button className={secondary} disabled={blocked || page.next_offset === null} onClick={() => setOffset(page.next_offset!)}>Next</button></div>}
 
   </div>;
 }

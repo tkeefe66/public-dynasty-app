@@ -37,13 +37,13 @@ it('keeps selection across pages inside the selected content type and resets it 
   // Mutation: omit the content filter from Select all, or retain a paid preview after switching workspaces.
   render(<GenerationControl />);
   fireEvent.click(await screen.findByRole('button', { name: 'Trade stories workspace' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Approve writing' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Start writing' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Select all available content' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Select all available content' }));
-  await screen.findByRole('button', { name: 'Preview 1 selected' });
+  await screen.findByRole('button', { name: 'Review & approve 1 item' });
   expect(request).toHaveBeenCalledWith('/records/candidates?limit=100&offset=0&view=review&feature=trade_story');
   fireEvent.click(screen.getByRole('button', { name: 'GM profiles workspace' }));
-  await screen.findByRole('button', { name: 'Preview 0 selected' });
+  await screen.findByRole('button', { name: 'Review & approve 0 items' });
   expect(request).toHaveBeenCalledWith('/records/candidates?limit=25&offset=0&view=review&feature=gm_rating_blurb');
   expect(request.mock.calls.some(call => call[0] === '/campaigns/apply')).toBe(false);
 });

@@ -223,6 +223,12 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
         raise Held("feature_paused")
     if actor_kind == "scheduler" and feature["mode"] != "automatic":
         raise Held("manual_only")
+    if actor_kind == "scheduler":
+        from app.services.generation.candidate_status import (
+            replacement_requires_approval,
+        )
+        if await replacement_requires_approval(db, candidate.subject, candidate.event):
+            raise Held("manual_approval_required")
     recap_episode = None
     if candidate.feature == "recap_video":
         from app.services.recap_video.workflow import require_script_preflight

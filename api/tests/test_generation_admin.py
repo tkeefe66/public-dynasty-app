@@ -28,6 +28,9 @@ def test_non_owner_cannot_read_or_mutate_control(client, app, admin_db):
     assert client.get("/api/admin/generation").status_code == 403
     assert client.put("/api/admin/generation/policy/app", json={
         "expected_revision": 1, "value": {"paused": False}, "reason": "try"}).status_code == 403
+    # Mutation: expose guided replacement to members outside the owner-only router.
+    assert client.post("/api/admin/generation/jobs/job/replacement", json={
+        "expected_generation": 1, "expected_state": "needs_attention", "reason": "try"}).status_code == 403
 
 
 def test_content_workspace_filter_runs_before_pagination(client, admin_db):

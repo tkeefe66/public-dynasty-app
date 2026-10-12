@@ -123,7 +123,7 @@ describe("Generation controls", () => {
     });
     render(<GenerationControl />);
     await screen.findByRole("heading", { name: "Needs your review" });
-    fireEvent.click(screen.getAllByRole("button", { name: "Review problem" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "View details" })[0]);
     expect(await screen.findByText(/original member's league access and connection/)).toBeInTheDocument();
     expect(screen.getByText(/This action does not approve paid writing/)).toBeInTheDocument();
     expect(request.mock.calls.some(([path, body]) => path === "/jobs/data-job" && body)).toBe(false);
@@ -193,12 +193,12 @@ describe("Generation controls", () => {
       return normal(path, ...args);
     });
     render(<GenerationControl />);
-    fireEvent.click(await screen.findByRole("button", { name: "Approve writing" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start writing" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Select all available content" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Select all available content" }));
-    await screen.findByRole("button", { name: "Preview 2 selected" });
-    fireEvent.click(screen.getByRole("button", { name: "Preview 2 selected" }));
-    await screen.findByRole("button", { name: "Approve paid writing" });
+    await screen.findByRole("button", { name: "Review & approve 2 items" });
+    fireEvent.click(screen.getByRole("button", { name: "Review & approve 2 items" }));
+    await screen.findByRole("button", { name: "Approve & start writing" });
     expect(request).toHaveBeenCalledWith("/campaigns/preview", { candidates: ["one", "two"], reason: "Approve selected available content across leagues" });
   });
 
@@ -230,7 +230,7 @@ describe("Generation controls", () => {
     request.mockImplementation((path = "", ...args) => path.startsWith("/records/candidates") ? records
       : path === "/campaigns/catch-up/preview" ? normal("/campaigns/preview", ...args) : normal(path, ...args));
     render(<GenerationControl />);
-    fireEvent.click(await screen.findByRole("button", { name: "Approve writing" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start writing" }));
     fireEvent.click(screen.getByText("Historical catch-up across content types", { selector: "summary" }));
     const preview = await screen.findByRole("button", { name: "Preview catch-up across all leagues" });
     expect(preview).toBeDisabled();
@@ -239,7 +239,7 @@ describe("Generation controls", () => {
     releaseRecords(loadedRecords);
     await waitFor(() => expect(preview).toBeEnabled());
     fireEvent.click(preview);
-    await screen.findByRole("button", { name: "Approve paid writing" });
+    await screen.findByRole("button", { name: "Approve & start writing" });
     expect(request).toHaveBeenCalledWith("/campaigns/catch-up/preview", {
       series_id: "", reason: "One-time catch-up of missing current content across leagues",
     });
@@ -252,19 +252,18 @@ describe("Generation controls", () => {
       generation: 3, feature: "gm_rating_blurb", league_id: "synthetic" };
     request.mockImplementation((path = "", ...args) => {
       if (path.startsWith("/records/jobs")) return Promise.resolve({ records: [job], next_offset: null });
-      if (path === "/jobs/original-job") return Promise.resolve({ job: { ...job, generation: 7 }, attempts: [] });
+      if (path === "/jobs/original-job") return Promise.resolve({ job: { ...job, generation: 7 }, attempts: [], resolution: { action: "resume", title: "Ready to continue", explanation: "Saved request confirmed.", cost: "Uses the original allowance.", report: "Job original-job", related_jobs: [] } });
       return normal(path, ...args);
     });
     render(<GenerationControl />);
     // Mutation: remove the original job's revision/state from the recovery request.
     await screen.findByRole("heading", { name: "Needs your review" });
-    fireEvent.click(screen.getAllByRole("button", { name: "Review problem" })[0]);
-    fireEvent.click(await screen.findByRole("button", { name: "Resume after receipt review" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "View details" })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue this work" }));
     expect(request.mock.calls.filter(c => c[1])).toHaveLength(0);
-    fireEvent.change(screen.getByLabelText("Reason for this action"), { target: { value: "Receipt settled" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm resume" }));
     await waitFor(() => expect(request).toHaveBeenCalledWith("/jobs/original-job", {
-      action: "resume", expected_generation: 7, expected_state: "needs_attention", reason: "Receipt settled",
+      action: "resume", expected_generation: 7, expected_state: "needs_attention", reason: "Continue reviewed work within its original allowance",
     }));
   });
 
@@ -289,7 +288,7 @@ describe("Generation controls", () => {
       action: "resume", expected_generation: 4, expected_state: "needs_attention",
       reason: "Retry failed data refresh from administration",
     }));
-    expect(request.mock.calls.filter(c => c[0] === "/jobs/free-job" && !c[1])).toHaveLength(1);
+    expect(request.mock.calls.filter(c => c[0] === "/jobs/free-job" && !c[1])).toHaveLength(2);
     expect(request.mock.calls.some(c => c[0]?.startsWith("/campaigns"))).toBe(false);
     expect(screen.queryByLabelText("Reason for this action")).not.toBeInTheDocument();
     await screen.findByText("Data refresh queued.");
@@ -318,7 +317,7 @@ describe("Generation controls", () => {
     const problems = screen.getByRole("region", { name: "Needs your review" });
     expect(within(problems).queryByText("Manual content and catch-up")).not.toBeInTheDocument();
     expect(request.mock.calls.some(c => c[0]?.startsWith("/records/candidates"))).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Approve writing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start writing" }));
     const optional = await screen.findByRole("region", { name: "Manual content and catch-up" });
     expect(screen.queryByRole("region", { name: "Needs your review" })).not.toBeInTheDocument();
     await within(optional).findByLabelText("Select Requested profile");
@@ -368,8 +367,14 @@ describe("Generation controls", () => {
       return normal(path, ...args);
     });
     render(<GenerationControl />);
-    fireEvent.click(await screen.findByRole("button", { name: "Retry data refresh" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(state === "queued" ? "no longer needs this retry" : "provider request still needs review");
+    if (state === "queued") {
+      await screen.findByText("Waiting to start");
+      expect(screen.queryByRole("button", { name: "Retry data refresh" })).not.toBeInTheDocument();
+    } else {
+      await waitFor(() => expect(screen.getByRole("button", { name: "Retry data refresh" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "Retry data refresh" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("provider request still needs review");
+    }
     expect(request.mock.calls.filter(c => c[1])).toHaveLength(0);
     expect(screen.queryByText("Data refresh queued.")).not.toBeInTheDocument();
   });
@@ -383,7 +388,7 @@ describe("Generation controls", () => {
       if (path === "/jobs/free-job") {
         if (body) return Promise.reject(Object.assign(new Error("The refresh changed before retry."), { status: 409 }));
         reads++;
-        return Promise.resolve({ job: reads > 1 ? { ...job, state: "running", generation: 4, reason: "" } : job, attempts: [] });
+        return Promise.resolve({ job: reads > 2 ? { ...job, state: "running", generation: 4, reason: "" } : job, attempts: [] });
       }
       return normal(path, body, ...args);
     });
@@ -391,7 +396,7 @@ describe("Generation controls", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Retry data refresh" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("The refresh changed before retry.");
     expect(screen.getByText("In progress")).toBeVisible();
-    expect(reads).toBe(2);
+    expect(reads).toBe(3);
     expect(request.mock.calls.filter(c => c[1])).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Retry data refresh" })).not.toBeInTheDocument();
     expect(screen.queryByText("Data refresh queued.")).not.toBeInTheDocument();
@@ -444,14 +449,13 @@ describe("Generation controls", () => {
   it("approves only the exact preview digest and never buys from selection alone", async () => {
     render(<GenerationControl />);
     // Mutation: selecting a candidate buys work without the bound preview approval.
-    fireEvent.click(await screen.findByRole("button", { name: "Approve writing" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start writing" }));
     fireEvent.click(await screen.findByLabelText("Select Owner One"));
     expect(request.mock.calls.some(c => c[0] === "/campaigns/apply")).toBe(false);
-    fireEvent.change(screen.getByLabelText("Reason for this approval"), { target: { value: "Initial profile" } });
-    fireEvent.click(screen.getByRole("button", { name: "Preview 1 selected" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Approve paid writing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review & approve 1 item" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve & start writing" }));
     await waitFor(() => expect(request).toHaveBeenCalledWith("/campaigns/apply", {
-      preview_id: "preview-1", digest: "bound-digest", reason: "Initial profile",
+      preview_id: "preview-1", digest: "bound-digest", reason: "Approve selected available content across leagues",
     }));
   });
 
@@ -464,8 +468,8 @@ describe("Generation controls", () => {
     render(<GenerationControl />);
     const review = await screen.findByRole("region", { name: "Needs your review" });
     expect(await within(review).findByText("Example League")).toBeVisible();
-    expect(within(review).getByText(/Writing stopped before completion/)).toBeVisible();
-    fireEvent.click(within(review).getByRole("button", { name: "Review problem" }));
+    expect(within(review).getByText("Writing stopped before completion")).toBeVisible();
+    fireEvent.click(within(review).getByRole("button", { name: "View details" }));
     expect(await within(review).findByText(/The exact cause was not recorded/)).toBeVisible();
     expect(within(review).queryByRole("button", { name: /Resume (data refresh|remaining work|after receipt review)/ })).not.toBeInTheDocument();
     expect(within(review).queryByRole("button", { name: "Retry data refresh" })).not.toBeInTheDocument();
@@ -552,9 +556,10 @@ describe("Generation controls", () => {
   it("explains restored work and does not offer a resume the server forbids", async () => {
     // Mutation: treat restored generation as an ordinary resumable held job.
     const normal = request.getMockImplementation()!;
-    request.mockImplementation((path = "", ...args) => path.includes("state=held") ? Promise.resolve({ records: [{ id: "restored-job", kind: "generation", state: "held", reason: "restore_reapproval_required", label: "Owner One", feature: "gm_rating_blurb", generation: 2 }], next_offset: null }) : normal(path, ...args));
+    const restored = { id: "restored-job", kind: "generation", state: "held", reason: "restore_reapproval_required", label: "Owner One", feature: "gm_rating_blurb", generation: 2 };
+    request.mockImplementation((path = "", ...args) => path.includes("state=held") ? Promise.resolve({ records: [restored], next_offset: null }) : path === "/jobs/restored-job" ? Promise.resolve({ job: restored, attempts: [] }) : normal(path, ...args));
     render(<GenerationControl />);
-    fireEvent.click(await screen.findByRole("button", { name: "Review problem" }));
+    fireEvent.click(await screen.findByRole("button", { name: "View details" }));
     expect(await screen.findByText(/This work was restored from a backup/)).toBeVisible();
     await screen.findByRole("button", { name: "Cancel this work" });
     expect(screen.queryByRole("button", { name: "Resume remaining work" })).not.toBeInTheDocument();
