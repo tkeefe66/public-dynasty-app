@@ -87,6 +87,18 @@ async def generate(job, gateway):
             "Do not invent facts to satisfy the correction. Requested correction: " + saved["correction_reason"]
             + "\nPrevious content:\n" + json.dumps(saved["previous_content"]))
     kwargs = {"model": policy["model"], "client": managed}
+    legacy_repair = False
+    if job.feature == "analyst":
+        from sqlalchemy import select
+
+        from app.services.generation.models import ProviderAttempt
+        # Choose the old contract only when a physical repair request already
+        # exists. Gateway still checks every complete request digest on replay.
+        async with gateway.maker() as db:
+            requests = (await db.scalars(select(ProviderAttempt.request_json).where(
+                ProviderAttempt.operation_id == job.id))).all()
+        legacy_repair = any(json.loads(request).get("tool_choice", {}).get("name") == "submit_recap_edits"
+                            for request in requests)
 
     def run():
         if job.feature == "recap_video":
@@ -102,7 +114,7 @@ async def generate(job, gateway):
             from sleeper_dynasty.llm.recap_packet import ArchivedPacket
             from sleeper_dynasty.llm.recap_writer import RecapWriter
             edition = saved["edition"]
-            writer = RecapWriter(**kwargs, review_model=policy["review_model"])
+            writer = RecapWriter(**kwargs, review_model=policy["review_model"], legacy_repair=legacy_repair)
             markdown = writer.write(ArchivedPacket(edition["facts"]), lore=edition.get("lore"),
                 outlook=ArchivedPacket(edition["outlook"]) if edition.get("outlook") else None)
             context = edition["facts"].get("player_context", {})

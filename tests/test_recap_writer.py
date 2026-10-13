@@ -73,6 +73,68 @@ def _edits(before, after):
             "input": {"edits": [{"before": before, "after": after}]}}
 
 
+def _passage_edits(edits):
+    return {"type": "tool_use", "id": "toolu_edit", "name": "submit_recap_passage_edits",
+            "input": {"edits": edits}}
+
+
+def test_passage_correction_preserves_other_prose_and_reviews_complete_result(writer_factory):
+    # Mutation: require the model to reproduce source text, or skip review after an indexed repair.
+    draft = "# Week 9\n\nHe ran **39 snaps**, and this is what he does with them.\n\nAn unchanged joke."
+    corrected = "# Week 9\n\nHe ran **63 snaps**, and this is what he does with them.\n\nAn unchanged joke."
+    writer, requests = writer_factory([
+        _message([_text(draft)]),
+        _message([_verdict({"approved": False, "checks": [
+            {"status": "needs_correction", "quote": "He ran 39 snaps", "evidence": "usage.offense_snaps is 63"}
+        ]})], stop_reason="tool_use"),
+        _message([_passage_edits([{"passage_id": "p2", "after": "He ran **63 snaps**, and this is what he does with them."}])], stop_reason="tool_use"),
+        _message([_verdict()], stop_reason="tool_use"),
+    ])
+    assert writer.write(_facts()) == corrected
+    repair = requests[2]
+    assert repair["tool_choice"]["name"] == "submit_recap_passage_edits"
+    schema = repair["tools"][0]["input_schema"]["properties"]["edits"]["items"]["properties"]
+    assert schema["passage_id"]["enum"] == ["p1", "p2", "p3"]
+    passages = json.loads(repair["messages"][-1]["content"].split("DRAFT PASSAGES:\n")[1].split("\nEDITOR FINDINGS:")[0])
+    assert passages == [{"passage_id": "p1", "text": "# Week 9"},
+                        {"passage_id": "p2", "text": "He ran **39 snaps**, and this is what he does with them."},
+                        {"passage_id": "p3", "text": "An unchanged joke."}]
+    assert json.loads(requests[3]["messages"][0]["content"])["draft"] == corrected
+    assert len(requests) == 4
+
+
+@pytest.mark.parametrize("edits", [
+    [{"passage_id": "p0", "after": "Wrong target"}],
+    [{"passage_id": "p3", "after": "Wrong target"}],
+    [{"passage_id": 1, "after": "Wrong type"}],
+    [{"passage_id": "p1", "after": "First"}, {"passage_id": "p1", "after": "Second"}],
+    [{"passage_id": "p1", "after": 12}],
+    [{"passage_id": "p1", "after": "Text", "before": "Ignored"}],
+])
+def test_invalid_passage_targets_stop_before_review(writer_factory, edits):
+    # Mutation: guess unknown targets, coerce malformed edits, or allow multiple replacements for one passage.
+    writer, requests = writer_factory([
+        _message([_text("Wrong score.\n\nKeep this.")]),
+        _message([_verdict({"approved": False, "checks": [
+            {"status": "needs_correction", "quote": "Wrong score", "evidence": "Wrong"}
+        ]})], stop_reason="tool_use"),
+        _message([_passage_edits(edits)], stop_reason="tool_use"),
+    ])
+    with pytest.raises(ValueError, match="Analyst repair"):
+        writer.write(_facts())
+    assert len(requests) == 3
+
+
+def test_passage_edits_handle_identical_paragraphs_and_keep_original_spacing():
+    # Mutation: replace all matching text or reconstruct the article with normalized separators.
+    from sleeper_dynasty.llm.recap_writer import apply_recap_edits
+    response = anthropic.types.Message.model_validate(_message([_passage_edits([
+        {"passage_id": "p3", "after": "Corrected."},
+        {"passage_id": "p1", "after": "# Revised"},
+    ])], stop_reason="tool_use"))
+    assert apply_recap_edits("# Original\n\nSame.\n\n\nSame.\n", response) == "# Revised\n\nSame.\n\n\nCorrected.\n"
+
+
 def test_explicit_approval_can_include_supported_audit_checks(writer_factory):
     # Mutation: reject an approved audit merely because it documents supported claims.
     writer, _ = writer_factory([
@@ -124,7 +186,7 @@ def test_corrections_patch_only_the_quoted_error(writer_factory):
         _message([_verdict()], stop_reason="tool_use"),
     ])
     assert writer.write(_facts()) == "# Week 9\n\nTeam A scored 158 points.\n\nAn excellent closing joke."
-    assert requests[2]["tool_choice"]["name"] == "submit_recap_edits"
+    assert requests[2]["tool_choice"]["name"] == "submit_recap_passage_edits"
 
 
 @pytest.mark.parametrize("edits", [
