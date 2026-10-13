@@ -15,6 +15,11 @@ weekly video production is active. A read-only production inspection found:
   failed with `EACCES` (permission denied). This is evidence about the existing
   runtime, not qualification of a future worker service. The required isolated
   media runtime remains an unresolved deployment prerequisite.
+- A temporary isolated Railway sandbox subsequently passed the user-namespace
+  probe and exposed Docker 29.1.2 and Bubblewrap. It received no app credentials
+  or league data and was destroyed after the probe. This identifies a candidate
+  runtime, not a qualified media worker: bounded Docker execution, full media/ASR
+  tests, provisioning and lifecycle recovery still need verification there.
 
 The existing published video pilot used a manual production flow. Do not report
 the automatic workflow as operational until a deployed worker, provider/account
@@ -29,6 +34,13 @@ After the navigation repair, all six opt-in PostgreSQL/Linux/browser acceptance
 tests passed locally, along with 993 Web tests, typechecking and lint (existing
 Dashboard ref warning retained). These runs made no real provider requests and
 do not change the production readiness findings above.
+
+Hosted CI then exposed a second test-environment issue: Playwright 1.47.2's
+bundled Linux Chromium rejected the synthetic H.264/AAC MP4 with
+`DEMUXER_ERROR_NO_SUPPORTED_STREAMS`. Direct playback of the same bytes
+reproduced the failure, while Chrome and the newer renderer Chromium decoded
+them. Media acceptance now explicitly installs/uses Chrome and checks codec
+support before the workflow. Actual playback and seek assertions remain required.
 
 ## Release candidate
 
@@ -396,7 +408,7 @@ RECAP_ACCEPTANCE=1 RECAP_ACCEPTANCE_IMAGE=recap-media:acceptance \
 ```
 
 On macOS set `RECAP_ACCEPTANCE_CHROME` to the installed Chrome executable. CI
-installs its lockfile-selected Playwright Chromium. No browser/account fallback
+installs the official Chrome channel for H.264/AAC playback. No browser/account fallback
 is allowed. The harness owns unique localhost listeners, copies Next plus local
 design assets into test scratch, excludes **all** `.env*`, uses fixed throwaway
 NextAuth/backend secrets, mints the existing test JWE session, exercises real

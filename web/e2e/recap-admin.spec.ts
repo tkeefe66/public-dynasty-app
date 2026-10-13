@@ -4,6 +4,9 @@ import { forgeSessionCookie } from './fixtures/session';
 // Real Next middleware, server-side JWT proxy and real disposable API. No route mocks.
 test('phone admin saves caps; authenticated preview streams; signed-out public playback', async ({ page, context, baseURL }) => {
   page.on('pageerror', error => console.error('Browser error:', error.message));
+  const mp4Support = await page.evaluate(() => document.createElement('video')
+    .canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"'));
+  expect(mp4Support, 'Media acceptance needs H.264/AAC support; install the Chrome channel.').not.toBe('');
   await page.goto('/admin');
   await expect(page).toHaveURL(/\/login/);
   await context.addCookies([await forgeSessionCookie({ baseURL: baseURL! })]);

@@ -9,6 +9,7 @@ export default defineConfig({
   testDir: '.', testMatch: 'recap-admin.spec.ts', workers: 1, retries: 0,
   timeout: 120_000, reporter: 'list', outputDir: process.env.RECAP_ACCEPTANCE_OUTPUT,
   use: { baseURL: origin, viewport: { width: 390, height: 844 }, hasTouch: true,
+    channel: process.env.RECAP_ACCEPTANCE_CHROME ? undefined : 'chrome',
     launchOptions: process.env.RECAP_ACCEPTANCE_CHROME ? { executablePath: process.env.RECAP_ACCEPTANCE_CHROME } : {},
     screenshot: 'only-on-failure', trace: 'retain-on-failure' },
 });
