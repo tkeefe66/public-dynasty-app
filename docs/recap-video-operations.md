@@ -1,5 +1,37 @@
 # Weekly recap video operations and release candidate
 
+## Production readiness checked 2026-10-13
+
+The written Week 5 edition was recovered and published. That does **not** mean
+weekly video production is active. A read-only production inspection found:
+
+- Railway services: API, Web and Postgres; no media worker.
+- No configured media worker token, private media storage, narrator voice ID or
+  narrator account binding in API settings.
+- Zero durable recap episodes, media stages, media provider attempts,
+  calibrations and standing authorizations. There is no saved Week 5 video to
+  resume through this workflow.
+- A child-process user-namespace probe in the current Railway API runtime
+  failed with `EACCES` (permission denied). This is evidence about the existing
+  runtime, not qualification of a future worker service. The required isolated
+  media runtime remains an unresolved deployment prerequisite.
+
+The existing published video pilot used a manual production flow. Do not report
+the automatic workflow as operational until a deployed worker, provider/account
+qualification and a complete production episode have been verified. Preserve the
+approved voice and budget policy; test fixtures grant no activation authority.
+
+The browser acceptance test now follows Admin → Monthly LLM budget → Recap
+limits → individual league. The former Settings navigation no longer exists.
+It must still exercise persisted cap changes, authenticated preview transport,
+signed-out playback and seeking, revocation and correction withdrawal.
+After the navigation repair, all six opt-in PostgreSQL/Linux/browser acceptance
+tests passed locally, along with 993 Web tests, typechecking and lint (existing
+Dashboard ref warning retained). These runs made no real provider requests and
+do not change the production readiness findings above.
+
+## Release candidate
+
 This package implements a gated weekly workflow, with API-owned spending and
 publication authority. Local synthetic acceptance is runnable below. **Release
 is held pending Railway runtime qualification, exact account/voice billing
@@ -9,10 +41,11 @@ calibration and emulated phone evidence confer no real rollout credit.
 Record the approved release commit and immutable image digest in the release
 record. The commit containing this runbook is the initial local candidate;
 subsequent review fixes require affected checks and the final verification set.
-API, Web and media worker Railway target service names have **not been verified**.
-Tom must confirm all three targets before the first deployment. Do not infer them
-from local directory names. No push, deployment, provider purchase, credential
-creation, production access or live publication is authorized by this document.
+API and Web names were verified in the production snapshot above; a media worker
+target has not been created or confirmed. Confirm current targets before a new
+deployment. Do not infer them from local directory names. No push, deployment,
+provider purchase, credential creation, production access or live publication is
+authorized by this document.
 
 ## Final review workflow boundaries
 
@@ -130,7 +163,7 @@ as integer micro-USD (1 USD = 1,000,000). They are not additive allowances.
 | `combined_episode_microusd` | 5,000,000 ($5) |
 | `combined_month_microusd` | 25,000,000 ($25) |
 
-Admin → AI writing → Settings → individual league exposes persisted caps,
+Admin → Monthly LLM budget → Recap limits → individual league exposes persisted caps,
 known/reserved/uncertain exposure and exact episode recovery. Saving lower caps
 blocks the next admission transaction even for previously reserved plans; it
 never erases charges. Below-obligation changes require acknowledgment. Cap edits

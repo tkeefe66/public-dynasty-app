@@ -9,8 +9,9 @@ test('phone admin saves caps; authenticated preview streams; signed-out public p
   await context.addCookies([await forgeSessionCookie({ baseURL: baseURL! })]);
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: 'AI writing', exact: true })).toBeVisible();
-  await page.getByText('Settings', { exact: true }).click();
-  await page.getByLabel('Apply settings to').selectOption('series:series');
+  await page.getByRole('tab', { name: 'Monthly LLM budget', exact: true }).click();
+  await page.getByRole('button', { name: 'Recap limits', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Recap limits for league' }).selectOption('series');
   const cap = page.getByLabel('Video per episode ($)', { exact: true });
   await expect(cap).toHaveValue('3.00', { timeout: 30_000 });
   await cap.fill('0.01');
@@ -18,8 +19,9 @@ test('phone admin saves caps; authenticated preview streams; signed-out public p
   await page.getByRole('button', { name: 'Save recap limits', exact: true }).tap();
   await expect(page.getByText('Recap limits saved and reloaded.', { exact: true }).first()).toBeVisible();
   await page.reload();
-  await page.getByText('Settings', { exact: true }).click();
-  await page.getByLabel('Apply settings to').selectOption('series:series');
+  await expect(page.getByRole('tab', { name: 'Monthly LLM budget', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Recap limits', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Recap limits for league' }).selectOption('series');
   await expect(cap).toHaveValue('0.01');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await page.screenshot({ path: `${process.env.RECAP_ACCEPTANCE_OUTPUT}/admin-390.png`, fullPage: true });
