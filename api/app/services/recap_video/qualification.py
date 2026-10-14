@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.db.models import User
-from app.services.generation.models import ContentArtifact, LeagueSeason, ProviderAttempt, stamp
+from app.services.generation.models import ContentArtifact, LeagueSeason, ProviderAttempt
 from app.services.generation.recap_models import (RecapAsset, RecapBudgetAllocation, RecapBudgetPlan,
     RecapCalibration, RecapEpisode, RecapProviderAttempt, RecapPublicationApproval,
     RecapQualificationReview, RecapRecovery, RecapShareDecision, RecapStage, RecapStandingAuthorization)
@@ -165,9 +165,17 @@ async def qualification_status(db, series_id: str, season: int) -> dict:
     status.update(passed=len(valid), review_ids=valid, reason='reviewed_episodes_required')
     standing = await db.scalar(select(RecapStandingAuthorization).where(RecapStandingAuthorization.series_id == series_id,
         RecapStandingAuthorization.season == season, RecapStandingAuthorization.calibration_id == calibrated.id)
-        .order_by(RecapStandingAuthorization.created_at.desc()).limit(1))
-    if not standing or len(set(json.loads(standing.review_ids_json)) & set(valid)) < 3:
+        .order_by(RecapStandingAuthorization.created_at.desc(), RecapStandingAuthorization.id.desc()).limit(1))
+    member_grant = standing and standing.policy == 'owner-authorized-members-v1'
+    if not standing or not member_grant and len(set(json.loads(standing.review_ids_json)) & set(valid)) < 3:
         return status
+    if member_grant:
+        try:
+            await require_admin_actor(db, standing.actor_id)
+        except Held as exc:
+            status['reason'] = exc.code
+            return status
+        status['audience'] = 'members'
     status['standing_id'] = standing.id
     config = await resolve_policy(db, series_id)
     from app.services.recap_video import workflow
@@ -188,11 +196,30 @@ async def qualification_status(db, series_id: str, season: int) -> dict:
         status['reason'] = 'automatic_policy_not_current'
         return status
     future = await db.get(RecapShareDecision, 'series:'+series_id)
-    if not future or not future.allowed or future.opted_out:
+    if not member_grant and (not future or not future.allowed or future.opted_out):
         status['reason'] = 'future_sharing_disabled'
         return status
     status.update(automatic=True, reason='qualified')
     return status
+
+
+async def authorize_member_automation(db, series_id, season, *, actor_id, reason):
+    """Explicit owner instruction, separate from (and never fake) rollout reviews."""
+    await lock_control(db)
+    await require_admin_actor(db, actor_id)
+    calibrated = await calibration(db, series_id, season)
+    if not isinstance(reason, str) or not 20 <= len(reason.strip()) <= 2000:
+        raise Held('standing_authorization_reason_required')
+    latest = await db.scalar(select(func.max(LeagueSeason.season)).where(LeagueSeason.series_id == series_id))
+    if latest != season:
+        raise Held('qualification_current_season_required')
+    row = RecapStandingAuthorization(series_id=series_id, season=season, calibration_id=calibrated.id,
+        review_ids_json='[]', actor_id=actor_id, policy='owner-authorized-members-v1')
+    db.add(row)
+    await db.flush()
+    audit(db, actor_id, 'recap_member_automation_authorized', series_id, reason,
+        after={'authorization_id':row.id, 'season':season, 'audience':'members'})
+    return row
 
 
 async def record_preview_approval(db, episode_id: str, expected_revision: int, actor_id: str, evidence: dict) -> dict:
@@ -254,7 +281,8 @@ async def record_standing_approval(db, episode_id, expected_revision, media_id):
     if not status['automatic']:
         raise Held('recap_standing_review_required')
     await require_standing_format(db,episode)
-    scope = await publication.current_scope(db, episode_id, expected_revision, media_id)
+    scope = await publication.current_scope(db, episode_id, expected_revision, media_id,
+        audience=status.get('audience', 'public'))
     # Initial same-revision article-only sharing is not a media approval. The
     # independent standing grant can attach its first video; revisions/retakes
     # still require an explicit finished-preview review.
@@ -322,6 +350,8 @@ async def require_standing_proof(db, proof):
     episode = await db.get(RecapEpisode, proof.episode_id)
     status = await qualification_status(db, episode.series_id, episode.season)
     if not status['automatic'] or status['standing_id'] != proof.authorization_id:
+        raise Held('recap_standing_authorization_changed')
+    if scope.get('audience', 'public') != status.get('audience', 'public'):
         raise Held('recap_standing_authorization_changed')
     await require_standing_format(db,episode)
     saved = scope.pop('target_review_binding',None)

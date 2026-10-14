@@ -207,6 +207,24 @@ async def recover_narration(client, attempt_id, *, api_key):
     return receipt
 
 
+async def serve(client, recovery, *, root, log):
+    import httpx
+    while True:
+        if (root / 'drain').exists():
+            # Acknowledge only between complete ticks. Once acknowledged,
+            # never claim again, even if demand changes before VM shutdown.
+            (root / 'drained').touch()
+            log.info('Media worker drained; waiting for controller shutdown')
+            await asyncio.Event().wait()
+        try:
+            if not await tick(client, recovery=recovery):
+                await asyncio.sleep(5)
+        except (httpx.HTTPError, RuntimeError):
+            # Original lease/attempt remains server-owned. Never resend paid work.
+            log.error('Media stage stopped; API unavailable, ownership lost, or runtime refused. Inspect durable stage evidence.')
+            await asyncio.sleep(5)
+
+
 async def main():
     """Single-claim supervisor. Runtime admission occurs before credentials/network."""
     import fcntl
@@ -235,15 +253,7 @@ async def main():
         install(client, HANDLERS)
         async def recovery(attempt_id):
             return await recover_narration(client,attempt_id,api_key=os.environ.get('ELEVENLABS_API_KEY',''))
-        while True:
-            try:
-                if not await tick(client,recovery=recovery):
-                    await asyncio.sleep(5)
-            except (httpx.HTTPError, RuntimeError):
-                # Original lease/attempt remains server-owned. Do not resend paid
-                # requests; reconciliation is explicit through saved receipts.
-                log.error("Media stage stopped; API unavailable, ownership lost, or runtime refused. Inspect durable stage evidence.")
-                await asyncio.sleep(5)
+        await serve(client, recovery, root=Path('/scratch'), log=log)
 
 
 if __name__ == "__main__":

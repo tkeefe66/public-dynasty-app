@@ -106,11 +106,20 @@ async def share_state(league_id: str, response: Response, season: int = Path(ge=
 
 
 @router.get("/api/league/{league_id}/analyst/{season}/{week}/media")
-async def member_media(league_id: str, response: Response, season: int = Path(ge=2000, le=2200), week: int = Path(ge=1, le=18)):
+async def member_media(league_id: str, response: Response, season: int = Path(ge=2000, le=2200), week: int = Path(ge=1, le=18), db=Depends(get_db)):
     """League membership is enforced by this router; no public capability created."""
     private_headers(response)
-    if authority_mode() != 'legacy':
-        return {"media": None}  # Database publications retain their existing authority path.
+    if authority_mode() == 'database':
+        try:
+            result = await publication.authorize_member_read(db, league_id, season, week)
+            return {'media':AnalystMedia.public_metadata(result['media'] or None),
+                'revision':result['article']['revision'], 'markdown':result['article']['markdown']}
+        except Held as exc:
+            if exc.code == 'public_unavailable':
+                return {'media':None}
+            raise authority_error(exc) from None
+        except (SQLAlchemyError, OSError, ValueError, KeyError) as exc:
+            raise authority_error(exc) from None
     try:
         media = AnalystMedia(get_cache_dir())
         target = dict(league_id=league_id, season=season, week=week)
@@ -125,13 +134,19 @@ async def member_media(league_id: str, response: Response, season: int = Path(ge
 
 @router.api_route("/api/league/{league_id}/analyst/{season}/{week}/media/{bundle_id}/{name}", methods=["GET", "HEAD"])
 async def member_media_asset(league_id: str, bundle_id: str, name: str, request: Request,
-                             season: int = Path(ge=2000, le=2200), week: int = Path(ge=1, le=18), download: bool = False):
+                             season: int = Path(ge=2000, le=2200), week: int = Path(ge=1, le=18), download: bool = False, db=Depends(get_db)):
     response = Response()
     private_headers(response)
     headers = dict(response.headers)
     headers.pop("content-length", None)
-    if authority_mode() != 'legacy' or name not in ASSETS:
+    if name not in ASSETS:
         raise HTTPException(404, "This video is unavailable.", headers=headers)
+    if authority_mode() == 'database':
+        try:
+            result = await publication.authorize_member_read(db, league_id, season, week, bundle_id)
+            return await private_object_response(request, result, name, download, headers)
+        except (Held, SQLAlchemyError, OSError, ValueError, KeyError) as exc:
+            raise authority_error(exc) from None
     try:
         media = AnalystMedia(get_cache_dir())
         target = dict(league_id=league_id, season=season, week=week)

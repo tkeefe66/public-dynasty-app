@@ -26,7 +26,7 @@ async def analyst_archive(league_id: str, db=Depends(get_db)):
             visible = []
             for edition in editions:
                 row = await publication.edition_row(db, league_id, edition['season'], edition['week'])
-                if row and (row.withdrawn or row.hold or not row.enabled or not await publication.article_current(db, row)):
+                if row and (row.withdrawn or row.hold or not await publication.article_current(db, row)):
                     continue
                 if row and digest(publication.public_article(edition)) != digest(json.loads(row.article_json)):
                     continue

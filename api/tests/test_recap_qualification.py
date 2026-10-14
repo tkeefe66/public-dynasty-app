@@ -114,6 +114,60 @@ async def test_manual_first_episode_calibration_reader_needs_no_rollout_approval
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('existing_share', [False, True])
+async def test_owner_standing_authorization_publishes_to_members_without_public_share(maker,tmp_path,monkeypatch,existing_share):
+    # Mutation: requiring three manual reviews stalls approved weekly work;
+    # minting a token here accidentally makes a private episode publicly readable.
+    from sqlalchemy import delete
+    from app.services.recap_video import qualification as q, publication as p, workflow
+    from app.services.generation import recap_models as m
+    from app.services.generation.models import GenerationOutbox
+    from app.services.generation.store import digest, resolve_policy
+    ident, mid = await qualified_series(maker,tmp_path,monkeypatch)
+    async def verified(*args):
+        return {'id':'synthetic-new-media','duration_seconds':10,'files':{
+            'video.mp4':{'bytes':100},'audio.mp3':{'bytes':20}}}, 'script'
+    monkeypatch.setattr(p,'verified_media',verified)
+    async with maker.begin() as db:
+        await db.execute(delete(m.RecapQualificationReview))
+        await db.execute(delete(m.RecapStandingAuthorization))
+        await db.execute(delete(m.RecapShareDecision))
+        token = 's' * 43
+        if existing_share:
+            import hashlib
+            db.add(m.RecapShareDecision(scope='edition:'+ident, allowed=True, token=token,
+                token_digest=hashlib.sha256(token.encode()).hexdigest()))
+        grant = await q.authorize_member_automation(db,'series',2026,actor_id='owner',
+            reason='Owner approved recurring text and video without per-week review')
+        status = await q.qualification_status(db,'series',2026)
+        assert status['automatic'] and status['passed']==0 and status['audience']=='members'
+        assert status['standing_id']==grant.id
+        policy = await resolve_policy(db,'series')
+        evidence = await workflow.require_media_preflight(db,ident)
+        (await db.get(m.RecapStage,mid)).policy_digest=digest([policy['policy']['features']['recap_video'],policy['revisions'],evidence])
+        proof = await q.record_standing_approval(db,ident,0,mid)
+    async with maker.begin() as db:
+        await p.select_publication(db,ident,0,mid,proof)
+        row = await db.get(m.RecapPublication,ident)
+        assert row.enabled == existing_share
+        if not existing_share:
+            assert await db.get(m.RecapShareDecision,'edition:'+ident) is None
+        outbox = await db.scalar(select(GenerationOutbox).where(GenerationOutbox.kind=='recap_publication'))
+        await p.project_publication(db,outbox,tmp_path)
+        result = await p.authorize_member_read(db,'synthetic',2026,4,'synthetic-new-media')
+        assert result['media']['id']=='synthetic-new-media'
+        assert (await p.share_state(db,league_id='synthetic',season=2026,week=4))['token'] == (token if existing_share else None)
+        if existing_share:
+            public = await p.authorize_public_read(db,token,None,0)
+            assert not public['media'] and public['article']['media'] is None
+            with pytest.raises(Held):
+                await p.authorize_public_read(db,token,'synthetic-new-media',0)
+        row.withdrawn=True
+        with pytest.raises(Held):
+            await p.authorize_member_read(db,'synthetic',2026,4,'synthetic-new-media')
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('existing',['none','member_article','revised','previous_media','revoked','future_disabled','revoked_after_approval'])
 async def test_standing_policy_attaches_initial_article_but_never_reverses_review_or_consent(maker,tmp_path,monkeypatch,existing):
     # Mutation: reject every existing article, allow revised media, or ignore consent CAS.
@@ -188,7 +242,7 @@ async def test_standing_postseason_uses_saved_authoritative_format(maker,tmp_pat
         db.add(m.RecapObservation(id='post-observation',episode_id='playoff',observed_at=4600,snapshot_json=dump(source),
             snapshot_digest='synthetic',facts_digest=episode.facts_digest,decision='ready'))
     async def verified(*args):return {'id':'post-media'},'post-script'
-    async def scope(*args):return {'article':{'artifact_id':'post-article','revision':1,'digest':'post-article-digest'}}
+    async def scope(*args, **kwargs):return {'article':{'artifact_id':'post-article','revision':1,'digest':'post-article-digest'}}
     async def target(*args):return {'synthetic_format_fixture':True}
     monkeypatch.setattr(q,'target_publication_binding',target)
     monkeypatch.setattr(p,'verified_media',verified)

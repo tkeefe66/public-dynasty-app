@@ -20,7 +20,7 @@ from app.services.analyst_media import ASSETS, AnalystMedia
 from app.services.analyst_shares import AnalystShares
 from app.services.generation.models import ContentArtifact, GenerationControl, GenerationOutbox, stamp
 from app.services.generation.recap_models import (
-    RecapAsset, RecapEpisode, RecapPublication, RecapPublicationApproval,
+    RecapEpisode, RecapPublication, RecapPublicationApproval,
     RecapPublicationControl, RecapPublicationSelection, RecapShareDecision, RecapStage,
 )
 from app.services.generation.store import Conflict, Held, audit, digest, dump, lock_control, resolve_policy
@@ -227,7 +227,9 @@ async def set_future_sharing(db, series_id, *, allowed, actor_id):
     audit(db, actor_id, 'recap_future_sharing', series_id, 'Explicit future sharing permission', after={'allowed':allowed})
 
 
-async def current_scope(db, episode_id, expected_revision, media_id):
+async def current_scope(db, episode_id, expected_revision, media_id, *, audience='public'):
+    if audience not in ('public', 'members'):
+        raise Held('publication_audience_invalid')
     gate = await serving_gate(db)
     episode = await db.get(RecapEpisode, episode_id, populate_existing=True)
     if not episode:
@@ -250,18 +252,21 @@ async def current_scope(db, episode_id, expected_revision, media_id):
     publication_episode_id = row.episode_id if row else episode_id
     share = await edition_decision(db, publication_episode_id, episode.league_id, episode.season, episode.week)
     future = await db.get(RecapShareDecision, 'series:'+episode.series_id, populate_existing=True)
-    if share and share.opted_out:
+    if audience == 'public' and share and share.opted_out:
         raise Held('edition_sharing_opted_out')
-    if not share or not share.allowed:
+    if audience == 'public' and (not share or not share.allowed):
         if not future or not future.allowed or future.opted_out:
             raise Held('future_sharing_disabled')
-    return dict(episode_id=episode_id, publication_episode_id=publication_episode_id,
+    scope = dict(episode_id=episode_id, publication_episode_id=publication_episode_id,
         share_scope=share.scope if share else 'edition:'+episode_id,
         expected_revision=expected_revision, media_id=media_id,
         article=article, facts_digest=episode.facts_digest, source_digest=episode.source_digest,
         policy_digest=digest(policy), generation_epoch=policy['epoch'], serving_epoch=gate.epoch,
         share_revision=share.revision if share else 0, future_revision=future.revision if future else 0,
         media_fence=media_fence)
+    if audience == 'members':
+        scope['audience'] = 'members'
+    return scope
 
 
 async def verified_media(db, episode_id, media_id):
@@ -337,7 +342,8 @@ async def select_publication(db, episode_id: str, expected_revision: int, media_
     proof = await db.get(RecapPublicationApproval, proof_id, populate_existing=True)
     from app.services.recap_video.qualification import require_standing_proof
     target_evidence = await require_standing_proof(db, proof)
-    scope = await current_scope(db, episode_id, expected_revision, media_id)
+    audience = json.loads(proof.scope_json).get('audience', 'public')
+    scope = await current_scope(db, episode_id, expected_revision, media_id, audience=audience)
     scope.update(media_digest=digest(media), script_id=script_id)
     scope.update(target_evidence)
     if proof.consumed or dump(scope) != proof.scope_json:
@@ -360,7 +366,7 @@ async def select_publication(db, episode_id: str, expected_revision: int, media_
         if await db.get(RecapShareDecision, 'edition:'+episode_id):
             raise Held('publication_identity_share_conflict')
         share.scope = 'edition:'+episode_id
-    if not share:
+    if not share and audience == 'public':
         token = secrets.token_urlsafe(32)
         share = RecapShareDecision(scope='edition:'+episode_id, revision=1, allowed=True,
             opted_out=False, token=token, token_digest=hashlib.sha256(token.encode()).hexdigest())
@@ -373,10 +379,10 @@ async def select_publication(db, episode_id: str, expected_revision: int, media_
     row.article_json, row.facts_digest = dump(public_article(json.loads(article.payload_json))), episode.facts_digest
     row.media_id, row.media_json, row.script_id = media_id, dump(media), script_id
     row.approval_id, row.policy_digest = proof.id, scope['policy_digest']
-    row.share_revision, row.authority_revision = share.revision, expected_revision+1
+    row.share_revision, row.authority_revision = share.revision if share else 0, expected_revision+1
     row.projected_revision = 0
     row.epoch = scope['serving_epoch']
-    row.enabled, row.withdrawn, row.hold = True, False, ''
+    row.enabled, row.withdrawn, row.hold = bool(share and share.allowed and not share.opted_out), False, ''
     proof.consumed = True
     db.add(GenerationOutbox(key=f'recap-publication:{episode_id}:{row.authority_revision}', kind='recap_publication',
         payload_json=dump(dict(episode_id=episode_id, authority_revision=row.authority_revision))))
@@ -409,11 +415,13 @@ async def project_publication(db, item, cache_dir):
         # Obsolete work acknowledged without installing any stale pointer.
         return
     share = await db.get(RecapShareDecision, 'edition:'+row.episode_id, populate_existing=True)
-    if row.withdrawn or not row.enabled or not share or not share.allowed or share.opted_out or share.revision != row.share_revision:
+    proof = await db.get(RecapPublicationApproval, row.approval_id)
+    members = proof and json.loads(proof.scope_json).get('audience') == 'members'
+    if row.withdrawn or (not members and (not row.enabled or not share or not share.allowed
+            or share.opted_out or share.revision != row.share_revision)):
         raise Held('publication_withdrawn')
     if not await article_current(db, row):
         raise Held('publication_article_changed')
-    proof = await db.get(RecapPublicationApproval, row.approval_id)
     if proof:
         from app.services.recap_video.qualification import require_standing_proof
         await require_standing_proof(db, proof)
@@ -483,26 +491,50 @@ async def authorize_public_read(db, token: str, bundle_id: str | None, now: int)
         return dict(article={**article, 'markdown':'', 'sources':[], 'context_note':None,
             'correction_note':None, 'status':'withdrawn', 'media':None}, media={})
     media = json.loads(row.media_json) if row.projected_revision == row.authority_revision else {}
+    proof = await db.get(RecapPublicationApproval, row.approval_id) if row.approval_id else None
+    if proof and json.loads(proof.scope_json).get('audience') == 'members':
+        media = {}  # Member authorization never widens an existing public article link.
     if bundle_id is not None and (not media or media['id'] != bundle_id):
         raise Held('public_unavailable')
     return dict(article={**article, 'status':'published', 'media':AnalystMedia.public_metadata(media or None)}, media=media)
 
 
+async def authorize_member_read(db, league_id, season, week, bundle_id=None):
+    """Caller must authenticate league membership; public share state is independent."""
+    await serving_gate(db)
+    row = await edition_row(db, league_id, season, week)
+    if (not row or row.withdrawn or row.hold or row.epoch != get_settings().recap_serving_epoch
+            or row.projected_revision != row.authority_revision or not await article_current(db, row)):
+        raise Held('public_unavailable')
+    media = json.loads(row.media_json)
+    if bundle_id is not None and (not media or media.get('id') != bundle_id):
+        raise Held('public_unavailable')
+    return dict(article=public_article(json.loads(row.article_json)), media=media)
+
+
 def scan_legacy(cache_dir):
     """Read edition state, NOT global token indexes. No bytes are modified."""
     shares, media = AnalystShares(cache_dir), AnalystMedia(cache_dir)
-    rows, holds = [], []
-    for path in sorted(shares.archive.root.glob('*/shares/*.json')):
+    rows, holds, seen = [], [], set()
+    paths = list(shares.archive.root.glob('*/shares/*.json')) + list(shares.archive.root.glob('*/*.json'))
+    for path in sorted(paths):
         key = str(path.relative_to(cache_dir))
+        identity = None
         try:
-            league_id = path.parent.parent.name
+            is_share = path.parent.name == 'shares'
+            league_id = path.parent.parent.name if is_share else path.parent.name
             season, week = map(int, path.stem.split('-'))
+            identity = (league_id, season, week)
+            if identity in seen:
+                continue
             target = dict(league_id=league_id, season=season, week=week)
             token = shares.state(**target).get('token')
             if token and shares.resolve_target(token) != target:
                 raise ValueError('active_index_mismatch')
             edition = shares.edition(**target)
             if not edition:
+                if not is_share:
+                    continue  # Private results packets are not reader editions.
                 raise ValueError('published_article_missing')
             article = public_article(edition)
             manifest = media.current(target, edition)
@@ -518,8 +550,11 @@ def scan_legacy(cache_dir):
                         raise ValueError('legacy_asset_hash_mismatch')
                     info['path'] = str(asset.resolve())
             rows.append(dict(target=target, token=token, article=article, media=manifest or {}))
+            seen.add(identity)
         except (OSError, ValueError, KeyError, TypeError, Held):
             holds.append(key)
+            if identity is not None:
+                seen.add(identity)
     return rows, holds
 
 

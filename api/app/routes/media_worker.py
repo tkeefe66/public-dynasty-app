@@ -6,7 +6,8 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_, and_
+from sqlalchemy.orm import aliased
 
 from app.auth.media_worker import require_media_worker
 from app.db.engine import get_sessionmaker
@@ -61,6 +62,25 @@ class RecoveryCompletion(Strict):
     generation: int = Field(ge=1)
     error: Literal['','history_unavailable','history_identity_mismatch','history_request_failed'] = ''
     status: int = Field(default=0,ge=0,le=599)
+
+
+@router.get('/demand')
+async def demand(worker=Depends(require_media_worker)):
+    """Infrastructure hint only: no lease, payload, spending or publication grant."""
+    from app.services.generation.recap_models import RecapStage, RecapRecoveryRequest
+    previous = aliased(RecapStage)
+    ready = select(previous.id).where(previous.id == RecapStage.predecessor_id,
+        previous.script_id == RecapStage.script_id, previous.state == 'succeeded').exists()
+    async with get_sessionmaker()() as db:
+        stage = await db.scalar(select(RecapStage.id).where(RecapStage.kind.in_(worker.capabilities),
+            or_(RecapStage.state == 'running', and_(RecapStage.state == 'queued',
+                RecapStage.next_attempt_at <= stamp(), or_(RecapStage.predecessor_id == '', ready)))).limit(1))
+        recovery = None
+        if 'narrate' in worker.capabilities:
+            recovery = await db.scalar(select(RecapRecoveryRequest.id).where(
+                RecapRecoveryRequest.worker_id == worker.worker_id,
+                RecapRecoveryRequest.state.in_(('pending', 'running'))).limit(1))
+    return {'needed': bool(stage or recovery)}
 
 
 @router.post('/recovery-claim')

@@ -62,6 +62,44 @@ def test_withdrawn_edition_does_not_serve_old_manifest(client, published_fixture
     assert client.get('/api/league/test/analyst').json()['editions'] == []
 
 
+def test_database_member_playback_preserves_share_state_and_ranges(client, published_fixture):
+    # Mutation: database mode only supports public-token playback, or ignores withdrawal.
+    f = published_fixture
+    base = '/api/league/test/analyst/2026/1/media'
+    before = client.get('/api/league/test/analyst/2026/1/share').json()
+    assert client.get(base).json()['media']['id'] == f.manifest['id']
+    result = client.get(f"{base}/{f.manifest['id']}/video.mp4", headers={'Range':'bytes=8-15'})
+    assert result.status_code == 206 and len(result.content) == 8
+    assert 'no-store' in result.headers['cache-control']
+    assert client.get('/api/league/test/analyst/2026/1/share').json() == before
+    f.withdraw()
+    assert client.get(base).json()['media'] is None
+    assert client.get(f"{base}/{f.manifest['id']}/video.mp4").status_code == 404
+
+
+def test_reconciliation_preserves_unshared_archive_media(client, tmp_path):
+    # Mutation: enumerating only share files loses videos that were never public.
+    from app.services.recap_video.publication import scan_legacy
+    seed()
+    manifest = attach(tmp_path)
+    rows, holds = scan_legacy(get_cache_dir())
+    assert not holds and len(rows) == 1
+    assert rows[0]['token'] is None
+    assert rows[0]['media']['id'] == manifest['id']
+
+
+def test_member_archive_is_independent_of_public_enabled_flag(client, published_fixture):
+    # Mutation: hiding disabled public links also hides the authenticated edition.
+    from app.services.generation.recap_models import RecapPublication
+    async def unshare():
+        async with published_fixture.maker.begin() as db:
+            row = await db.get(RecapPublication, published_fixture.module.legacy_episode_id('test',2026,1))
+            row.enabled = False
+    asyncio.run(unshare())
+    assert len(client.get('/api/league/test/analyst').json()['editions']) == 1
+    assert client.get(published_fixture.url).status_code == 404
+
+
 def test_db_mode_never_falls_back_on_missing_epoch(client, published_fixture, monkeypatch):
     # Mutation: a restored/missing authority row revives a still-valid file token.
     monkeypatch.setenv('TRADE_GRADER_RECAP_SERVING_EPOCH', 'new-external-epoch')

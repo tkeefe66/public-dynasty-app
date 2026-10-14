@@ -242,9 +242,17 @@ class ElevenLabsTransport:
         request_id = identifier(identity.get("request_id"))
         async with self.client() as client:
             metadata = await _json_get(client, "/v1/history/" + history_id)
+            item = request["inputs"][0]
+            dialogue = metadata.get("dialogue")
+            if dialogue is not None:
+                matches_input = (isinstance(dialogue, list) and len(dialogue) == 1
+                    and isinstance(dialogue[0], dict)
+                    and all(dialogue[0].get(k) == item[k] for k in ("voice_id", "text"))
+                    and all(metadata.get(k) in (None, item[k]) for k in ("voice_id", "text")))
+            else:
+                matches_input = all(metadata.get(k) == item[k] for k in ("voice_id", "text"))
             if (metadata.get("history_item_id") != history_id or metadata.get("request_id") != request_id
-                    or metadata.get("voice_id") != request["inputs"][0]["voice_id"]
-                    or metadata.get("model_id") != MODEL or metadata.get("text") != request["inputs"][0]["text"]):
+                    or metadata.get("model_id") != MODEL or not matches_input):
                 raise ValueError("Exact history evidence unavailable or ambiguous")
             await self.persist_identity(identity)
             async with client.stream("GET", "/v1/history/" + history_id + "/audio") as response:
@@ -277,9 +285,12 @@ def settle_receipt(request, rate, receipt):
     metering = receipt.get("metering", {})
     if metering.get("source") != "character-cost-header":
         return "unknown", None, "provider_outcome_unknown"
-    credits = Decimal(metering.get("credits", "NaN"))
+    try:
+        credits = Decimal(metering.get("credits", "NaN"))
+    except (InvalidOperation, ValueError, TypeError):
+        return "unknown", None, "provider_outcome_unknown"
     expected = len(request["inputs"][0]["text"]) * Decimal(rate["max_credits_per_character"])
-    if not credits.is_finite() or credits < 0 or credits != expected:
+    if not credits.is_finite() or credits < 0 or credits > expected:
         return "unknown", None, "provider_outcome_unknown"
     amount = len(request["inputs"][0]["text"]) * rate["microusd_per_character"]
     error = "" if receipt.get("outcome") == "received" and receipt.get("timing") and receipt.get("asset") else "response_invalid"

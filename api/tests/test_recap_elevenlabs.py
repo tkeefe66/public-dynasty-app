@@ -149,3 +149,53 @@ async def test_storage_failure_retains_audio_hash_before_exact_recovery():
     assert receipt["audio_sha256"] == hashlib.sha256(b"synthetic-mp3").hexdigest()
     assert receipt["outcome"] == "unknown" and "asset" not in receipt
     assert settle_receipt(REQUEST, RATE, receipt) == ("received", 70, "response_invalid")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change', ['', 'text', 'voice_id', 'extra_speaker', 'request_id', 'conflicting_legacy'])
+async def test_dialogue_history_recovery_matches_exact_saved_input(change):
+    # Mutation: requiring legacy top-level text rejects real dialogue history;
+    # ignoring dialogue identity would recover a different paid take.
+    events, calls = [], []
+    # Shape captured from production history, with all identifiers/text replaced.
+    metadata = dict(history_item_id='synthetic-history', request_id='synthetic-request',
+        model_id='eleven_v4', text=None, voice_id=None, content_type='audio/mpeg',
+        dialogue=[dict(text='Avery won.', voice_id='synthetic-voice', voice_name='Synthetic')],
+        character_count_change_from=100, character_count_change_to=102)
+    if change in ('text', 'voice_id'):
+        metadata['dialogue'][0][change] = 'different'
+    if change == 'extra_speaker':
+        metadata['dialogue'].append(dict(metadata['dialogue'][0]))
+    if change == 'request_id':
+        metadata['request_id'] = 'different'
+    if change == 'conflicting_legacy':
+        metadata['text'] = 'Avery lost.'
+    def http(request):
+        calls.append((request.method, request.url.path))
+        if request.url.path.endswith('/audio'):
+            return httpx.Response(200, content=b'exact-saved-audio')
+        return httpx.Response(200, json=metadata)
+    action = transport(http, events).recover(REQUEST,
+        dict(request_id='synthetic-request', history_item_id='synthetic-history'))
+    if change:
+        with pytest.raises(ValueError):
+            await action
+        assert len(calls) == 1 and not events
+    else:
+        result = await action
+        assert result['audio_sha256'] == hashlib.sha256(b'exact-saved-audio').hexdigest()
+        assert calls == [('GET', '/v1/history/synthetic-history'), ('GET', '/v1/history/synthetic-history/audio')]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('credits', ['2', '10', '10.1', '-1', 'NaN', 'invalid'])
+async def test_receipt_credit_limit_is_a_ceiling(credits):
+    # Mutation: equality with maximum rejects a valid discounted metered request.
+    receipt = await transport(lambda r: httpx.Response(200, json=response(), headers={
+        'request-id': 'synthetic-request', 'history-item-id': 'synthetic-history',
+        'character-cost': '10'}), []).send(dict(request=REQUEST, rate_snapshot=RATE, max_microusd=70))
+    receipt['metering']['credits'] = credits
+    if credits in ('2', '10'):
+        assert settle_receipt(REQUEST, RATE, receipt) == ('received', 70, '')
+    else:
+        assert settle_receipt(REQUEST, RATE, receipt) == ('unknown', None, 'provider_outcome_unknown')

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.up.railway.app/railway.schema.json",
+  "build": { "builder": "DOCKERFILE", "dockerfilePath": "media/controller/Dockerfile" },
+  "deploy": {
+    "cronSchedule": "*/5 * * * *",
+    "restartPolicyType": "NEVER",
+    "numReplicas": 1
+  }
+}

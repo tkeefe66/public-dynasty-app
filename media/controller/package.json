@@ -1,0 +1,9 @@
+{
+  "name": "recap-worker-controller",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test", "check": "tsc --noEmit" },
+  "dependencies": { "railway": "3.16.0" },
+  "devDependencies": { "typescript": "5.9.3", "@types/node": "22.19.1" }
+}
