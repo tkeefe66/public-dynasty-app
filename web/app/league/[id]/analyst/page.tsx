@@ -2,7 +2,7 @@ import Link from "next/link";
 import { AnalystArchive } from "@/components/AnalystArchive";
 import { Shell } from "@/components/Shell";
 import { TopBar } from "@/components/TopBar";
-import { analystArchive, analystShareState } from "@/lib/api";
+import { analystArchive, analystShareState, analystPrivateMedia } from "@/lib/api";
 import { publicAnalyst } from "@/lib/public-analyst";
 import type { RecapMediaInfo } from "@/lib/recap-media";
 
@@ -26,16 +26,21 @@ export default async function AnalystPage({ params, searchParams }: {
   const edition = searchParams.edition
     ? editions.find(item => `${item.season}-${item.week}` === searchParams.edition)
     : editions[0];
-  let media: { token: string; info: RecapMediaInfo } | undefined;
+  let media: { token?: string; mediaBase?: string; info: RecapMediaInfo } | undefined;
   let mediaError = false;
   if (edition) {
     try {
-      // Read existing publication only. Opening an archive must never enable sharing.
-      const { token } = await analystShareState(params.id, edition.season, edition.week);
-      const shared = token ? await publicAnalyst(token) : null;
-      if (token && shared?.media && shared.status !== "withdrawn" &&
-          shared.season === edition.season && shared.week === edition.week && shared.markdown === edition.markdown) {
-        media = { token, info: shared.media };
+      const privateMedia = await analystPrivateMedia(params.id, edition.season, edition.week);
+      if (privateMedia.media && privateMedia.revision === edition.revision && privateMedia.markdown === edition.markdown) {
+        media = { info: privateMedia.media, mediaBase: `/api/league/${encodeURIComponent(params.id)}/analyst/${edition.season}/${edition.week}/media/${encodeURIComponent(privateMedia.media.id)}` };
+      } else {
+        // Read existing publication only. Opening an archive must never enable sharing.
+        const { token } = await analystShareState(params.id, edition.season, edition.week);
+        const shared = token ? await publicAnalyst(token) : null;
+        if (token && shared?.media && shared.status !== "withdrawn" &&
+            shared.season === edition.season && shared.week === edition.week && shared.markdown === edition.markdown) {
+          media = { token, info: shared.media };
+        }
       }
     } catch {
       mediaError = true;

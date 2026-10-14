@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { recapMediaBase, type RecapMediaInfo } from "@/lib/recap-media";
 
-export function RecapMedia({ token, media, week }: { token: string; media: RecapMediaInfo; week: number }) {
+export function RecapMedia({ token, mediaBase, media, week }: { token?: string; mediaBase?: string; media: RecapMediaInfo; week: number }) {
   const [failed, setFailed] = useState(false);
-  const base = recapMediaBase(token, media.id);
+  if (!mediaBase && !token) return null;
+  const base = mediaBase || recapMediaBase(token!, media.id);
   const duration = Math.ceil(media.duration_seconds);
   const linkClass = "inline-flex min-h-tap items-center rounded-sm border border-rule px-4 py-2 text-sm font-semibold text-ink";
   return <section aria-label="Watch or download the recap" className="mb-8 space-y-4">

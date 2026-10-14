@@ -105,6 +105,49 @@ async def share_state(league_id: str, response: Response, season: int = Path(ge=
     return store().state(league_id, season, week)
 
 
+@router.get("/api/league/{league_id}/analyst/{season}/{week}/media")
+async def member_media(league_id: str, response: Response, season: int = Path(ge=2000, le=2200), week: int = Path(ge=1, le=18)):
+    """League membership is enforced by this router; no public capability created."""
+    private_headers(response)
+    if authority_mode() != 'legacy':
+        return {"media": None}  # Database publications retain their existing authority path.
+    try:
+        media = AnalystMedia(get_cache_dir())
+        target = dict(league_id=league_id, season=season, week=week)
+        edition = media.shares.edition(**target)
+        manifest = media.current(target, edition) if edition else None
+        return {"media": media.public_metadata(manifest), "revision": edition["revision"] if edition else None,
+                "markdown": edition["markdown"] if edition else None}
+    except (OSError, ValueError, KeyError):
+        log.error("Member recap media metadata could not be loaded")
+        raise HTTPException(503, "Video could not be loaded. Reload the recap to try again.") from None
+
+
+@router.api_route("/api/league/{league_id}/analyst/{season}/{week}/media/{bundle_id}/{name}", methods=["GET", "HEAD"])
+async def member_media_asset(league_id: str, bundle_id: str, name: str, request: Request,
+                             season: int = Path(ge=2000, le=2200), week: int = Path(ge=1, le=18), download: bool = False):
+    response = Response()
+    private_headers(response)
+    headers = dict(response.headers)
+    headers.pop("content-length", None)
+    if authority_mode() != 'legacy' or name not in ASSETS:
+        raise HTTPException(404, "This video is unavailable.", headers=headers)
+    try:
+        media = AnalystMedia(get_cache_dir())
+        target = dict(league_id=league_id, season=season, week=week)
+        edition = media.shares.edition(**target)
+        manifest = media.current(target, edition) if edition else None
+        if not manifest or manifest["id"] != bundle_id:
+            raise HTTPException(404, "This video is unavailable or the recap changed.", headers=headers)
+        path = media._root(**target) / manifest["id"] / name
+    except (OSError, ValueError, KeyError):
+        log.error("Member recap media could not be loaded")
+        raise HTTPException(503, "Video could not be loaded. Reload the recap to try again.", headers=headers) from None
+    filename = f"weekly-recap-{season}-week-{week}.{name.rsplit('.', 1)[1]}"
+    return PrivateMediaResponse(path, media_type=ASSETS[name], headers=headers, filename=filename,
+                                content_disposition_type="attachment" if download else "inline")
+
+
 @router.post("/api/league/{league_id}/analyst/{season}/{week}/share", response_model=ShareState)
 async def create_share(league_id: str, response: Response, season: int = Path(ge=2000, le=2200), week: int = Path(ge=1, le=18), db=Depends(get_db), user=Depends(require_league_member)):
     private_headers(response)

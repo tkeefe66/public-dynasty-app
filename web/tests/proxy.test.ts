@@ -34,6 +34,22 @@ describe("api proxy route handler", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("preserves authenticated recap byte ranges and content length", async () => {
+    // Mutation: treat member media as a JSON route, dropping Range or Content-Length.
+    vi.stubGlobal("Headers", new Request("http://synthetic.invalid").headers.constructor);
+    getBackendToken.mockResolvedValue("member-token");
+    const fetchSpy = vi.fn().mockResolvedValue(new Response("12345678", { status: 206,
+      headers: { "content-type": "video/mp4", "content-length": "8", "content-range": "bytes 8-15/100", "cache-control": "private, no-store" } }));
+    vi.stubGlobal("fetch", fetchSpy);
+    const path = ["league", "test", "analyst", "2026", "5", "media", "a".repeat(32), "video.mp4"];
+    const result = await GET(new Request("http://web/api/" + path.join("/"), { headers: { Range: "bytes=8-15" } }), ctx(path));
+    expect(fetchSpy.mock.calls[0][1].headers.get("range")).toBe("bytes=8-15");
+    expect(fetchSpy.mock.calls[0][1].headers.get("authorization")).toBe("Bearer member-token");
+    expect(result.status).toBe(206);
+    expect(result.headers.get("content-length")).toBe("8");
+    expect(result.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   it("forwards to the backend with a Bearer header and query string", async () => {
     getBackendToken.mockResolvedValue("tok-123");
     const upstream = new Response(JSON.stringify({ ok: true }), {

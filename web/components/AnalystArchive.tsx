@@ -41,7 +41,7 @@ export function Article({ markdown }: { markdown: string }) {
 
 export function AnalystArchive({ leagueId, editions, selected, media, mediaError }: {
   leagueId: string; editions: AnalystEdition[]; selected?: string;
-  media?: { token: string; info: RecapMediaInfo }; mediaError?: boolean;
+  media?: { token?: string; mediaBase?: string; info: RecapMediaInfo }; mediaError?: boolean;
 }) {
   editions = editions.filter((item) => item.edition_type !== "results");
   const edition = selected
@@ -79,7 +79,7 @@ export function AnalystArchive({ leagueId, editions, selected, media, mediaError
               {edition.correction_note && <p className="mt-3 text-sm text-body"><strong>Corrected edition:</strong> {edition.correction_note}</p>}
               <AnalystShare key={`${edition.season}-${edition.week}`} leagueId={leagueId} season={edition.season} week={edition.week} />
             </header>
-            {media && <RecapMedia token={media.token} media={media.info} week={edition.week} />}
+            {media && <RecapMedia token={media.token} mediaBase={media.mediaBase} media={media.info} week={edition.week} />}
             {mediaError && <p role="status" className="mb-6 text-sm text-dim">Video and audio could not be loaded. Reload this page to try again. The article is still available.</p>}
             <Article markdown={edition.markdown} />
             <AnalystSources sources={edition.sources} note={edition.context_note} />

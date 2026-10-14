@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
-const { archive, shareState, published } = vi.hoisted(() => ({ archive: vi.fn(), shareState: vi.fn(), published: vi.fn() }));
-vi.mock("@/lib/api", () => ({ analystArchive: archive, analystShareState: shareState }));
+const { archive, shareState, published, privateMedia } = vi.hoisted(() => ({ archive: vi.fn(), shareState: vi.fn(), published: vi.fn(), privateMedia: vi.fn() }));
+vi.mock("@/lib/api", () => ({ analystArchive: archive, analystShareState: shareState, analystPrivateMedia: privateMedia }));
 vi.mock("@/lib/public-analyst", () => ({ publicAnalyst: published }));
 vi.mock("@/components/TopBar", () => ({ TopBar: () => null }));
 import Page from "@/app/league/[id]/analyst/page";
@@ -16,6 +16,25 @@ beforeEach(() => {
   archive.mockResolvedValue({ editions: [week5, week4] });
   shareState.mockResolvedValue({ token });
   published.mockResolvedValue({ ...week4, media, status: "published" });
+  privateMedia.mockResolvedValue({ media: null });
+});
+
+it("plays member-only video without needing or creating a public share", async () => {
+  // Mutation: tie private playback to public share state, or show a stale revision.
+  shareState.mockResolvedValue({ token: null });
+  privateMedia.mockResolvedValue({ media, revision: 1, markdown: week4.markdown });
+  render(await Page(props));
+  expect(screen.getByLabelText("Week 4 video recap")).toHaveAttribute("src", `/api/league/test/analyst/2026/4/media/${media.id}/video.mp4`);
+  expect(shareState).not.toHaveBeenCalled();
+  expect(published).not.toHaveBeenCalled();
+});
+
+it("does not show a private video bound to an older article revision", async () => {
+  // Mutation: accept member media without checking the current article revision.
+  shareState.mockResolvedValue({ token: null });
+  privateMedia.mockResolvedValue({ media, revision: 0, markdown: week4.markdown });
+  render(await Page(props));
+  expect(screen.queryByLabelText("Week 4 video recap")).not.toBeInTheDocument();
 });
 
 it("shows existing video and audio for the selected archive edition", async () => {

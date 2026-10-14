@@ -21,7 +21,8 @@ async function proxy(req: Request, path: string[]): Promise<Response> {
     return new Response("Invalid API path", { status: 400 });
   }
   const route = path.join("/");
-  const recapPreview = /^admin\/generation\/recap-episodes\/[^/]+\/preview\/[^/]+\/(video\.mp4|audio\.mp3|poster\.jpg|captions\.vtt)$/.test(route);
+  const recapPreview = /^admin\/generation\/recap-episodes\/[^/]+\/preview\/[^/]+\/(video\.mp4|audio\.mp3|poster\.jpg|captions\.vtt)$/.test(route)
+    || /^league\/[A-Za-z0-9_-]+\/analyst\/\d{4}\/\d{1,2}\/media\/[a-f0-9]{32}\/(video\.mp4|audio\.mp3|poster\.jpg|captions\.vtt)$/.test(route);
   // Only the dedicated browser-bound OAuth handlers may call these endpoints.
   if (route === "me/yahoo/start" || route === "me/yahoo/complete") {
     return new Response("Not found", { status: 404 });

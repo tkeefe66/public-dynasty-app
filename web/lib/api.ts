@@ -102,6 +102,10 @@ export function analystShareState(leagueId: string, season: number, week: number
   return jsonFetch(`${BASE}/league/${encodeURIComponent(leagueId)}/analyst/${season}/${week}/share`, { signal: AbortSignal.timeout(10000) });
 }
 
+export function analystPrivateMedia(leagueId: string, season: number, week: number): Promise<{ media: import("./recap-media").RecapMediaInfo | null; revision?: number; markdown?: string }> {
+  return jsonFetch(`${BASE}/league/${encodeURIComponent(leagueId)}/analyst/${season}/${week}/media`, { signal: AbortSignal.timeout(10000) });
+}
+
 export function scoringLeaders(leagueId: string): Promise<ScoringResp> {
   return jsonFetch(`${BASE}/league/${leagueId}/scoring`);
 }

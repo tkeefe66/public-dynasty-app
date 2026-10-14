@@ -98,3 +98,31 @@ def test_new_bundle_retires_previous_asset_id(client, tmp_path):
     assert first["id"] != second["id"]
     assert client.get(f"{prefix}/{first['id']}/video.mp4").status_code == 404
     assert client.get(f"{prefix}/{second['id']}/video.mp4").status_code == 200
+
+
+def test_members_play_unshared_video_without_creating_public_capability(client, tmp_path):
+    # Mutation: require/create a public token for authenticated playback, or drop range support.
+    from app.services.analyst_shares import AnalystShares
+    data = seed()
+    media = attach(tmp_path)
+    base = "/api/league/test/analyst/2026/1/media"
+    response = client.get(base)
+    assert response.status_code == 200
+    assert response.json()["media"]["id"] == media["id"]
+    assert response.json()["revision"] == 1
+    url = f"{base}/{media['id']}/video.mp4"
+    result = client.get(url, headers={"Range": "bytes=8-15"})
+    assert result.status_code == 206 and len(result.content) == 8
+    assert "no-store" in result.headers["cache-control"]
+    assert AnalystShares(get_cache_dir()).state("test", 2026, 1) == {"token": None}
+    overrides = app.dependency_overrides.copy()
+    app.dependency_overrides.clear()
+    try:
+        with TestClient(app) as anonymous:
+            assert anonymous.get(base).status_code == 401
+            assert anonymous.get(url).status_code == 401
+    finally:
+        app.dependency_overrides.update(overrides)
+    AnalystStore(get_cache_dir()).save_correction("test", {**data, "markdown": "Corrected"}, "Fixed score")
+    assert client.get(base).json()["media"] is None
+    assert client.get(url).status_code == 404

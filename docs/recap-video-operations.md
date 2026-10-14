@@ -2,6 +2,27 @@
 
 ## Production setup progress, 2026-10-14
 
+- The owner explicitly authorized current and recurring weekly scripts containing
+  league/manager names, scores, standings and matchup commentary to ElevenLabs,
+  using the approved voice, within $3 per video and $15 monthly. This is standing
+  payload authorization, not permission to fabricate checks or retry unknown
+  paid requests. Preserve exact dispatch identities and receipts.
+- The current Week 5 episode was produced through the existing operator workflow:
+  two narration requests, no regenerated takes, 724 metered credits, 3,294
+  characters (base-rate estimate $0.26352 before tax; not an invoice amount).
+  Six results, twelve managers, standings and six upcoming pairings are covered.
+  The 223-second MP4, MP3, poster and captions are attached to article revision 2.
+  The article and disabled public share state were preserved. This manual episode
+  does not establish unattended weekly production or rollout review credit.
+- Authenticated archive playback now has membership-protected metadata and
+  streaming routes for legacy attached bundles. Each read checks the current
+  article revision and bundle; public sharing is not a playback prerequisite.
+  Database authority continues through its existing publication path, without
+  falling back to legacy media. The browser proxy retains Range and Content-Length.
+- The temporary isolated worker sandbox was destroyed after qualification to
+  stop idle VM charges. The clean checkpoint remains; an on-demand worker lifecycle
+  and production calibration are still needed for unattended generation.
+
 - The worker now has a dedicated Web ingress at `/api/internal/media/*`.
   Configure Web's server-only `MEDIA_WORKER_TOKEN` to match the API's dedicated
   token. Only the media protocol routes and methods are forwarded; browser
