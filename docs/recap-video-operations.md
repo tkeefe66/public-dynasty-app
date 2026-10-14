@@ -1,5 +1,33 @@
 # Weekly recap video operations and release candidate
 
+## Production setup progress, 2026-10-14
+
+- The existing ElevenLabs key was located in another owned Railway project.
+  After explicit approval, its User access was enabled; its 20,000-credit
+  limit was preserved. The actual worker preflight passed for the approved
+  voice and `eleven_v4`, with an active pay-as-you-go account. No paid request
+  was needed for this check.
+- A private `recap-media` Railway bucket was provisioned. A disposable synthetic
+  object verified byte-range reads, conditional-write immutability and denial
+  of anonymous reads. The probe object was removed.
+- The worker image built from `4141148` inside an isolated Railway sandbox.
+  Its full Linux runtime contract passed: 9 passed, 5 API-only tests skipped.
+  This includes actual rendering, child isolation, cancellation and failure
+  diagnostics. The pinned four-file ASR model passed SHA-256 verification and
+  loaded offline in the 2 GiB container.
+- The credential-free runtime is preserved in Railway checkpoint
+  `recap-worker-4141148-20261014`. This is reproducible runtime evidence, not a
+  deployed continuously available worker. Sandbox creation, restart, expiry
+  and destruction still require a durable production lifecycle controller.
+- The exact two-request paid calibration proposal is in
+  [recap-video-calibration.md](recap-video-calibration.md). It contains 1,848
+  normalized submitted characters, estimated at $0.14784 before tax, with a
+  $0.30 authorization ceiling. No calibration has been dispatched.
+
+Automatic publication still requires the accepted three distinct reviewed weekly
+episodes. Do not fabricate review evidence or count synthetic tests as rollout
+credit. The current week's real video has not yet been produced.
+
 ## Production readiness checked 2026-10-13
 
 The written Week 5 edition was recovered and published. That does **not** mean
