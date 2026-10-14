@@ -80,6 +80,14 @@ def test_numeric_format_normalization_cannot_merge_two_numbers():
     assert not verify_speech(script, transcript("Three points."))["passed"]
 
 
+@pytest.mark.parametrize("boundary", [". ", "! ", "? ", "; ", ": "])
+def test_spoken_decimal_stops_at_sentence_boundary(boundary):
+    # Mutation: strip punctuation before number parsing, merging 1.4 and four into 1.44.
+    script = {"segments": [{"id": "s", "text": "One point four" + boundary + "Four stars."}]}
+    assert verify_speech(script, transcript("1.4. Four stars."))["passed"]
+    assert not verify_speech(script, transcript("1.44 stars."))["passed"]
+
+
 @pytest.mark.parametrize('fragments,consistent', [
     ([' Score', ' 123', '.4', ' points.'], True),
     ([' Score', ' 123', '.5', ' points.'], False),

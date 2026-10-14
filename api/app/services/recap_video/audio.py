@@ -106,9 +106,14 @@ def _numbers(tokens):
 
 def _tokens(text):
     text = re.sub(r"\[[^\]]*\]", "", text.lower().replace("’", "'").replace("−", "-").replace("%", " percent").replace("$", "dollars "))
-    words = re.findall(r"[-+]?\d+(?:\.\d+)?|[a-z]+(?:'[a-z]+)?", text)
-    expanded = [part for word in words for part in CONTRACTIONS.get(word, word).split()]
-    return _numbers(expanded)
+    result = []
+    # Sentence boundaries terminate spoken decimals: "one point four. Four"
+    # represents two numbers, not 1.44. Decimal punctuation remains intact.
+    for sentence in re.split(r"(?<=[.!?;:])\s+", text):
+        words = re.findall(r"[-+]?\d+(?:\.\d+)?|[a-z]+(?:'[a-z]+)?", sentence)
+        expanded = [part for word in words for part in CONTRACTIONS.get(word, word).split()]
+        result.extend(_numbers(expanded))
+    return result
 
 
 def validate_alias_spellings(canonical, variants):
