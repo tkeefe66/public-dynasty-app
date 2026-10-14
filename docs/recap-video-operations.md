@@ -2,6 +2,26 @@
 
 ## Production setup progress, 2026-10-14
 
+- The worker now has a dedicated Web ingress at `/api/internal/media/*`.
+  Configure Web's server-only `MEDIA_WORKER_TOKEN` to match the API's dedicated
+  token. Only the media protocol routes and methods are forwarded; browser
+  cookies and administrator JWTs are never used. Both services authenticate,
+  and the API still owns capability, lease, budget and publication checks.
+  JSON is bounded to 40,000 bytes, uploads to 64 MiB, and uncertain requests
+  are never retried by the gateway. Worker uses the existing HTTPS Web origin.
+- A persistent isolated Railway sandbox is being installed from the verified
+  credential-free runtime checkpoint with idle destruction disabled. Run one
+  Docker supervisor with `--restart unless-stopped`, 2 GiB memory and 4 GiB
+  scratch tmpfs, retaining the already qualified child namespace settings.
+  Supply only dedicated worker/provider credentials via stdin into a mode-600
+  host environment file; never snapshot a credentialed host. Runtime restart
+  does not grant production calibration or paid dispatch authority.
+  Loss of the entire sandbox still requires explicit replacement after the
+  previous worker is confirmed stopped; never launch a second render replica.
+- Gateway verification: 1,005 Web tests passed, typecheck and lint passed
+  (existing Dashboard ref warning). Removing the credential check caused all
+  three unauthorized-request cases to fail; source was restored byte-for-byte.
+  Independent review found no actionable gateway issues.
 - The existing ElevenLabs key was located in another owned Railway project.
   After explicit approval, its User access was enabled; its 20,000-credit
   limit was preserved. The actual worker preflight passed for the approved
