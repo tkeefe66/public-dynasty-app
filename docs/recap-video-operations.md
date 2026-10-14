@@ -22,7 +22,24 @@
 - The exact two-request paid calibration proposal is in
   [recap-video-calibration.md](recap-video-calibration.md). It contains 1,848
   normalized submitted characters, estimated at $0.14784 before tax, with a
-  $0.30 authorization ceiling. No calibration has been dispatched.
+  $0.30 authorization ceiling. Both approved requests completed once. Exact
+  request history verifies 407 total metered credits; USD conversion remains
+  unresolved. Offline transcription and seam checks used the saved audio, with
+  no new provider calls. See the calibration document for remaining review.
+
+The owner explicitly authorized recurring weekly creation without per-week
+approval on October 14. Automatic creation now prepares its free voice check
+under the current automatic feature policy and current administrator-owned
+calibration, independently of publication rollout reviews. Repeated scheduler
+ticks retain one challenge. Manual, disabled, paused and uncalibrated states
+still cannot start automatic creation. Existing budget, account, facts and
+dispatch checks remain required. Initial finished-video reviews govern
+publication only; they must not prevent creation of previews for those reviews.
+
+Verification for this orchestration fix: 438 recap API tests passed, 49
+environment-gated tests skipped; focused undefined-name lint and whitespace
+checks passed. This is code verification, not activation of the production
+worker or a claim that the current week's video is finished.
 
 Automatic publication still requires the accepted three distinct reviewed weekly
 episodes. Do not fabricate review evidence or count synthetic tests as rollout

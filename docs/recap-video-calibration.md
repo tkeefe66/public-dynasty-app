@@ -54,4 +54,16 @@ lineups, and for the love of football, look at the injury report.
 Pricing source checked October 14, 2026:
 https://elevenlabs.io/pricing/api (v4, $0.08 per 1,000 characters, before taxes).
 Actual account/voice access and model support passed the worker's free preflight.
-Paid calibration has not been dispatched.
+The owner approved this exact private test on October 14, 2026. Both requests
+completed once, with no retries. Saved response headers and independently fetched
+exact-identity history agree on 196 and 211 metered credits (407 total). These
+credits are not an established USD invoice amount. The advertised character-rate
+estimate remains $0.14784 before tax; account-specific credit conversion and
+all-in billing qualification remain unresolved.
+
+The real isolated Linux worker decoded and joined both saved recordings, then
+transcribed them offline with the pinned model. The seam passed the automated
+checks (136 ms silence, no discontinuity). Transcription contains `won`/`one`
+and `bye`/`buy` ambiguities. Full performance review and billing reconciliation
+remain required before recording production calibration. Preserve these paid
+recordings and receipts; do not regenerate them to resolve either issue.

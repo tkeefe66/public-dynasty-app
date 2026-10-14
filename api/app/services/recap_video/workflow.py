@@ -673,6 +673,17 @@ async def advance_media(maker):
                         standing=await db.get(RecapStandingAuthorization,qualified['standing_id'])
                         await prepare_preflight(db,episode.episode_id,actor_id=standing.actor_id,
                             reason='Current season standing policy metadata verification')
+                    else:
+                        # Automatic creation is separately authorized by feature
+                        # policy. Initial finished-preview reviews gate publication,
+                        # not each week's free preflight and bounded generation.
+                        config = await resolve_policy(db, episode.series_id)
+                        feature = config['policy']['features']['recap_video']
+                        if not config['blocked_by'] and feature['mode'] == 'automatic' and not feature['paused']:
+                            from app.services.recap_video.qualification import calibration
+                            calibrated = await calibration(db, episode.series_id, episode.season)
+                            await prepare_preflight(db, episode.episode_id, actor_id=calibrated.actor_id,
+                                reason='Automatic weekly creation under current calibrated policy; publication review remains separate')
                 # A queued free preflight is useful durable progress. Waiting for
                 # its result must not roll that stage back with script admission.
                 async with db.begin_nested():

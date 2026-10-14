@@ -106,6 +106,44 @@ async def test_progressed_preview_exposes_free_renewal_after_week_rollover(maker
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('mode,paused,calibrated,expected', [
+    ('automatic', False, True, 1),
+    ('manual', False, True, 0),
+    ('disabled', False, True, 0),
+    ('automatic', True, True, 0),
+    ('automatic', False, False, 0),
+])
+async def test_weekly_creation_preflight_does_not_require_publication_reviews(
+        maker, tmp_path, monkeypatch, mode, paused, calibrated, expected):
+    # Mutation: tying free preparation to three publication reviews blocks weekly creation.
+    from types import SimpleNamespace
+    from app.services.recap_video import workflow as w, qualification as q
+    from app.services.generation.models import GenerationPolicy
+    from app.services.generation.recap_models import RecapStage, RecapStandingAuthorization
+    from tests.test_recap_workflow import seed_media
+    ident, _ = await seed_media(maker, tmp_path, monkeypatch)
+    monkeypatch.setattr(w, 'PREFLIGHT_CONFIG', lambda: {'voice': 'synthetic'})
+    async def calibration(db, series_id, season):
+        if not calibrated:
+            raise Held('media_calibration_required')
+        return SimpleNamespace(id='synthetic-calibration', actor_id='owner')
+    monkeypatch.setattr(q, 'calibration', calibration)
+    async with maker.begin() as db:
+        policy = await db.get(GenerationPolicy, 'app')
+        value = json.loads(policy.value_json)
+        value['features']['recap_video'].update(mode=mode, paused=paused)
+        policy.value_json = json.dumps(value)
+    await w.advance_media(maker)
+    await w.advance_media(maker)
+    async with maker.begin() as db:
+        stages = (await db.scalars(select(RecapStage).where(
+            RecapStage.episode_id == ident, RecapStage.kind == 'preflight'))).all()
+        assert len(stages) == expected
+        assert await db.scalar(select(RecapStandingAuthorization)) is None
+        assert (await q.qualification_status(db, 'series', 2026))['automatic'] is False
+
+
+@pytest.mark.asyncio
 async def test_complete_video_plan_blocks_script_when_narration_cannot_fit(maker, tmp_path, monkeypatch):
     # Mutation: reserve only script calls, stranding a purchased script without narration allowance.
     from tests.test_recap_video_script import seed
