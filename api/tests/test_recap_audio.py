@@ -80,6 +80,24 @@ def test_numeric_format_normalization_cannot_merge_two_numbers():
     assert not verify_speech(script, transcript("Three points."))["passed"]
 
 
+@pytest.mark.parametrize('fragments,consistent', [
+    ([' Score', ' 123', '.4', ' points.'], True),
+    ([' Score', ' 123', '.5', ' points.'], False),
+    ([' Score', ' 123', ' 4', ' points.'], False),
+])
+def test_recognizer_word_fragments_preserve_decimal_boundaries(fragments, consistent):
+    # Mutation: joining raw recognizer fragments with extra spaces corrupts decimals;
+    # removing every space instead would incorrectly merge independent numbers.
+    # Shape captured from pinned faster-whisper; names/content are synthetic.
+    text = 'Score 123.4 points.'
+    raw = {'text': text, 'words': [dict(word=w, start=i, end=i+.5, probability=.99)
+                                  for i, w in enumerate(fragments)]}
+    result = verify_speech({'segments': [dict(id='s', text=text)]}, raw)
+    assert ('speech_evidence_inconsistent' not in result['issues']) is consistent
+    assert result['passed'] is consistent
+    assert result['raw_transcript'] == raw
+
+
 @pytest.mark.parametrize("written,spoken", [("Minus fourteen points.", "14 points."), ("-14 points.", "14 points."), ("14%.", "14.")])
 def test_number_sign_and_unit_cannot_disappear(written, spoken):
     assert not verify_speech({"segments": [{"id": "s", "text": written}]}, transcript(spoken))["passed"]

@@ -185,7 +185,12 @@ def verify_speech(script: dict, raw_transcript: dict, *, reviewed_aliases=None) 
             except (KeyError, TypeError, ValueError):
                 issues.append("speech_evidence_invalid")
                 break
-        if _tokens(" ".join(str(w.get("word", "")) for w in words)) != _tokens(raw_transcript.get("text", "")):
+        fragments = [str(w.get("word", "")) for w in words]
+        # The pinned recognizer retains leading spaces, while decimal pieces
+        # such as '.4' intentionally have none. Preserve those boundaries.
+        # Older saved evidence used already separated, whitespace-free words.
+        separator = "" if any(w[:1].isspace() for w in fragments) else " "
+        if _tokens(separator.join(fragments)) != _tokens(raw_transcript.get("text", "")):
             issues.append("speech_evidence_inconsistent")
     return {"passed": not issues, "issues": sorted(set(issues)), "raw_transcript": raw_transcript,
         "verifier_revision": "strict-independent-v1"}

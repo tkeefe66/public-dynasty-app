@@ -9,19 +9,28 @@
   and the API still owns capability, lease, budget and publication checks.
   JSON is bounded to 40,000 bytes, uploads to 64 MiB, and uncertain requests
   are never retried by the gateway. Worker uses the existing HTTPS Web origin.
-- A persistent isolated Railway sandbox is being installed from the verified
+- A persistent isolated Railway sandbox was installed from the verified
   credential-free runtime checkpoint with idle destruction disabled. Run one
   Docker supervisor with `--restart unless-stopped`, 2 GiB memory and 4 GiB
   scratch tmpfs, retaining the already qualified child namespace settings.
   Supply only dedicated worker/provider credentials via stdin into a mode-600
   host environment file; never snapshot a credentialed host. Runtime restart
   does not grant production calibration or paid dispatch authority.
-  Loss of the entire sandbox still requires explicit replacement after the
+  Live authenticated claim/recovery polling returned 200; anonymous claims
+  returned 403. A controlled idle supervisor crash restarted automatically and
+  resumed polling. Loss of the entire sandbox still requires replacement after the
   previous worker is confirmed stopped; never launch a second render replica.
 - Gateway verification: 1,005 Web tests passed, typecheck and lint passed
   (existing Dashboard ref warning). Removing the credential check caused all
   three unauthorized-request cases to fail; source was restored byte-for-byte.
   Independent review found no actionable gateway issues.
+- Actual calibration also exposed a decimal-fragment verification bug: joining
+  recognizer words with added spaces turned `123` plus `.4` into two numbers.
+  Verification now preserves the recognizer's original spacing, without editing
+  saved transcript evidence. Correct decimals pass; changed fractional digits
+  and separate numbers still fail. All 441 recap tests pass (49 environment-gated
+  skips). The retained calibration still holds for independent content/result,
+  confidence and word-timing issues; do not mark it qualified or bypass them.
 - The existing ElevenLabs key was located in another owned Railway project.
   After explicit approval, its User access was enabled; its 20,000-credit
   limit was preserved. The actual worker preflight passed for the approved
