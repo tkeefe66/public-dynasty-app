@@ -43,3 +43,20 @@ def test_bootstrap_refuses_conflicting_existing_image(monkeypatch):
     with pytest.raises(ValueError, match='differs'):
         bootstrap.main()
     assert len(calls) == 1
+
+
+def test_new_worker_mounts_only_pinned_model_readonly_and_keeps_secrets_out_of_argv(monkeypatch, tmp_path):
+    configure(monkeypatch)
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=1 if args[1]=='inspect' else 0, stdout='')
+    monkeypatch.setattr(bootstrap.subprocess, 'run', run)
+    original_open = bootstrap.os.open
+    monkeypatch.setattr(bootstrap.os, 'open', lambda path, flags, mode: original_open(tmp_path/'env', flags, mode))
+    bootstrap.main()
+    command = calls[-1]
+    assert command[command.index('--mount')+1] == 'type=bind,src=/opt/recap-model,dst=/opt/model,readonly'
+    assert 'synthetic-worker-token' not in ' '.join(command)
+    assert 'synthetic-provider-key' not in ' '.join(command)
+    assert (tmp_path/'env').stat().st_mode & 0o777 == 0o600

@@ -30,6 +30,7 @@ def main():
         file.write(''.join(k + '=' + v + '\n' for k, v in environment.items()))
     subprocess.run(['docker', 'run', '-d', '--name', 'recap-worker', '--restart', 'unless-stopped',
         '--memory', '2g', '--memory-swap', '2g', '--cpus', '2', '--pids-limit', '512',
+        '--mount', 'type=bind,src=/opt/recap-model,dst=/opt/model,readonly',
         '--tmpfs', '/scratch:size=4g', '--cap-add', 'SYS_ADMIN',
         '--security-opt', 'seccomp=unconfined', '--security-opt', 'apparmor=unconfined',
         '--security-opt', 'systempaths=unconfined', '--env-file', path,

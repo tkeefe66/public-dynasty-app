@@ -25,6 +25,9 @@ Never copy a developer's Railway login token into this service. Checkpoints must
 contain no worker or provider credentials. Only after the controller persists the
 new VM's identity does it send credentials over exec stdin to its supervisor.
 Neither renderer child processes nor ASR child processes inherit them.
+The checkpoint must contain the four checksum-pinned speech model files in
+`/opt/recap-model`; bootstrap mounts that directory read-only at `/opt/model`.
+Worker admission verifies every checksum before making any API claim.
 
 The five-minute cron starts the controller. Idle demand creates no VM. During work
 it checks every 30 seconds, and after five idle minutes it requests a worker drain.

@@ -141,6 +141,75 @@ def validate_alias_spellings(canonical, variants):
     return target, sorted(set(result))
 
 
+def word_text(words):
+    """Preserve the pinned recognizer's spaces and attached decimal fragments."""
+    fragments = [w['word'] for w in words]
+    separator = '' if any(w[:1].isspace() for w in fragments) else ' '
+    return separator.join(fragments)
+
+
+def audible_tokens(actual, expected):
+    """Only explicit homophones at the same approved position, never fuzzy edits.
+
+    Numeric normalization maps ASR 'one' to '1'. This substitution is permitted
+    only where the approved script says 'won', never in a score position.
+    Prefix callers supply the corresponding approved prefix for timeline mapping.
+    """
+    if len(actual) != len(expected):
+        return actual
+    return [want if (want, heard) in {('won', '1'), ('bye', 'buy')} else heard
+            for heard, want in zip(actual, expected)]
+
+
+def _segment_confidence(raw, words):
+    """Check ASR segment confidence against its exact raw word/text partition.
+
+    Word probabilities are decoder token scores, not independent correctness
+    probabilities. Require strong geometric mean within *each* real segment and
+    strong decoder segment likelihood; do not average across the whole episode.
+    """
+    segments = raw.get('segments')
+    if not isinstance(segments, list) or not segments:
+        return ['speech_evidence_invalid']
+    previous, consumed, texts = 0, 0, []
+    issues = []
+    try:
+        for segment in segments:
+            start, end, logprob, silence = (segment[k] for k in ('start', 'end', 'avg_logprob', 'no_speech_prob'))
+            if (not all(type(v) in (int, float) and math.isfinite(v) for v in (start, end, logprob, silence))
+                    or start < previous or end <= start or logprob > 0 or not 0 <= silence <= 1
+                    or not isinstance(segment['text'], str) or not segment['text'].strip()):
+                raise ValueError()
+            previous = end
+            first = consumed
+            candidates = []
+            expected = _tokens(segment['text'])
+            # Equal boundary timestamps do not identify ownership: the first
+            # word of the next segment can have zero duration at this end.
+            # Require one exact textual partition within the timing bounds.
+            for last in range(first, len(words)):
+                if words[last]['end'] > end:
+                    break
+                if _tokens(word_text(words[first:last+1])) == expected:
+                    candidates.append(last + 1)
+            if len(candidates) != 1:
+                raise ValueError()
+            consumed = candidates[0]
+            group = words[first:consumed]
+            if (not group or group[0]['start'] < start or group[-1]['end'] <= group[0]['start']
+                    or _tokens(word_text(group)) != _tokens(segment['text'])):
+                raise ValueError()
+            texts.append(segment['text'])
+            mean_logprob = sum(math.log(max(w['probability'], 1e-300)) for w in group) / len(group)
+            if mean_logprob < math.log(.75) or logprob < math.log(.75) or silence > .5:
+                issues.append('speech_confidence_low')
+        if consumed != len(words) or _tokens(' '.join(texts)) != _tokens(raw['text']):
+            raise ValueError()
+    except (KeyError, TypeError, ValueError):
+        issues.append('speech_evidence_invalid')
+    return issues
+
+
 def verify_speech(script: dict, raw_transcript: dict, *, reviewed_aliases=None) -> dict:
     expected = _tokens(" ".join(s["text"] for s in script_segments(script)))
     actual = _tokens(raw_transcript.get("text", ""))
@@ -160,6 +229,7 @@ def verify_speech(script: dict, raw_transcript: dict, *, reviewed_aliases=None) 
         actual = [replacements.get(token, token) for token in actual]
     except (ValueError, TypeError, AttributeError):
         issues.append("reviewed_alias_invalid")
+    actual = audible_tokens(actual, expected)
     if actual != expected:
         issues.append("content_mismatch")
     for segment in script.get("segments", []):
@@ -182,23 +252,24 @@ def verify_speech(script: dict, raw_transcript: dict, *, reviewed_aliases=None) 
                 start, end, probability = word["start"], word["end"], word["probability"]
                 if not all(type(v) in (int, float) and math.isfinite(v) for v in (start, end, probability)):
                     raise ValueError()
-                if start < previous or end <= start or not 0 <= probability <= 1:
+                if (start < previous or end < start or not 0 <= probability <= 1
+                        or not isinstance(word['word'], str) or not word['word'].strip()):
                     raise ValueError()
                 previous = end
-                if probability < .75:
+                if probability < .75 and 'segments' not in raw_transcript:
                     issues.append("speech_confidence_low")
             except (KeyError, TypeError, ValueError):
                 issues.append("speech_evidence_invalid")
                 break
-        fragments = [str(w.get("word", "")) for w in words]
-        # The pinned recognizer retains leading spaces, while decimal pieces
-        # such as '.4' intentionally have none. Preserve those boundaries.
-        # Older saved evidence used already separated, whitespace-free words.
-        separator = "" if any(w[:1].isspace() for w in fragments) else " "
-        if _tokens(separator.join(fragments)) != _tokens(raw_transcript.get("text", "")):
-            issues.append("speech_evidence_inconsistent")
+        if 'speech_evidence_invalid' not in issues:
+            if words[-1]['end'] <= words[0]['start']:
+                issues.append('speech_evidence_invalid')
+            if 'segments' in raw_transcript:
+                issues.extend(_segment_confidence(raw_transcript, words))
+            if _tokens(word_text(words)) != _tokens(raw_transcript.get("text", "")):
+                issues.append("speech_evidence_inconsistent")
     return {"passed": not issues, "issues": sorted(set(issues)), "raw_transcript": raw_transcript,
-        "verifier_revision": "strict-independent-v1"}
+        "verifier_revision": "strict-independent-v2"}
 
 
 def verify_model_artifacts(directory):

@@ -109,3 +109,86 @@ def test_recognizer_word_fragments_preserve_decimal_boundaries(fragments, consis
 @pytest.mark.parametrize("written,spoken", [("Minus fourteen points.", "14 points."), ("-14 points.", "14 points."), ("14%.", "14.")])
 def test_number_sign_and_unit_cannot_disappear(written, spoken):
     assert not verify_speech({"segments": [{"id": "s", "text": written}]}, transcript(spoken))["passed"]
+
+
+def segmented_transcript(text):
+    raw = transcript(text)
+    raw['segments'] = [dict(text=text, start=0, end=raw['words'][-1]['end'],
+                            avg_logprob=-.1, no_speech_prob=.1)]
+    return raw
+
+
+def test_exact_audible_homophones_use_approved_position_only():
+    # Mutation: remove narrow homophones, or apply fuzzy/content-insensitive matching.
+    script = {'segments': [dict(id='s', text='Avery won. Blake has a bye.')]}
+    assert verify_speech(script, transcript('Avery one. Blake has a buy.'))['passed']
+    for wrong in ['Blake one. Avery has a buy.', 'Avery lost. Blake has a buy.',
+                  'Avery one. Blake has no buy.', 'Avery one. Blake had a buy.']:
+        assert not verify_speech(script, transcript(wrong))['passed']
+    assert not verify_speech({'segments': [dict(id='s', text='Score one.')]}, transcript('Score won.'))['passed']
+
+
+def test_segment_evidence_can_support_isolated_low_word_confidence():
+    # Mutation: retain every-word .75 rule despite exact text and strong segment evidence.
+    raw = segmented_transcript('Avery won the game by fourteen points today.')
+    raw['words'][2]['probability'] = .2
+    original = __import__('copy').deepcopy(raw)
+    result = verify_speech({'segments': [dict(id='s', text=raw['text'])]}, raw)
+    assert result['passed']
+    assert result['raw_transcript'] == original
+
+
+def test_captured_calibration_segment_preserves_raw_homophone_evidence():
+    # Mutation: every-word confidence floor or removal of won/one equivalence.
+    # Captured pinned faster-whisper evidence from the fictional-team calibration.
+    raw = {'text': 'Alpha one, Bravo lost.', 'words': [
+        {'word': ' Alpha', 'start': 20.48, 'end': 20.88, 'probability': 0.9953901767730713},
+        {'word': ' one,', 'start': 20.88, 'end': 21.28, 'probability': 0.38946112990379333},
+        {'word': ' Bravo', 'start': 21.86, 'end': 22.0, 'probability': 0.9010677337646484},
+        {'word': ' lost.', 'start': 22.0, 'end': 22.44, 'probability': 0.9640864729881287}],
+        'segments': [{'text': ' Alpha one, Bravo lost.', 'start': 20.48, 'end': 22.44,
+                      'avg_logprob': -0.15105017354187456, 'no_speech_prob': 0.005004620645195246}]}
+    assert verify_speech({'segments': [dict(id='s', text='Alpha won, Bravo lost.')]}, raw)['passed']
+
+
+@pytest.mark.parametrize('mutation', ['missing', 'nan', 'text', 'coverage', 'weak', 'silence', 'all_low'])
+def test_segment_confidence_requires_complete_consistent_evidence(mutation):
+    # Mutation: trust high segment metadata without validating coverage/text/word confidence.
+    raw = segmented_transcript('Avery won the game by fourteen points today.')
+    raw['words'][2]['probability'] = .2
+    segment = raw['segments'][0]
+    if mutation == 'missing': del segment['avg_logprob']
+    if mutation == 'nan': segment['start'] = float('nan')
+    if mutation == 'text': segment['text'] = 'Different words.'
+    if mutation == 'coverage': segment['end'] -= .2
+    if mutation == 'weak': segment['avg_logprob'] = -2
+    if mutation == 'silence': segment['no_speech_prob'] = .9
+    if mutation == 'all_low':
+        for word in raw['words']: word['probability'] = .2
+    assert not verify_speech({'segments': [dict(id='s', text=raw['text'])]}, raw)['passed']
+
+
+def test_zero_duration_word_preserved_but_zero_duration_phrase_rejected():
+    # Mutation: require every word positive duration, or allow entirely zero-duration evidence.
+    raw = segmented_transcript('Avery won the game today.')
+    raw['words'][2]['end'] = raw['words'][2]['start']
+    script = {'segments': [dict(id='s', text=raw['text'])]}
+    assert verify_speech(script, raw)['passed']
+    for word in raw['words']: word['start'] = word['end'] = 0
+    raw['segments'][0]['end'] = 0
+    assert not verify_speech(script, raw)['passed']
+
+
+def test_zero_duration_word_at_segment_boundary_belongs_to_matching_text():
+    # Mutation: greedily consume every word ending at the preceding segment end.
+    raw = dict(text='Alpha won. Bravo lost.', words=[
+        dict(word=' Alpha', start=0, end=.5, probability=.99),
+        dict(word=' won.', start=.5, end=1, probability=.99),
+        dict(word=' Bravo', start=1, end=1, probability=.99),
+        dict(word=' lost.', start=1, end=1.5, probability=.99)], segments=[
+        dict(text='Alpha won.', start=0, end=1, avg_logprob=-.1, no_speech_prob=.1),
+        dict(text='Bravo lost.', start=1, end=1.5, avg_logprob=-.1, no_speech_prob=.1)])
+    script = {'segments': [dict(id='s', text=raw['text'])]}
+    assert verify_speech(script, raw)['passed']
+    raw['segments'][1]['text'] = 'Charlie lost.'
+    assert not verify_speech(script, raw)['passed']

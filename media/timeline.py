@@ -126,15 +126,16 @@ def build_episode(inputs, raw, audio_chunks, audio_sha256, duration, *, aliases=
     Prefix matching permits cardinal/decimal normalization without assigning invented
     per-word times. Caption groups retain exact approved prose and real end times.
     """
-    from app.services.recap_video.audio import _tokens, script_segments, verify_speech
+    from app.services.recap_video.audio import _tokens, script_segments, verify_speech, word_text, audible_tokens
     if not verify_speech(inputs["script"], raw, reviewed_aliases=aliases)["passed"]:
         raise ValueError("speech_verification_failed")
     replacements = {variant.lower(): name.lower() for name, variants in (aliases or {}).items() for variant in variants}
     words = raw["words"]
+    expected = _tokens(' '.join(s['text'] for s in script_segments(inputs['script'])))
     prefixes = {}
     for index in range(1, len(words)+1):
-        tokens = tuple(replacements.get(t, t) for t in _tokens(" ".join(w["word"] for w in words[:index])))
-        prefixes[tokens] = index
+        tokens = [replacements.get(t, t) for t in _tokens(word_text(words[:index]))]
+        prefixes[tuple(audible_tokens(tokens, expected[:len(tokens)]))] = index
     captions, scenes, approved = [], [], []
     previous = 0
     names = {o["id"]: o["name"] for o in inputs["claims"]["owners"]}
