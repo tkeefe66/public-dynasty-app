@@ -12,6 +12,72 @@ from app.services.generation.store import Held, digest, dump
 from tests.test_recap_publication import ready_article, legacy_for_canonical
 
 
+def legacy_claim_fixture():
+    source = {'week': 4, 'roster_positions': ['QB', 'FLEX'], 'participants': [
+        {'owner_name': 'A', 'roster_id': 1, 'settings': {'wins': 1, 'losses': 0, 'ties': 0, 'fpts': 30, 'fpts_decimal': 0}},
+        {'owner_name': 'B', 'roster_id': 2, 'settings': {'wins': 0, 'losses': 1, 'ties': 0, 'fpts': 20, 'fpts_decimal': 0}}],
+        'scores': {'4': [
+            {'roster_id': 1, 'matchup_id': 1, 'points': '30', 'starters': ['q1', 'r1'], 'players': ['q1', 'r1', 'r3'], 'players_points': {'q1': '20', 'r1': '10', 'r3': '15'}},
+            {'roster_id': 2, 'matchup_id': 1, 'points': '20', 'starters': ['q2', 'r2'], 'players': ['q2', 'r2'], 'players_points': {'q2': '15', 'r2': '5'}}]}}
+    def player(name, points, position, owner):
+        return {'owner': owner, 'player': name + ' (' + position + ', XX)', 'position': position, 'points': points}
+    facts = {'week': 4, 'lineups': [{'owner': 'A', 'starters': [player('Q1', 20, 'QB', 'A'), player('R1', 10, 'RB', 'A')]},
+        {'owner': 'B', 'starters': [player('Q2', 15, 'QB', 'B'), player('R2', 5, 'RB', 'B')]}],
+        'player_context': {'players': [{'player': name.upper(), 'player_id': name, 'position': 'QB' if name.startswith('q') else 'RB'} for name in ['q1','q2','r1','r2','r3']]},
+        'matchups': [{'winner': 'A', 'loser': 'B', 'winner_points': 30, 'loser_points': 20, 'margin': 10, 'tied': False}],
+        'standings': [{'owner': 'A', 'wins': 1, 'losses': 0, 'ties': 0, 'points_for': 30}, {'owner': 'B', 'wins': 0, 'losses': 1, 'ties': 0, 'points_for': 20}],
+        'bench_regret': [{'owner': 'A', 'legal_swaps': [{'benched_player': player('R3',15,'RB','A'), 'started_player': player('R1',10,'RB','A'), 'slot': 'FLEX', 'points_gained': 5,
+            'matchup_effect': {'team_points':35,'opponent_points':20,'margin':15,'result':'win'}}]}]}
+    return facts, source
+
+
+def test_legacy_claim_evidence_uses_frozen_ids_and_period_lineups():
+    from app.services.recap_video.legacy_recovery import legacy_claim_evidence
+    facts, source = legacy_claim_fixture()
+    proof = legacy_claim_evidence(facts, source)
+    assert proof['starters'] == 4 and proof['swaps'] == 1 and proof['standings'] == 2
+
+
+@pytest.mark.parametrize('change', ['identity', 'duplicate_name', 'starter_order', 'points', 'missing_owner', 'standings', 'slot', 'bench', 'effect', 'pairing'])
+def test_legacy_claim_evidence_rejects_unproved_facts(change):
+    from app.services.recap_video.legacy_recovery import legacy_claim_evidence
+    facts, source = legacy_claim_fixture()
+    if change == 'identity': facts['player_context']['players'][0]['player_id'] = 'unknown'
+    elif change == 'duplicate_name': facts['player_context']['players'].append(dict(facts['player_context']['players'][0]))
+    elif change == 'starter_order': facts['lineups'][0]['starters'].reverse()
+    elif change == 'points': facts['lineups'][0]['starters'][0]['points'] = 21
+    elif change == 'missing_owner': facts['lineups'].pop()
+    elif change == 'standings': facts['standings'][0]['wins'] = 2
+    elif change == 'slot': facts['bench_regret'][0]['legal_swaps'][0]['slot'] = 'RB'
+    elif change == 'bench': source['scores']['4'][0]['players'].remove('r3')
+    elif change == 'effect': facts['bench_regret'][0]['legal_swaps'][0]['matchup_effect']['margin'] = 100
+    elif change == 'pairing': source['scores']['4'][1]['matchup_id'] = 2
+    with pytest.raises(Held, match='legacy_claim_evidence'):
+        legacy_claim_evidence(facts, source)
+
+
+@pytest.mark.parametrize('bad_source', [False, True])
+def test_news_correction_requires_original_named_source_opportunity_count(bad_source):
+    from types import SimpleNamespace
+    from app.services.recap_video.legacy_recovery import reviewed_slot_correction
+    facts, source = legacy_claim_fixture()
+    facts['player_context']['players'][2]['news'] = [{'id':'saved-news', 'text':'Finished with 15 opportunities.'}]
+    before = '**R1** contributed 10 points on 15 touches.'
+    data = dict(facts=facts, markdown='**R1** dropped **10** from the RB slot. ' + before,
+        revision=1, season=2026, week=4, league_name='Synthetic', generated_at='2026-01-01', model='saved')
+    row = SimpleNamespace(media_id='saved', media_json='{}')
+    review = dict(article_digest=digest(data), media_digest=digest(['saved','{}']),
+        reviewed_sections=['prose','news','forecasts','bets','media'], reason='Verified original source terminology',
+        slot_corrections=[dict(owner='A',player='R1',points='10',old_slot='RB',new_slot='FLEX')],
+        news_corrections=[dict(player='R1',news_id='missing' if bad_source else 'saved-news',count=15,before=before)])
+    if bad_source:
+        with pytest.raises(Held, match='legacy_news_correction_unproved'):
+            reviewed_slot_correction(data, source, row, review)
+    else:
+        result = reviewed_slot_correction(data, source, row, review)
+        assert '15 opportunities' in result['markdown'] and '15 touches' not in result['markdown']
+
+
 async def recovery_fixture(maker, tmp_path, monkeypatch):
     from app.services.analyst_store import AnalystStore
     from app.services.recap_video.publication import public_article, withdraw_edition
@@ -164,3 +230,118 @@ async def test_recovered_authority_still_requires_original_files_on_read(maker, 
         path.write_text(dump({**json.loads(path.read_text()), 'markdown': 'Unreviewed replacement'}))
         with pytest.raises(Held, match='public_unavailable'):
             await authorize_member_read(db, 'synthetic', 2026, 4)
+
+
+async def named_recovery_fixture(maker, tmp_path, monkeypatch):
+    import hashlib
+    from app.services.analyst_media import ASSETS
+    from app.services.analyst_store import AnalystStore
+    from app.services.recap_video.periods import build_participants
+    from app.services.recap_video.publication import public_article
+    ident, legacy = await recovery_fixture(maker, tmp_path, monkeypatch)
+    facts, named = legacy_claim_fixture()
+    async with maker.begin() as db:
+        observations = (await db.scalars(select(RecapObservation).where(RecapObservation.episode_id == ident))).all()
+        for observation in observations:
+            source = json.loads(observation.snapshot_json)
+            source.update(named)
+            for p in source['participants']:
+                p['owner_id'] = 'owner-' + str(p['roster_id'])
+            for row in source['scores']['4']:
+                row['starters_points'] = [row['players_points'][p] for p in row['starters']]
+            source.update(build_participants(source['participants'], source['scores'], source['bracket'], source))
+            observation.snapshot_json, observation.snapshot_digest = dump(source), digest(source)
+        artifact = await db.get(ContentArtifact, 'article')
+        data = json.loads(artifact.payload_json)
+        data['facts'] = facts
+        data['markdown'] = '**R1** dropped **10** from the RB slot.'
+        from app.services.analyst_store import AnalystEdition
+        data = AnalystEdition.model_validate(data).model_dump()
+        artifact.payload_json, artifact.digest = dump(data), digest(data)
+        operation = await db.get(GenerationOperation, 'original-approved')
+        operation.payload_json = dump({'facts': facts})
+        AnalystStore(tmp_path).edition_path('synthetic', 2026, 4).write_text(dump(data))
+        row = await db.get(RecapPublication, legacy)
+        row.article_json, row.article_digest = dump(public_article(data)), digest(public_article(data))
+        files = {}
+        for name in ASSETS:
+            path = tmp_path / name
+            path.write_bytes(b'original-reviewed-media-' + name.encode())
+            files[name] = dict(path=str(path), bytes=path.stat().st_size, sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        row.media_json = dump({'id':row.media_id, 'storage':'legacy', 'files':files})
+        review = dict(article_digest=artifact.digest, media_digest=digest([row.media_id,row.media_json]),
+            reviewed_sections=['prose','news','forecasts','bets','media'], reason='Corrected starter slot against saved period lineup.',
+            slot_corrections=[dict(owner='A',player='R1',points='10',old_slot='RB',new_slot='FLEX')])
+    return ident, legacy, review
+
+
+@pytest.mark.asyncio
+async def test_named_fact_recovery_appends_correction_and_preserves_original_receipts(maker, tmp_path, monkeypatch):
+    from app.services.generation.models import GenerationOutbox
+    from app.services.recap_video.legacy_recovery import recover_false_withdrawal
+    from app.services.recap_video.publication import authorize_member_read
+    ident, legacy, review = await named_recovery_fixture(maker, tmp_path, monkeypatch)
+    async with maker.begin() as db:
+        original = await db.get(ContentArtifact, 'article')
+        original_bytes = original.payload_json
+        row = await db.get(RecapPublication, legacy)
+        media_before = row.media_json
+        args = dict(expected_revision=8, artifact_id='article', actor_id='owner', reason='Verified correction',
+                    editorial_review=review, cache_dir=tmp_path)
+        preview = await recover_false_withdrawal(db, ident, **args)
+        assert preview['correction_revision'] == original.revision + 1 and row.withdrawn
+        assert await db.scalar(select(func.count()).select_from(ContentArtifact)) == 1
+        result = await recover_false_withdrawal(db, ident, **args, apply=True, expected_digest=preview['digest'])
+        replacement = await db.get(ContentArtifact, result['corrected_artifact_id'])
+        assert original.payload_json == original_bytes
+        assert replacement.operation_id is None
+        assert (await db.get(GenerationOperation, 'original-approved')).artifact_id == original.id
+        assert (await db.get(ArtifactHead, original.subject)).artifact_id == replacement.id
+        assert row.media_json == media_before and not row.enabled
+        assert (await db.get(RecapShareDecision, 'edition:' + legacy)).opted_out
+        delivered = await db.scalar(select(GenerationOutbox).where(GenerationOutbox.key == 'artifact:' + replacement.id))
+        assert delivered.delivered
+        served = await authorize_member_read(db, 'synthetic', 2026, 4)
+        assert served['article']['markdown'] == '**R1** dropped **10** from a FLEX slot.'
+        assert served['media']['id'] == row.media_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change', ['media', 'review', 'slot', 'anchor', 'predecessor'])
+async def test_named_fact_recovery_rejects_changed_review_and_assets(maker, tmp_path, monkeypatch, change):
+    from app.services.analyst_store import AnalystStore
+    from app.services.recap_video.legacy_recovery import recover_false_withdrawal
+    ident, legacy, review = await named_recovery_fixture(maker, tmp_path, monkeypatch)
+    async with maker.begin() as db:
+        args = dict(expected_revision=8, artifact_id='article', actor_id='owner', reason='Verified correction',
+                    editorial_review=review, cache_dir=tmp_path)
+        preview = await recover_false_withdrawal(db, ident, **args)
+        if change == 'media': (tmp_path / 'audio.mp3').write_bytes(b'changed media')
+        elif change == 'review': review['article_digest'] = 'changed'
+        elif change == 'slot': review['slot_corrections'][0]['new_slot'] = 'TE'
+        elif change == 'anchor': review['slot_corrections'][0]['points'] = '10.0'
+        else: AnalystStore(tmp_path).edition_path('synthetic', 2026, 4).write_text('{}')
+        with pytest.raises((Held, ValueError)):
+            await recover_false_withdrawal(db, ident, **args, apply=True, expected_digest=preview['digest'])
+        assert (await db.get(RecapPublication, legacy)).withdrawn
+        assert await db.scalar(select(func.count()).select_from(ContentArtifact)) == 1
+
+
+@pytest.mark.asyncio
+async def test_named_recovery_retries_after_file_written_but_transaction_rolled_back(maker, tmp_path, monkeypatch):
+    from app.services.recap_video.legacy_recovery import recover_false_withdrawal
+    ident, legacy, review = await named_recovery_fixture(maker, tmp_path, monkeypatch)
+    args = dict(expected_revision=8, artifact_id='article', actor_id='owner', reason='Verified correction',
+                editorial_review=review, cache_dir=tmp_path)
+    async with maker.begin() as db:
+        preview = await recover_false_withdrawal(db, ident, **args)
+    with pytest.raises(RuntimeError, match='simulated commit failure'):
+        async with maker.begin() as db:
+            await recover_false_withdrawal(db, ident, **args, apply=True, expected_digest=preview['digest'])
+            raise RuntimeError('simulated commit failure')
+    async with maker.begin() as db:
+        assert (await db.get(RecapPublication, legacy)).withdrawn
+        assert await db.scalar(select(func.count()).select_from(ContentArtifact)) == 1
+        result = await recover_false_withdrawal(db, ident, **args, apply=True, expected_digest=preview['digest'])
+        assert result['applied']
+        assert not (await db.get(RecapPublication, legacy)).withdrawn

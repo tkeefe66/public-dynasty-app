@@ -136,6 +136,10 @@ async def episode_view(db, episode_id):
             .order_by(RecapStage.revision.desc()).limit(1))
     finished = next((s for s in stages if s.kind == 'media_check' and s.state == 'succeeded'), None)
     reason = episode.hold or (stage.reason if stage else '')
+    from app.services.generation.recap_models import RecapAttention
+    preparation = await db.get(RecapAttention, digest([episode_id, 'media_preparation']))
+    if not reason and preparation and preparation.state == 'needs_attention':
+        reason = preparation.reason
     from app.services.generation.recap_models import RecapRecoveryRequest
     requests=(await db.scalars(select(RecapRecoveryRequest).where(RecapRecoveryRequest.attempt_id.in_([a.id for a in attempts])).order_by(RecapRecoveryRequest.created_at.desc()))).all()
     actions = ['disable_future_sharing', 'restore_access', 'skip_video']

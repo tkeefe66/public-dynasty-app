@@ -655,6 +655,25 @@ async def reconcile_media_receipts(maker):
                 row.state, row.error_code = "unknown", "response_invalid"
 
 
+async def preparation_attention(db, episode_id, reason=''):
+    """One retryable media-only status; never gate independent article selection."""
+    from app.services.generation.recap_models import RecapAttention
+    key = digest([episode_id, 'media_preparation'])
+    row = await db.get(RecapAttention, key)
+    state = 'needs_attention' if reason else 'resolved'
+    if row is None:
+        if not reason:
+            return
+        row = RecapAttention(key=key, episode_id=episode_id, state=state, reason=reason)
+        db.add(row)
+    elif row.state == state and row.reason == reason:
+        return
+    else:
+        row.state, row.reason = state, reason
+    audit(db, 'api-projector', 'recap_media_preparation', episode_id,
+        reason or 'Media preparation resumed', after={'state': state, 'reason': reason})
+
+
 async def advance_media(maker):
     """API projector joins published article -> normal script queue -> media checkpoints."""
     await reconcile_media_receipts(maker)
@@ -664,6 +683,7 @@ async def advance_media(maker):
             "scripting", "narration", "speech_check", "rendering", "media_check", "review")),
             RecapEpisode.hold == "", RecapEpisode.admitted_at > 0).order_by(RecapEpisode.observed_at.desc()).limit(50))).all()
         for episode in episodes:
+            episode_id = episode.episode_id
             try:
                 async with db.begin_nested():
                     from app.services.recap_video.qualification import qualification_status
@@ -688,13 +708,16 @@ async def advance_media(maker):
                 # its result must not roll that stage back with script admission.
                 async with db.begin_nested():
                     if episode.lifecycle not in ('ready', 'waiting_for_article'):
+                        await preparation_attention(db, episode_id)
                         continue
                     await require_media_preflight(db, episode.episode_id)
                     selections = await PUBLISHED_SCRIPT_SELECTIONS(db, episode.series_id) if PUBLISHED_SCRIPT_SELECTIONS else ()
                     await prepare_episode_script(db, episode.episode_id, cache_dir=get_settings().cache_dir,
                         published_script_ids=selections)
-            except Held:
+                await preparation_attention(db, episode_id)
+            except Held as exc:
                 # Source/prose remain independent; unavailable media spends nothing.
+                await preparation_attention(db, episode_id, exc.code)
                 continue
         scripts = (await db.scalars(select(ContentArtifact).where(ContentArtifact.feature == "recap_video",
             ~ContentArtifact.id.in_(select(RecapStage.script_id))).order_by(ContentArtifact.created_at).limit(25))).all()
