@@ -150,7 +150,7 @@ export function GenerationControl({ adminSection, onOpenBudget, onBusyChange, bu
         </div>
         <div className={styles.columns}>
           <div className={styles.main}>
-            {workView === 'episodes' && <><h3>Weekly recap</h3><GenerationRecapWorkspace key={series} leagues={leagues} busy={blocked} run={run} version={version} scopeSeries={series} budgetSeriesId={budgetSeriesId} initialEpisodeId={budgetEpisodeId} onRecapBudget={openRecapBudget} onActivity={() => setWorkView('review')} /></>}
+            {workView === 'episodes' && <><h3>Weekly recap</h3><GenerationRecapWorkspace key={series} leagues={leagues} busy={blocked} run={run} version={version} scopeSeries={series} budgetSeriesId={budgetSeriesId} initialEpisodeId={budgetEpisodeId} onRecapBudget={openRecapBudget} onActivity={() => setWorkView('review')} onStartWriting={() => setWorkView('approvals')} /></>}
             {workView === 'review' && <section role="region" aria-labelledby="generation-review-title"><h3 id="generation-review-title">Needs your review</h3><p className="mt-2 text-prose text-dim">{contentTypes.find(type => type.value === contentType)?.label} · {scopeName}</p>
               {!loading && !error && !reviewRows.length && <p className={styles.empty}>No stopped or held work in this workspace. Choose Start writing to review new or historical content.</p>}
               <GenerationBulkReview key={filterQuery} rows={reviewRows} leagues={leagues} busy={blocked} run={run} version={version} onRecapBudget={openRecapBudget} onRecapEpisode={openRecapEpisode} onWritingRules={() => setView('rules')} onActivity={() => setView('activity')} featureFilter={contentType || undefined} scopeSeries={series} hasMore={stopped.next_offset !== null || held.next_offset !== null} />

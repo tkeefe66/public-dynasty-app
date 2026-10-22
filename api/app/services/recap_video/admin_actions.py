@@ -141,12 +141,22 @@ async def episode_view(db, episode_id):
     if not reason and preparation and preparation.state == 'needs_attention':
         reason = preparation.reason
     script_job = None
+    replacement_pending = False
     if not stages:
         from app.services.generation.models import GenerationOperation
         script_job = await db.scalar(select(GenerationOperation).where(
             GenerationOperation.subject=='recap_video:'+episode_id,
             GenerationOperation.feature=='recap_video', GenerationOperation.kind=='generation')
             .order_by(GenerationOperation.created_at.desc(),GenerationOperation.id.desc()).limit(1))
+        if script_job and script_job.state=='cancelled':
+            from app.services.generation.models import GenerationAudit
+            from app.services.generation.candidate_status import replacement_review_target
+            reviews=(await db.scalars(select(GenerationAudit).where(
+                GenerationAudit.action=='replacement_review_required',
+                GenerationAudit.target==replacement_review_target(script_job.subject,episode.period_id)))).all()
+            replacement_pending=any(json.loads(review.after_json).get('job_id')==script_job.id for review in reviews)
+            if replacement_pending:
+                reason=episode.hold or 'replacement_approval_required'
         if script_job and script_job.state in ('held','needs_attention'):
             reason = episode.hold or script_job.reason or 'recap_script_needs_review'
     from app.services.generation.recap_models import RecapRecoveryRequest
@@ -185,6 +195,9 @@ async def episode_view(db, episode_id):
         # Presentation reflects the durable operation instead of claiming that
         # an exhausted script is still running. The stored episode is untouched.
         values['episode']['lifecycle']='needs_attention'
+        values['actions']=[action for action in values['actions'] if action!='prepare_preview']
+    if replacement_pending:
+        values['episode']['lifecycle']='awaiting_approval'
         values['actions']=[action for action in values['actions'] if action!='prepare_preview']
     values['speech_entities']=[]
     values['needed_microusd']=sum(json.loads(s.input_json).get('paid',{}).get('max_microusd',0)

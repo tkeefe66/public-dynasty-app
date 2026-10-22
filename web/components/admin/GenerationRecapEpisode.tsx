@@ -25,7 +25,7 @@ export function episodeLabel(row: RecapEpisodeSummary) {
 interface Replacement { digest: string; requests: number; maximum_microusd: number; original_requests: unknown }
 const checks = { factual_coverage:'Facts and every league member', performance:'Complete voice performance', physical_phone:'Physical phone playback', message_preview:'Real message preview' };
 
-export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisodeChange, selectionOnly = false, onRecapBudget, onActivity, initialEpisodeId }: ActionProps & {
+export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisodeChange, selectionOnly = false, onRecapBudget, onActivity, onStartWriting, initialEpisodeId }: ActionProps & {
   seriesId:string; version:number; onEpisodeChange:(episodeId:string | undefined, label?:string)=>void; selectionOnly?:boolean; initialEpisodeId?:string;
 }) {
   const [records,setRecords]=useState<RecapEpisodeSummary[]>([]);
@@ -72,6 +72,7 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
     return()=>{current=false;};
   },[selected,version,reload,selectionOnly]);
   const blocked=busy || loading;
+  const pendingScript=view?.episode.lifecycle==='awaiting_approval' && view?.script_operation?.state==='cancelled';
   const stoppedScript=!!view?.script_operation && ['held','needs_attention'].includes(view.script_operation.state);
   async function open(next:string) {
     const request=++previewRequest.current;
@@ -118,7 +119,8 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
     {!selectionOnly && view && <>
       <p className="mt-3 text-prose font-semibold">{view.qualification.passed} of {view.qualification.required} reviewed episodes passed</p>
       <p className="mt-1 text-prose text-dim">{view.qualification.automatic?'Standing automatic publication is active for this league and season.':explanations[view.qualification.reason] || 'Finished previews require explicit review.'}</p>
-      <p className="mt-3 text-prose">{stoppedScript ? 'Stage: Script · Needs attention' : <>Stage: {readable(view.stage?.kind || view.episode.lifecycle)}{view.stage?` · ${readable(view.stage.state)}`:''}</>}</p>
+      <p className="mt-3 text-prose">{pendingScript ? 'Stage: Script · Awaiting replacement approval' : stoppedScript ? 'Stage: Script · Needs attention' : <>Stage: {readable(view.stage?.kind || view.episode.lifecycle)}{view.stage?` · ${readable(view.stage.state)}`:''}</>}</p>
+      {pendingScript && <div className="mt-2 max-w-prose text-prose"><p>Replacement script is waiting for approval. Review current inputs and the additional cost before starting. No new AI request has been sent.</p>{onStartWriting && <button type="button" className={secondary+' mt-2'} disabled={blocked} onClick={onStartWriting}>Review replacement in Start writing</button>}</div>}
       {stoppedScript && <div className="mt-2 max-w-prose text-prose"><p>Script writing stopped. Review the saved attempts and costs in AI Writing. Preparing a replacement sends no AI request; starting it requires separate approval.</p>{onActivity && <button type="button" className={secondary+' mt-2'} disabled={blocked} onClick={onActivity}>Review script in AI Writing</button>}</div>}
       {view.reason && <p className="mt-1 max-w-prose text-prose text-warn-strong">{explanations[view.reason] || (view.reason.startsWith('recap_budget_') ? 'A recap spending limit is holding this episode. Review its limits and outstanding charges.' : readable(view.reason))}</p>}
       {view.reason.startsWith('recap_budget_') && <><p className="mt-2 text-prose">Video needs {money(view.needed_microusd || 0)}; {view.budget?.balances.video_episode_microusd?.remaining_microusd == null?'remaining budget needs accounting review':money(view.budget.balances.video_episode_microusd.remaining_microusd)+' remains in this episode'}.</p>{onRecapBudget ? <button className={secondary + ' mt-2'} onClick={() => onRecapBudget(seriesId,selected)}>Edit recap limits</button> : <a href="#generation-recap-budgets" className="inline-flex min-h-tap items-center text-prose underline">Edit recap limits</a>}</>}

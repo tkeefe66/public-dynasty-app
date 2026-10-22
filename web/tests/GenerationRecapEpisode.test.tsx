@@ -61,3 +61,21 @@ it('shows stopped script ahead of preflight and opens existing writing review wi
   expect(run).not.toHaveBeenCalled();
   expect(request.mock.calls).toHaveLength(count);
 });
+
+
+it('shows prepared replacement as awaiting approval and navigates without spending',async()=>{
+  const onStartWriting=vi.fn();
+  const pending={...detail,episode:{...episode,lifecycle:'awaiting_approval'},
+    stage:{...detail.stage,kind:'preflight',state:'succeeded',result_json:''},
+    script_operation_id:'failed-script',script_operation:{id:'failed-script',state:'cancelled',generation:2,reason:'cancelled'},
+    reason:'replacement_approval_required',actions:['skip_video']};
+  request.mockImplementation(async(path:string)=>path.includes('?')?{records:[episode]}:pending);
+  render(<GenerationRecapEpisode seriesId="series" busy={false} run={run} version={0} onEpisodeChange={changed} onStartWriting={onStartWriting}/>);
+  expect(await screen.findByText('Stage: Script · Awaiting replacement approval')).toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Prepare episode preview'})).not.toBeInTheDocument();
+  const count=request.mock.calls.length;
+  fireEvent.click(screen.getByRole('button',{name:'Review replacement in Start writing'}));
+  expect(onStartWriting).toHaveBeenCalledOnce();
+  expect(run).not.toHaveBeenCalled();
+  expect(request.mock.calls).toHaveLength(count);
+});

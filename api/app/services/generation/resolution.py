@@ -66,7 +66,7 @@ async def resolution(db, job):
             "report": report, "related_jobs": [{"id": row.id, "state": row.state,
                 "reason": row.reason, "created_at": row.created_at} for row in related], **extra}
 
-    if job.state not in ("held", "needs_attention"):
+    if job.state not in ("held", "needs_attention") and not (job.feature=='recap_video' and job.state=='cancelled'):
         return result("none", "This work has changed", "Reload status to see its latest progress.")
     if job.kind in FREE_REFRESH_KINDS:
         if job.calls or job.max_calls or own_attempts:
@@ -83,7 +83,7 @@ async def resolution(db, job):
     if job.feature == "recap_video":
         from app.services.recap_video.script_replacement import require_failed_script
         try:
-            await require_failed_script(db,job)
+            await require_failed_script(db,job,prepared=job.state=='cancelled')
         except Held:
             pass
         else:
@@ -144,12 +144,12 @@ async def prepare_replacement(db, job_id, body, actor):
     guidance = await resolution(db, job)
     if guidance["action"] != "replacement":
         raise Held(guidance["explanation"])
-    prior_cost = None
     if job.feature == 'recap_video':
         from app.services.recap_video.script_replacement import require_failed_script
-        _, prior_cost = await require_failed_script(db,job)
-    await administration.job_action(db, job_id, SimpleNamespace(action="cancel",
-        expected_generation=job.generation, expected_state=job.state, reason=body.reason), actor)
+        await require_failed_script(db,job,prepared=job.state=='cancelled')
+    if job.state!='cancelled':
+        await administration.job_action(db, job_id, SimpleNamespace(action="cancel",
+            expected_generation=job.generation, expected_state=job.state, reason=body.reason), actor)
     if job.feature == 'recap_video':
         from app.services.recap_video.script_replacement import prepare_candidate
         candidate = await prepare_candidate(db,job)
@@ -161,7 +161,4 @@ async def prepare_replacement(db, job_id, body, actor):
         body.reason, after={"job_id": job_id, "candidate_key": candidate.key, "event": candidate.event})
     await db.flush()
     preview = await administration.preview(db, [candidate.key], actor, body.reason)
-    if prior_cost is not None:
-        from app.services.recap_video.script_replacement import add_replacement_cost
-        return await add_replacement_cost(db,preview,job,prior_cost)
     return preview

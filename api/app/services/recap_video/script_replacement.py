@@ -23,6 +23,12 @@ async def require_failed_script(db, job, *, prepared=False):
             or job.subject != 'recap_video:'+episode.episode_id
             or payload.get('season') != episode.season or payload.get('week') != episode.week):
         raise Held('recap_script_episode_identity_changed')
+    if prepared:
+        from app.services.generation.candidate_status import replacement_review_target
+        reviews=(await db.scalars(select(GenerationAudit).where(GenerationAudit.action=='replacement_review_required',
+            GenerationAudit.target==replacement_review_target(job.subject,episode.period_id)))).all()
+        if not any(json.loads(review.after_json).get('job_id')==job.id for review in reviews):
+            raise Held('recap_script_replacement_review_required')
     if (await db.get(ArtifactHead,job.subject)
             or await db.scalar(select(ContentArtifact.id).where(ContentArtifact.subject==job.subject).limit(1))):
         raise Held('recap_script_saved_output_requires_review')
@@ -77,6 +83,9 @@ async def add_replacement_cost(db, preview, job, prior_cost):
 
 
 async def verify_replacement_cost(db, manifest, candidates):
+    required_job=await replacement_for_candidates(db,list(candidates.values()))
+    if required_job and 'replacement_pricing_plan' not in manifest:
+        raise Held('recap_script_replacement_price_review_required')
     if 'replacement_pricing_plan' not in manifest:
         return
     from app.services.generation.accounting import bounded_plan
@@ -86,7 +95,8 @@ async def verify_replacement_cost(db, manifest, candidates):
     if candidate.feature!='recap_video':
         raise Held('recap_script_replacement_scope_changed')
     job=await db.get(GenerationOperation,manifest.get('replacement_job_id',''))
-    if not job or job.generation!=manifest.get('replacement_job_generation') or job.subject!=candidate.subject:
+    if (not job or not required_job or job.id!=required_job.id
+            or job.generation!=manifest.get('replacement_job_generation') or job.subject!=candidate.subject):
         raise Held('recap_script_replacement_original_changed')
     _,prior_cost=await require_failed_script(db,job,prepared=True)
     if prior_cost!=manifest['prior_cost_microusd']:
@@ -97,3 +107,37 @@ async def verify_replacement_cost(db, manifest, candidates):
     if (plan!=manifest['replacement_pricing_plan']
             or sum(item['max_microusd'] for item in plan)!=manifest['maximum_additional_microusd']):
         raise Held('recap_script_replacement_price_changed')
+
+
+async def replacement_for_candidates(db, candidates):
+    """Any campaign route must retain the durable replacement cost fence."""
+    from app.services.generation.candidate_status import replacement_review_target
+    replacement_jobs=[]
+    for candidate in candidates:
+        if candidate.feature!='recap_video':
+            continue
+        reviews=(await db.scalars(select(GenerationAudit).where(GenerationAudit.action=='replacement_review_required',
+            GenerationAudit.target==replacement_review_target(candidate.subject,candidate.event)))).all()
+        ids={json.loads(review.after_json).get('job_id') for review in reviews}
+        if not ids:
+            continue
+        jobs=list((await db.scalars(select(GenerationOperation).where(GenerationOperation.id.in_(ids))
+            .order_by(GenerationOperation.created_at.desc(),GenerationOperation.id.desc()))).all())
+        if not jobs or (len(jobs)>1 and jobs[0].created_at==jobs[1].created_at):
+            raise Held('recap_script_replacement_original_ambiguous')
+        job=jobs[0]
+        if job.subject!=candidate.subject or job.league_id!=candidate.league_id or job.series_id!=candidate.series_id:
+            raise Held('recap_script_replacement_scope_changed')
+        await require_failed_script(db,job,prepared=True)
+        replacement_jobs.append(job)
+    if replacement_jobs and (len(candidates)!=1 or len(replacement_jobs)!=1):
+        raise Held('recap_script_replacement_separate_review_required')
+    return replacement_jobs[0] if replacement_jobs else None
+
+
+async def bind_campaign_replacement(db, preview, candidates):
+    job=await replacement_for_candidates(db,candidates)
+    if not job:
+        return preview
+    _,prior_cost=await require_failed_script(db,job,prepared=True)
+    return await add_replacement_cost(db,preview,job,prior_cost)

@@ -158,7 +158,8 @@ async def preview(db, candidates, actor, reason):
         raise ValueError("Explain why this campaign is being proposed")
     db.add(GenerationAudit(id=ident, actor_id=actor, action="campaign_preview",
         target=ident, reason=reason, after_json=dump(manifest)))
-    return {"id": ident, "digest": digest(manifest), **manifest}
+    from app.services.recap_video.script_replacement import bind_campaign_replacement
+    return await bind_campaign_replacement(db,{"id": ident, "digest": digest(manifest), **manifest},rows)
 
 
 def candidate_label(row):

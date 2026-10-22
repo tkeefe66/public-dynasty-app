@@ -136,3 +136,77 @@ async def test_campaign_apply_rechecks_original_receipt_settlement(maker,tmp_pat
         with pytest.raises(Held,match='recap_script_previous_receipts_unsettled'):
             await apply_campaign(db,preview['id'],preview['digest'],'owner','Explicit replacement approval')
         assert await db.scalar(select(func.count()).select_from(GenerationOperation))==1
+
+
+@pytest.mark.asyncio
+async def test_expired_replacement_can_reprepare_cancelled_original_and_generic_preview_keeps_price(maker,tmp_path,monkeypatch):
+    from app.services.generation.resolution import prepare_replacement,resolution
+    from app.services.generation import administration
+    from app.services.generation.store import Conflict
+    await failed_script(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        job=await db.get(GenerationOperation,'job')
+        first=await prepare_replacement(db,job.id,SimpleNamespace(expected_generation=job.generation,
+            expected_state=job.state,reason='Prepare review'),'owner')
+    monkeypatch.setattr(administration,'stamp',lambda:first['expires_at']+1)
+    async with maker.begin() as db:
+        with pytest.raises(Conflict,match='expired'):
+            await administration.apply_campaign(db,first['id'],first['digest'],'owner','Old review')
+        job=await db.get(GenerationOperation,'job')
+        assert (await resolution(db,job))['action']=='replacement'
+        again=await prepare_replacement(db,job.id,SimpleNamespace(expected_generation=job.generation,
+            expected_state='cancelled',reason='Refresh expired review after free preflight'),'owner')
+        assert again['id']!=first['id'] and again['replacement_job_id']=='job'
+        assert again['maximum_additional_microusd']==first['maximum_additional_microusd']
+        generic=await administration.preview(db,[again['items'][0]['key']],'owner','Fresh generic review')
+        assert generic['replacement_job_id']=='job'
+        assert generic['replacement_pricing_plan']==again['replacement_pricing_plan']
+        assert generic['prior_cost_microusd']==40
+        assert await db.scalar(select(func.count()).select_from(GenerationOperation))==1
+
+
+@pytest.mark.asyncio
+async def test_generic_campaign_apply_cannot_drop_replacement_pricing_fence(maker,tmp_path,monkeypatch):
+    from app.services.generation.resolution import prepare_replacement
+    from app.services.generation.administration import apply_campaign
+    from app.services.generation.models import GenerationAudit
+    from app.services.generation.store import digest,dump
+    await failed_script(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        job=await db.get(GenerationOperation,'job')
+        preview=await prepare_replacement(db,job.id,SimpleNamespace(expected_generation=job.generation,
+            expected_state=job.state,reason='Prepare review'),'owner')
+        record=await db.get(GenerationAudit,preview['id'])
+        manifest=json.loads(record.after_json)
+        del manifest['replacement_pricing_plan']
+        record.after_json=dump(manifest)
+        with pytest.raises(Held,match='recap_script_replacement_price_review_required'):
+            await apply_campaign(db,preview['id'],digest(manifest),'owner','Unpriced approval')
+        assert await db.scalar(select(func.count()).select_from(GenerationOperation))==1
+
+
+@pytest.mark.asyncio
+async def test_unreviewed_cancelled_original_cannot_reprepare(maker,tmp_path,monkeypatch):
+    from app.services.generation.resolution import prepare_replacement
+    await failed_script(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        job=await db.get(GenerationOperation,'job');job.state='cancelled'
+        with pytest.raises(Held):
+            await prepare_replacement(db,job.id,SimpleNamespace(expected_generation=job.generation,
+                expected_state='cancelled',reason='No durable original review'),'owner')
+
+
+@pytest.mark.asyncio
+async def test_prepared_replacement_episode_waits_for_approval(maker,tmp_path,monkeypatch):
+    from app.services.generation.resolution import prepare_replacement
+    from app.services.recap_video.admin_actions import episode_view
+    ident,_=await failed_script(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        job=await db.get(GenerationOperation,'job')
+        await prepare_replacement(db,job.id,SimpleNamespace(expected_generation=job.generation,
+            expected_state=job.state,reason='Prepare review'),'owner')
+        view=await episode_view(db,ident)
+        assert view['script_operation']['state']=='cancelled'
+        assert view['episode']['lifecycle']=='awaiting_approval'
+        assert view['reason']=='replacement_approval_required'
+        assert 'prepare_preview' not in view['actions']
