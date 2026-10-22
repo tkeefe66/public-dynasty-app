@@ -12,7 +12,7 @@ from app.services.recap_video.workflow import _identity
 
 
 async def recovered_audio_plan(db, episode_id, *, verify_bytes=False):
-    """All incomplete chunks need exact recovered bytes; no partial paid retry."""
+    """Recover sent chunks; bind untouched future chunks without granting retries."""
     import asyncio
     import hashlib
     import json
@@ -24,6 +24,10 @@ async def recovered_audio_plan(db, episode_id, *, verify_bytes=False):
     plan = []
     for stage in [row for row in rows if row.kind == 'narrate' and row.state != 'succeeded']:
         attempt = await db.scalar(select(RecapProviderAttempt).where(RecapProviderAttempt.stage_id==stage.id))
+        if (not attempt and stage.state == 'queued' and stage.generation == 0 and not stage.worker_id
+                and not stage.failures and not stage.lease_until and not stage.result_json):
+            plan.append({'stage_id':stage.id,'untouched':True,'binding':digest(data(stage))})
+            continue
         receipt = json.loads(attempt.recovery_receipt_json or '{}') if attempt else {}
         asset = await db.get(RecapAsset,receipt.get('asset',{}).get('asset_id',''))
         if (not attempt or attempt.state in ('dispatching','abandoned') or stage.state not in ('held','needs_attention')
@@ -42,7 +46,7 @@ async def recovered_audio_plan(db, episode_id, *, verify_bytes=False):
             if len(raw) != asset.size or hashlib.sha256(raw).hexdigest() != asset.digest:
                 raise Held('recovered_audio_hash_mismatch')
         plan.append({'stage_id':stage.id,'asset_id':asset.id,'binding':digest([data(stage),data(attempt),data(asset)])})
-    if not plan:
+    if not any(not item.get('untouched') for item in plan):
         raise Held('recovered_audio_pending_chunks_required')
     return plan
 
@@ -53,9 +57,13 @@ async def adopt_recovered_audio(db,episode_id,verified,*,actor_id,reason):
     from app.services.recap_video.admin_actions import active_stages
     from app.services.recap_video.corrections import resume_free
     from app.services.recap_video.workflow import _current
+    await lock_control(db)
+    await require_admin_actor(db,actor_id)
     if verified != await recovered_audio_plan(db,episode_id):
         raise Conflict('Recovered audio changed. Reload exact saved evidence.')
     for item in verified:
+        if item.get('untouched'):
+            continue
         stage = await db.get(RecapStage,item['stage_id'])
         await _current(db,stage,now=stamp())
         db.add(RecapRecovery(episode_id=episode_id,stage_id=stage.id,action='adopt_recovered_audio',
@@ -67,6 +75,15 @@ async def adopt_recovered_audio(db,episode_id,verified,*,actor_id,reason):
     speech = next((row for row in await active_stages(db,episode_id) if row.kind=='speech_check'),None)
     if not speech or speech.state=='running':
         raise Held('recovered_audio_speech_checkpoint_required')
+    if any(item.get('untouched') for item in verified):
+        # The original dependency chain still owns the never-dispatched chunks.
+        # Do not reset speech or manufacture new paid generations/allocations.
+        rows = await active_stages(db,episode_id)
+        if any(row.state != 'queued' or row.generation != 0 or row.worker_id or row.result_json
+                for row in rows if row.kind in ('speech_check','render','media_check')):
+            raise Held('recovered_audio_future_checkpoints_changed')
+        audit(db,actor_id,'recap_partial_audio_recovery',episode_id,reason,after={'verified':verified})
+        return dict(stage_id=speech.id,generation=speech.generation,state=speech.state)
     db.add(RecapRecovery(episode_id=episode_id,stage_id=speech.id,action='recovered_audio_speech_reset',
         before_json=dump(data(speech)),actor_id=actor_id,reason=reason))
     speech.state='held'

@@ -169,7 +169,8 @@ async def episode_view(db, episode_id):
         actions.insert(0, 'review_publish_members' if script and script.provenance == 'editorial_reviewed' else 'review_publish')
     if stage and stage.kind in ('speech_check','render','media_check') and stage.state in ('held','needs_attention'):
         actions.insert(0, 'resume_free')
-    if any(a.state in ('unknown','dispatching','abandoned') for a in attempts):
+    if any(a.state in ('unknown','dispatching','abandoned') or
+            (a.state == 'received' and a.error_code == 'response_invalid' and not a.recovery_receipt_json) for a in attempts):
         actions.insert(0, 'reconcile_request')
     if any(a.recovery_receipt_json and a.state != 'abandoned' for a in attempts) and stage and stage.kind=='narrate':
         actions.insert(0,'resume_recovered_audio')

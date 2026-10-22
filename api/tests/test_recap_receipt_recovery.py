@@ -9,6 +9,65 @@ from tests.test_recap_workflow import seed_media, fence, result
 
 
 @pytest.mark.asyncio
+async def test_paid_received_audio_failure_exposes_exact_history_recovery(maker,tmp_path,monkeypatch):
+    # A settled charge is still recoverable when its audio upload failed.
+    from app.services.recap_video.admin_actions import episode_view
+    episode,_=await seed_media(maker,tmp_path,monkeypatch,'narrate')
+    async with maker.begin() as db:
+        lease=await work.claim_stage(db,'narrator',{'narrate'},stamp())
+        authority=await work.authorize_dispatch(db,**fence(lease),worker_id='narrator')
+        attempt=await db.get(RecapProviderAttempt,authority['attempt_id'])
+        attempt.state='received';attempt.error_code='response_invalid';attempt.cost_microusd=17
+        assert 'reconcile_request' in (await episode_view(db,episode))['actions']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('uncertain_second',[False,True])
+async def test_recovered_first_chunk_preserves_unused_second_chunk_authority(maker,tmp_path,monkeypatch,uncertain_second):
+    # Mutation: all incomplete chunks require receipts, or recovered adoption skips an untouched paid predecessor.
+    from app.services.recap_video.recovery import recovered_audio_plan, adopt_recovered_audio
+    from app.services.generation.recap_models import RecapAsset
+    from app.services.generation.store import Held, data
+    episode,_=await seed_media(maker,tmp_path,monkeypatch,'narrate')
+    async with maker.begin() as db:
+        first=await db.scalar(select(RecapStage).where(RecapStage.kind=='narrate'))
+        speech=await db.scalar(select(RecapStage).where(RecapStage.kind=='speech_check'))
+        second=RecapStage(episode_id=episode,script_id=first.script_id,operation_id=first.operation_id,
+            kind='narrate',chunk=1,revision=first.revision,execution_revision=first.execution_revision,
+            predecessor_id=first.id,input_json=first.input_json,input_digest=first.input_digest,
+            policy_digest=first.policy_digest,epoch=first.epoch)
+        db.add(second);await db.flush();speech.predecessor_id=second.id
+        lease=await work.claim_stage(db,'narrator',{'narrate'},stamp())
+        authority=await work.authorize_dispatch(db,**fence(lease),worker_id='narrator')
+        attempt=await db.get(RecapProviderAttempt,authority['attempt_id'])
+        first.state='held';first.reason='response_invalid';first.lease_until=0
+        attempt.state='received';attempt.cost_microusd=17
+        identity={'request_id':'synthetic-request','history_item_id':'synthetic-history'}
+        attempt.identity_json=dump([identity])
+        asset=RecapAsset(stage_id=first.id,generation=attempt.generation,storage_key='recovered',digest='a'*64,size=10,media_type='audio/mpeg')
+        db.add(asset);await db.flush()
+        attempt.recovery_receipt_json=dump(dict(outcome='recovered',request_digest=attempt.request_digest,identity=identity,audio_sha256=asset.digest,audio_size=asset.size,asset=dict(asset_id=asset.id,digest=asset.digest,size=asset.size)))
+        if uncertain_second:
+            db.add(RecapProviderAttempt(stage_id=second.id,episode_id=episode,operation_id=first.operation_id,
+                series_id='series',provider='elevenlabs',account_key='synthetic',worker_id='narrator',
+                epoch=first.epoch,authority_digest='uncertain',generation=0,state='unknown',request_digest='uncertain',request_json='{}',pricing_json='{}'))
+            await db.flush()
+            with pytest.raises(Held): await recovered_audio_plan(db,episode)
+            return
+        before=data(second);speech_before=data(speech)
+        allocation_ids=list((await db.scalars(select(RecapBudgetAllocation.id))).all())
+        attempt_ids=list((await db.scalars(select(RecapProviderAttempt.id))).all())
+        plan=await recovered_audio_plan(db,episode)
+        await adopt_recovered_audio(db,episode,plan,actor_id='owner',reason='Recover exact first chunk only')
+        assert first.state=='succeeded' and data(second)==before and data(speech)==speech_before
+        assert list((await db.scalars(select(RecapBudgetAllocation.id))).all())==allocation_ids
+        assert list((await db.scalars(select(RecapProviderAttempt.id))).all())==attempt_ids
+        assert await work.claim_stage(db,'speech-worker',{'speech_check'},stamp()) is None
+        next_lease=await work.claim_stage(db,'narrator',{'narrate'},stamp())
+        assert next_lease['stage_id']==second.id
+
+
+@pytest.mark.asyncio
 async def test_recovery_before_first_settlement_keeps_original_metering(maker, tmp_path, monkeypatch):
     # Mutation: selecting recovery exclusively discards durable original charge proof.
     from tests.test_recap_elevenlabs import REQUEST, RATE
