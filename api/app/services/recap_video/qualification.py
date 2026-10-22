@@ -253,7 +253,7 @@ async def require_standing_format(db, episode):
     """Recognize the saved authoritative format, including qualified postseason."""
     from app.services.generation.recap_models import RecapObservation
     from app.services.recap_video.periods import scoring_period
-    from app.services.recap_video.readiness import source_ready, competitive_digest
+    from app.services.recap_video.readiness import source_ready, competitive_digest, previous_competitive_digest
     observation = await db.get(RecapObservation,episode.latest_observation_id)
     source = json.loads(observation.snapshot_json) if observation else {}
     if source.get('phase') == 'regular' and episode.round is None and source.get('round') is None:
@@ -266,7 +266,7 @@ async def require_standing_format(db, episode):
             or any(source.get(key) != recognized.get(key) for key in ('period_id','week','round','round_type','nfl_weeks'))
             or (episode.period_id,episode.week,episode.round,json.loads(episode.nfl_weeks_json))
                 != (recognized['period_id'],recognized['week'],recognized['round'],recognized['nfl_weeks'])
-            or episode.facts_digest != competitive_digest(source) or not source_ready(episode,source)):
+            or await previous_competitive_digest(db, episode) != competitive_digest(source) or not source_ready(episode,source)):
         raise Held('recap_format_review_required')
 
 

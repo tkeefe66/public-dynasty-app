@@ -62,7 +62,7 @@ def latest_played_season(
     played = [
         int(season)
         for season, rows in season_records.items()
-        if any(_games(rec) >= min_weeks for rec in rows.values())
+        if any(int(rec.get("weeks_played", _games(rec))) >= min_weeks for rec in rows.values())
     ]
     return max(played) if played else None
 
@@ -84,7 +84,7 @@ def owners_with_completed_season(
         uid
         for rows in season_records.values()
         for uid, rec in rows.items()
-        if _games(rec) >= min_weeks
+        if int(rec.get("weeks_played", _games(rec))) >= min_weeks
     }
 
 

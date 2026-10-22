@@ -122,3 +122,31 @@ async def test_offseason_reuses_signals(monkeypatch, tmp_path):
     assert entry.draft_skill_by_season == {"2024": {"u1": 0.75}}
     assert entry.season_records == {"2024": {"u1": {"wins": 12, "losses": 1}}}
     assert entry.head_to_head == {"u1": {"u2": {"wins": 3, "losses": 1}}}
+
+
+@pytest.mark.asyncio
+async def test_offseason_refresh_keeps_fresh_provider_records_over_old_h2h_cache(tmp_path):
+    # Mutation: frozen season_records/outcome_signals overwrite provider corrections.
+    from app.services.chain_cache import ChainCache, ChainCacheEntry
+    prior = ChainCacheEntry(
+        league_id="L", chain=[], resolved_trades=[{"trade": {"transaction_id": "t1"}}],
+        grades={}, owners={"u1": {"owner_name": "A"}}, playoff_weeks_by_league={},
+        roster_to_user_by_league={}, league_name_by_id={}, league_season_by_id={},
+        cached_at="2026-06-01T00:00:00+00:00",
+        season_records={"2024": {"u1": {"wins": 5, "losses": 1}}},
+        outcome_signals={"u1": {"wins": 5.0}},
+    )
+    ChainCache(cache_dir=tmp_path).write("L", prior)
+    entry = await _run_with_one_trade(GraderService(), cache_dir=tmp_path,
+        nfl_state={"season_type": "off", "week": 0}, supporting_extra={
+            "roster_records_by_league": {"L": {
+                "1": {"wins": 10, "losses": 2, "ties": 0,
+                      "points_for": 878.54, "points_against": 800.0},
+                "2": {"wins": 2, "losses": 10, "ties": 0,
+                      "points_for": 751.24, "points_against": 900.0}}}})
+    assert entry.season_records["2024"]["u1"]["wins"] == 10
+    assert entry.outcome_signals != prior.outcome_signals
+    from app.services.aggregations import build_dashboard
+    dashboard = build_dashboard(entry, year=2024, lens="ktc")
+    row = next(row for row in dashboard.standings if row.user_id == "u1")
+    assert row.season_record == "10-2" and row.season_wins == 10

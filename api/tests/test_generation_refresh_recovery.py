@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select
 from app.db.models import LeagueMembership, YahooConnection, YahooLeagueGrant
 from app.services.generation.administration import job_action
 from app.services.generation.bulk_jobs import blocked_reason
-from app.services.generation.commands import submit_refresh
+from app.services.generation.commands import claim_operation, finish, submit_refresh
 from app.services.generation.models import (
     GenerationAudit,
     GenerationControl,
@@ -36,6 +36,41 @@ async def seed_refresh(maker, *, kind="refresh", state="needs_attention"):
 def retry_body(job):
     return SimpleNamespace(action="resume", expected_generation=job.generation,
         expected_state=job.state, reason="Scoring mapping repaired; retry data collection")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["needs_attention", "held", "queued", "running"])
+async def test_ordinary_refresh_is_independent_of_legacy_analyst_job(maker, state):
+    # Mutation: shared league-only lookup makes a data request join analyst work.
+    await seed_refresh(maker, kind="analyst_refresh", state=state)
+    async with maker.begin() as db:
+        analyst = await db.get(GenerationOperation, "job")
+        analyst.created_at = stamp() - 10000
+        ordinary = await submit_refresh(db, "synthetic", "owner", idempotency_key="ordinary")
+        assert ordinary.id != analyst.id
+        assert ordinary.kind == "refresh" and ordinary.state == "queued"
+        assert ordinary.max_calls == ordinary.calls == 0
+        repeated = await submit_refresh(db, "synthetic", "owner", kind="analyst_refresh")
+        assert repeated.id == analyst.id and repeated.state == state
+        assert (await submit_refresh(db, "synthetic", "owner", idempotency_key="ordinary")).id == ordinary.id
+
+
+@pytest.mark.asyncio
+async def test_resumed_analyst_and_ordinary_refresh_cannot_run_together(maker):
+    # Mutation: removing free-running claim guard permits simultaneous cache writers.
+    await seed_refresh(maker, kind="analyst_refresh")
+    async with maker.begin() as db:
+        analyst = await db.get(GenerationOperation, "job")
+        ordinary = await submit_refresh(db, "synthetic", "owner")
+        assert ordinary.id != analyst.id
+        await job_action(db, analyst.id, retry_body(analyst), "owner")
+        first = await claim_operation(db, "worker-one")
+        assert first is not None
+        assert await claim_operation(db, "worker-two") is None
+        await finish(db, first.id, first.generation)
+        second = await claim_operation(db, "worker-two")
+        assert second is not None and second.id != first.id
+        assert {first.id, second.id} == {analyst.id, ordinary.id}
 
 
 @pytest.mark.asyncio

@@ -201,7 +201,8 @@ async def collect_analyst(db, league_id, series_id, cache_dir):
                 observation = await db.get(RecapObservation, episode.latest_observation_id)
                 snapshot = json.loads(observation.snapshot_json)
                 if source_ready(episode, snapshot):
-                    edition = edition_from_snapshot(snapshot, generated_at=episode.admitted_at or episode.observed_at)
+                    edition = edition_from_snapshot(snapshot, generated_at=episode.admitted_at or episode.observed_at,
+                        facts_digest=episode.facts_digest)
                     extra = {"period_id": episode.period_id, "recap_facts_digest": episode.facts_digest,
                              "source_snapshot": source_facts(snapshot)}
         row = await observe(db, series_id=series_id, league_id=league_id, feature="analyst",

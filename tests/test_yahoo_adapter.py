@@ -12,6 +12,31 @@ FIXTURES = Path(__file__).parent / "fixtures/yahoo"
 LK = "470.l.100000001"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,blocked_current", [(403, False), (401, False), (403, True)])
+async def test_history_permission_boundary_preserves_accessible_seasons(status, blocked_current):
+    import httpx
+    from sleeper_dynasty.api.yahoo import YahooAuthenticationError
+
+    def respond(request):
+        if blocked_current or request.url.path != f"/fantasy/v2/league/{LK}/settings":
+            return httpx.Response(status)
+        return httpx.Response(200, json=fixture("league_settings"))
+
+    client = YahooAdapter("synthetic-token", transport=httpx.MockTransport(respond))
+    try:
+        if status == 401 or blocked_current:
+            with pytest.raises(YahooAuthenticationError):
+                await client.walk_league_history(LK)
+        else:
+            chain = await client.walk_league_history(LK)
+            assert len(chain) == 1 and chain[0].league_id == LK
+            assert any("history" in warning.lower() and "unavailable" in warning.lower()
+                       for warning in client.warnings)
+    finally:
+        await client.close()
+
+
 def fixture(name):
     return json.loads((FIXTURES / f"{name}.json").read_text())
 

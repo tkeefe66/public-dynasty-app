@@ -18,8 +18,47 @@ FACT_FIELDS = ("season", "week", "period_id", "nfl_weeks", "round", "phase", "ro
     "starters", "bracket", "dispositions", "rules", "roster_positions", "scoring_settings", "player_metadata")
 
 
+def competitive_facts(snapshot: dict) -> dict:
+    """Period evidence, excluding the provider's mutable current-roster state.
+
+    Historical matchups already contain ordered starters, bench and player scores.
+    The roster endpoint's lineup and cumulative standings describe today, not this
+    period. Preserve raw observations for audit, but never use those live fields as
+    historical facts or correction triggers.
+    """
+    facts = {k: snapshot.get(k) for k in FACT_FIELDS}
+    facts['participants'] = [{k: participant[k] for k in
+        ('roster_id', 'owner_id', 'owner_name', 'co_owners', 'status') if k in participant}
+        for participant in snapshot.get('participants') or []]
+    facts['rules'] = {k: v for k, v in (snapshot.get('rules') or {}).items()
+        if k not in ('leg', 'last_report', 'last_scored_leg')}
+    if snapshot.get('phase') == 'regular':
+        # Regular matchups establish opponents; projected playoff seeds are live.
+        facts['bracket'] = {'ok': (snapshot.get('bracket') or {}).get('ok')}
+    return facts
+
+
 def competitive_digest(snapshot: dict) -> str:
-    return digest({k: snapshot.get(k) for k in FACT_FIELDS})
+    return digest(competitive_facts(snapshot))
+
+
+async def previous_competitive_digest(db, episode) -> str:
+    """Read old raw-hash observations without treating rollout as a correction.
+
+    Only reinterpret a stored hash if its immutable observation proves the old
+    binding. Unknown/mismatched evidence keeps its original fail-closed behavior.
+    """
+    observations = (await db.scalars(select(RecapObservation).where(
+        RecapObservation.episode_id == episode.episode_id,
+        RecapObservation.facts_digest == episode.facts_digest))).all()
+    for old in observations:
+        source = json.loads(old.snapshot_json)
+        if digest(source) != old.snapshot_digest:
+            continue
+        semantic = competitive_digest(source)
+        if episode.facts_digest in (semantic, digest({k: source.get(k) for k in FACT_FIELDS})):
+            return semantic
+    return episode.facts_digest
 
 
 def evaluate_readiness(snapshot: dict, previous: dict | None, now: int) -> ReadinessDecision:
@@ -150,7 +189,8 @@ async def observe_period(db, key: EpisodeKey, snapshot: dict, now: int) -> str:
         old = await db.get(RecapObservation, row.latest_observation_id)
         previous = {**json.loads(old.snapshot_json), "observed_at": row.stable_since}
     saved = {**snapshot, "observed_at": now}
-    previous_lifecycle, previous_hold, previous_facts = row.lifecycle, row.hold, row.facts_digest
+    previous_lifecycle, previous_hold = row.lifecycle, row.hold
+    previous_facts = await previous_competitive_digest(db, row)
     decision = evaluate_readiness(saved, previous, now)
     admission = (await _authority_reason(db, key, snapshot["league_id"]) if row.admitted_at
                  else await _admission_reason(db, key, snapshot))
@@ -166,7 +206,7 @@ async def observe_period(db, key: EpisodeKey, snapshot: dict, now: int) -> str:
         row.lifecycle, row.hold = previous_lifecycle, previous_hold
     if valid and previous_hold in ('recap_facts_changed','recap_dependency_changed','recap_dependency_inventory_changed'):
         row.lifecycle, row.hold = 'correction', previous_hold
-    if previous_facts and previous_facts != decision.facts_digest:
+    if valid and previous_facts and previous_facts != decision.facts_digest:
         # Invalidate selection immediately; retained receipts still settle money.
         from app.services.generation.recap_models import RecapStage, RecapProviderAttempt
         stages = (await db.scalars(select(RecapStage).where(RecapStage.episode_id == ident))).all()
@@ -178,7 +218,10 @@ async def observe_period(db, key: EpisodeKey, snapshot: dict, now: int) -> str:
         for attempt in (await db.scalars(select(RecapProviderAttempt).where(
                 RecapProviderAttempt.episode_id == ident, RecapProviderAttempt.state == "dispatching"))).all():
             attempt.state = "unknown"
-    row.eligible_at, row.observed_at, row.facts_digest = decision.eligible_at, now, decision.facts_digest
+    # A change in fingerprint algorithm is not a new artifact authority. Retain
+    # the old binding when its immutable evidence proves the same period facts.
+    bound_facts = row.facts_digest if not valid or (row.facts_digest and previous_facts == decision.facts_digest) else decision.facts_digest
+    row.eligible_at, row.observed_at, row.facts_digest = decision.eligible_at, now, bound_facts
     row.source_digest = digest(saved)
     from app.services.recap_video.periods import next_reconciliation
     row.next_observation_at = next_reconciliation(row.eligible_at, now)

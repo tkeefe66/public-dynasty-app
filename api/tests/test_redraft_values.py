@@ -4,7 +4,7 @@ import pytest
 
 from app.services.grader_io import is_redraft_chain, pull_supporting_data
 from app.services.league_raw_cache import LeagueRawCache
-from sleeper_dynasty.models.league import League
+from sleeper_dynasty.models.league import League, Roster
 
 
 def _league(fmt, season=2025):
@@ -68,7 +68,7 @@ class _MinimalClient:
         return []
 
     async def get_rosters(self, lid):
-        return [SimpleNamespace(roster_id=1, owner_id="u1")]
+        return [Roster(1, "u1", "Owner1", [], 0, 0, 0, 0.0, 0.0)]
 
     async def get_users(self, lid):
         return {"u1": {"display_name": "Owner1", "team_name": None, "avatar_url": None}}

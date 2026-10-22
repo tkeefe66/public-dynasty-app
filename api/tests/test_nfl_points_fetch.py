@@ -120,7 +120,7 @@ def test_supporting_data_threads_bonuses_and_keeps_platform_matchups_authoritati
                     scoring_bonuses=[ThresholdBonus(("rec_yd",), 100, 3)])
     matchup = {"players_points": {"wr": 17.75}, "players": ["wr"], "starters": ["wr"]}
     bundle = {"league_name": league.name, "season": 2026, "playoff_week_start": 15,
-              "roster_to_user": {}, "owners": {}, "phase_map": {},
+              "roster_to_user": {}, "roster_records": {}, "owners": {}, "phase_map": {},
               "matchups": {(league.league_id, 1, 1): matchup}}
     monkeypatch.setattr(io, "fetch_ktc_values", AsyncMock(return_value={}))
     monkeypatch.setattr(io, "fetch_fantasycalc_values", AsyncMock(return_value={}))

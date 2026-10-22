@@ -33,3 +33,33 @@ def test_compute_rating_signals():
     assert olsig["A"]["youth"] == -24.0
     assert olsig["B"]["youth"] == -30.0
     assert olsig["A"]["draft_capital"] == 0.0  # deferred
+
+
+def test_season_record_uses_provider_record_including_median_games():
+    # Mutation: H2H reconstruction replaces authoritative median W/L/T.
+    # Sanitized observed mismatch: six H2H games yield 5-1, provider says 10-2.
+    matchups = {}
+    for week in range(1, 7):
+        a, b = (100.0, 90.0) if week < 6 else (80.0, 110.0)
+        matchups[("L", week, 1)] = {"team_points": a, "opponent_points": b}
+        matchups[("L", week, 2)] = {"team_points": b, "opponent_points": a}
+    supporting = {
+        "matchups": matchups,
+        "roster_to_user_by_league": {"L": {1: "A", 2: "B"}},
+        "league_season_by_id": {"L": 2026},
+        "playoff_week_start_by_league": {"L": 15},
+        "owners": {"A": {}, "B": {}},
+        "roster_records_by_league": {"L": {
+            "1": {"wins": 10, "losses": 2, "ties": 0,
+                  "points_for": 878.54, "points_against": 800.0},
+            "2": {"wins": 2, "losses": 9, "ties": 1,
+                  "points_for": 751.24, "points_against": 900.0},
+        }},
+    }
+    _, _, _, records = compute_rating_signals(supporting, {})
+    assert (records["2026"]["A"]["wins"], records["2026"]["A"]["losses"]) == (10, 2)
+    assert (records["2026"]["B"]["wins"], records["2026"]["B"]["losses"],
+            records["2026"]["B"]["ties"]) == (2, 9, 1)
+    from app.services.aggregations import _fmt_record
+    assert _fmt_record("A", 2026, records)[0] == "10-2"
+    assert records["2026"]["A"]["weeks_played"] == 6

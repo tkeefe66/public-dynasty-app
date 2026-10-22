@@ -277,7 +277,7 @@ async def apply_action(db, episode_id, *, actor_id, expected_revision, action, r
         from app.services.generation.planner import observe
         from app.services.generation.artifacts import subject_key
         source=json.loads(observation.snapshot_json)
-        edition=edition_from_snapshot(source,generated_at=stamp())
+        edition=edition_from_snapshot(source,generated_at=stamp(),facts_digest=episode.facts_digest)
         candidate=await observe(db,series_id=episode.series_id,league_id=episode.league_id,feature='analyst',
             subject=subject_key('analyst',episode.series_id,episode.season,episode.week),event=f'{episode.season}:week:{episode.week:02d}',
             payload=dict(edition=edition,facts=edition['facts'],season=episode.season,week=episode.week,

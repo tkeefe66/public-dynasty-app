@@ -31,6 +31,10 @@ class YahooAuthenticationError(RuntimeError):
     """The account needs to reconnect, or lacks permission to this resource."""
 
 
+class YahooPermissionError(YahooAuthenticationError):
+    """A specific resource is forbidden, independently of token validity."""
+
+
 class YahooRateLimitError(YahooDataError):
     """Yahoo is refusing requests; do not immediately retry the import."""
 
@@ -385,10 +389,17 @@ class YahooAdapter:
         self._id_lock = asyncio.Lock()
         self._season_owner_fallback = False
         self._postseason_cache = {}
+        self._history_unavailable = False
 
     @property
     def warnings(self):
         result = []
+        if self._history_unavailable:
+            result.append(
+                "Older Yahoo league history is unavailable to this account. "
+                "History and all-time totals cover only accessible seasons; "
+                "connect an account with access to the older league to include it."
+            )
         if self._season_owner_fallback:
             result.append(
                 "Yahoo hides manager IDs. Teams are kept separate by season; cross-season owner continuity is not verified."
@@ -424,7 +435,11 @@ class YahooAdapter:
                         "Yahoo request timed out or could not connect; retry later."
                     ) from exc
                 log.info("Yahoo read %s HTTP %s", path, response.status_code)
-                if response.status_code in (401, 403):
+                if response.status_code == 403:
+                    raise YahooPermissionError(
+                        "Yahoo refused access; reconnect and check league permissions."
+                    )
+                if response.status_code == 401:
                     raise YahooAuthenticationError(
                         "Yahoo refused access; reconnect and check league permissions."
                     )
@@ -554,7 +569,14 @@ class YahooAdapter:
         result, seen = [], set()
         while league_id and league_id not in seen:
             seen.add(league_id)
-            league, previous = await self.get_league(league_id)
+            try:
+                league, previous = await self.get_league(league_id)
+            except YahooPermissionError:
+                if not result:
+                    raise
+                self._history_unavailable = True
+                log.warning("Yahoo history stopped at inaccessible prior league %s", league_id)
+                break
             result.append(league)
             if self._max_seasons is not None and len(result) >= self._max_seasons:
                 break

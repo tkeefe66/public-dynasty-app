@@ -171,7 +171,7 @@ async def require_script_inputs(db, series_id, league_id, payload, *, cache_dir=
     from app.config import get_settings
     from app.services.generation.recap_models import RecapObservation
     from app.services.generation.store import Held, digest
-    from app.services.recap_video.readiness import require_readiness, competitive_digest
+    from app.services.recap_video.readiness import require_readiness, competitive_digest, previous_competitive_digest
     from sleeper_dynasty.engine.recap_video_claims import compile_claims
     row = await require_readiness(db, series_id, payload, league_id=league_id, automatic=automatic, media_checkpoint=media_checkpoint)
     if not row or payload.get("episode_id") != row.episode_id:
@@ -184,8 +184,8 @@ async def require_script_inputs(db, series_id, league_id, payload, *, cache_dir=
             or digest(json.loads(original.snapshot_json)) != original.snapshot_digest
             or latest.snapshot_digest != row.source_digest
             or digest(json.loads(latest.snapshot_json)) != latest.snapshot_digest
-            or competitive_digest(payload["source_snapshot"]) != row.facts_digest
-            or competitive_digest(json.loads(latest.snapshot_json)) != row.facts_digest):
+            or competitive_digest(payload["source_snapshot"]) != await previous_competitive_digest(db, row)
+            or competitive_digest(json.loads(latest.snapshot_json)) != await previous_competitive_digest(db, row)):
         raise Held("recap_source_changed")
     article = await _published_article(db, row)
     if article != payload.get("published_article"):

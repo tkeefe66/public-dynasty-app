@@ -142,6 +142,14 @@ def _assemble_played_matchups(
     return out
 
 
+def _roster_records(rosters) -> dict:
+    """Provider regular-season totals, keyed by roster rather than current owner."""
+    return {str(row.roster_id): {
+        "wins": row.wins, "losses": row.losses, "ties": row.ties,
+        "points_for": row.points_for, "points_against": row.points_against,
+    } for row in rosters}
+
+
 async def _league_matchup_bundle(client, lg, league_cache) -> dict:
     """Build (or load from cache) the per-league matchup bundle.
 
@@ -158,6 +166,12 @@ async def _league_matchup_bundle(client, lg, league_cache) -> dict:
         if (cached is not None and "winners_bracket" in cached
                 and (not hasattr(client, 'get_postseason_results')
                      or 'postseason_results' in cached)):
+            if "roster_records" not in cached:
+                # Upgrade old sealed bundles with one roster request; keep the
+                # historical matchups and owner mapping intact.
+                cached["roster_records"] = _roster_records(await client.get_rosters(lg.league_id))
+                league_cache.write_matchup_bundle(lg.league_id, cached)
+                log.info("added provider season records to sealed league %s", lg.league_id)
             return resolve_owner_bundle(identity_client, cached)
 
     rosters = await client.get_rosters(lg.league_id)
@@ -186,6 +200,7 @@ async def _league_matchup_bundle(client, lg, league_cache) -> dict:
 
     bundle = {
         "matchups": matchups,
+        "roster_records": _roster_records(rosters),
         "playoff_week_start": lg.playoff_week_start,
         "roster_to_user": roster_to_user,
         "roster_positions": list(getattr(lg, "roster_positions", []) or []),
@@ -329,6 +344,7 @@ async def pull_supporting_data(
     roster_positions_by_league: dict[str, list] = {}
     league_name_by_id: dict[str, str] = {}
     league_season_by_id: dict[str, int] = {}
+    roster_records_by_league: dict[str, dict] = {}
     winners_bracket_by_league: dict[str, list] = {}
     losers_bracket_by_league: dict[str, list] = {}
     num_playoff_teams_by_league: dict[str, int] = {}
@@ -342,6 +358,7 @@ async def pull_supporting_data(
         playoff_week_start_by_league[lg.league_id] = b["playoff_week_start"]
         league_season_by_id[lg.league_id] = b["season"]
         roster_to_user_by_league[lg.league_id] = b["roster_to_user"]
+        roster_records_by_league[lg.league_id] = b["roster_records"]
         roster_positions_by_league[lg.league_id] = b.get("roster_positions", [])
         winners_bracket_by_league[lg.league_id] = b.get("winners_bracket") or []
         losers_bracket_by_league[lg.league_id] = b.get("losers_bracket") or []
@@ -426,6 +443,7 @@ async def pull_supporting_data(
         "playoff_week_start_by_league": playoff_week_start_by_league,
         "phase_by_lwr": phase_by_lwr,
         "roster_to_user_by_league": roster_to_user_by_league,
+        "roster_records_by_league": roster_records_by_league,
         "roster_positions_by_league": roster_positions_by_league,
         "league_name_by_id": league_name_by_id,
         "league_season_by_id": league_season_by_id,

@@ -101,3 +101,13 @@ def test_owners_with_completed_season_applies_the_same_week_floor_as_the_anchor(
 
 def test_owners_with_completed_season_is_empty_when_the_league_has_played_nothing():
     assert owners_with_completed_season({}) == set()
+
+
+def test_median_games_do_not_double_the_weeks_of_rating_evidence():
+    # Mutation: W/L/T game count bypasses the minimum number of observed weeks.
+    records = {2026: {"u": {"wins": 4, "losses": 0, "ties": 0, "weeks_played": 2}}}
+    assert owners_with_completed_season(records) == set()
+    assert latest_played_season(records) is None
+    records[2026]["u"].update(wins=7, losses=1, weeks_played=4)
+    assert owners_with_completed_season(records) == {"u"}
+    assert latest_played_season(records) == 2026

@@ -86,6 +86,8 @@ async def test_sealed_league_matchups_served_from_cache(tmp_path, monkeypatch):
         "winners_bracket": [],
         "losers_bracket": [],
         "playoff_round_type": 0,
+        "roster_records": {"1": {"wins": 1, "losses": 0, "ties": 0,
+                                  "points_for": 100.0, "points_against": 90.0}},
     })
 
     from types import SimpleNamespace
@@ -108,6 +110,28 @@ async def test_sealed_league_matchups_served_from_cache(tmp_path, monkeypatch):
     assert out["playoff_weeks_by_league"]["L1"] == 15
     assert out["league_season_by_id"]["L1"] == 2024
     assert out["owners"]["u_a"]["owner_name"] == "Alice"
+    assert out["roster_records_by_league"]["L1"]["1"]["wins"] == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_sealed_bundle_adds_provider_records_without_refetching_matchups(tmp_path):
+    # Mutation: legacy sealed cache skips authoritative-record acquisition forever.
+    from app.services.grader_io import _league_matchup_bundle
+    from sleeper_dynasty.models.league import Roster
+    cache = LeagueRawCache(cache_dir=tmp_path)
+    cache.write_matchup_bundle("L", {
+        "matchups": {}, "roster_to_user": {1: "historical-owner"}, "owners": {},
+        "winners_bracket": [], "season": 2025, "league_name": "Synthetic",
+        "playoff_week_start": 15,
+    })
+    client = SimpleNamespace(get_rosters=AsyncMock(return_value=[
+        Roster(1, "historical-owner", "Synthetic", [], 10, 2, 0, 878.54, 800.0)]))
+    league = SimpleNamespace(league_id="L", status="complete")
+    first = await _league_matchup_bundle(client, league, cache)
+    assert first["roster_records"]["1"]["wins"] == 10
+    client.get_rosters.side_effect = AssertionError("sealed records must be reused")
+    second = await _league_matchup_bundle(client, league, cache)
+    assert second["roster_records"] == first["roster_records"]
 
 
 def test_resolve_ktc_to_player_id_matches_by_name():
@@ -200,8 +224,9 @@ async def test_phase_map_built_from_brackets(monkeypatch):
             return []
 
         async def get_rosters(self, lid):
-            return [SimpleNamespace(roster_id=6, owner_id="u6"),
-                    SimpleNamespace(roster_id=9, owner_id="u9")]
+            from sleeper_dynasty.models.league import Roster
+            return [Roster(6, "u6", "Owner6", [], 0, 0, 0, 0.0, 0.0),
+                    Roster(9, "u9", "Owner9", [], 0, 0, 0, 0.0, 0.0)]
 
         async def get_users(self, lid):
             return {

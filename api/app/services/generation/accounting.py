@@ -147,7 +147,10 @@ def price_usage(body: dict, snapshot: dict) -> tuple[str, dict, int | None]:
     if not isinstance(usage, dict):
         return "unknown", {}, None
     if set(usage) - {"input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens",
-                     "cache_creation", "server_tool_use", "service_tier", "inference_geo"}:
+                     "cache_creation", "server_tool_use", "service_tier", "inference_geo", "speed"}:
+        return "pricing_unknown", usage, None
+    # Explicit standard speed uses the admitted standard rates; fast is premium.
+    if usage.get("speed", "standard") != "standard":
         return "pricing_unknown", usage, None
     # Haiku 4.5 reports not_available; global routing uses standard rates.
     # US routing has a premium and must remain blocked until separately qualified.

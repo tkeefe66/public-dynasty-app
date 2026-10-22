@@ -46,6 +46,7 @@ async def test_stored_phase_map_is_authoritative_even_when_empty(
         "season": 2026,
         "playoff_week_start": 16,
         "roster_to_user": {},
+        "roster_records": {},
         "owners": {},
         "matchups": {},
         "phase_map": phases,

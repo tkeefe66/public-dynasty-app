@@ -35,10 +35,10 @@ def _scores(rows):
 
 def source_facts(snapshot):
     """Full competitive data for later claims, separate from any trimmed prose."""
-    return {k: snapshot.get(k) for k in readiness.FACT_FIELDS}
+    return readiness.competitive_facts(snapshot)
 
 
-def edition_from_snapshot(snapshot, *, generated_at):
+def edition_from_snapshot(snapshot, *, generated_at, facts_digest=None):
     names = {p["roster_id"]: p.get("owner_name") or p["owner_id"] for p in snapshot["participants"]}
     matchups = []
     for pair in snapshot["pairings"]:
@@ -57,8 +57,8 @@ def edition_from_snapshot(snapshot, *, generated_at):
         "standings": [], "high_scorer": None, "low_scorer": None,
         "bench_regret": [], "lucky": [], "unlucky": [], "heroes": [], "goats": [], "busts": [],
         "lineups": [], "standings_race": {"available": False}, "bets": {"available": False},
-        "player_context": {}, "participant_coverage": snapshot["participants"],
-        "source_snapshot": source_facts(snapshot), "recap_facts_digest": readiness.competitive_digest(snapshot),
+        "player_context": {}, "participant_coverage": source_facts(snapshot)["participants"],
+        "source_snapshot": source_facts(snapshot), "recap_facts_digest": facts_digest or readiness.competitive_digest(snapshot),
         "result_scope": "Complete scoring round" if snapshot["phase"] == "post" else "Completed week"}
     return {"season": snapshot["season"], "week": snapshot["week"], "league_name": facts["league_name"],
         "generated_at": datetime.fromtimestamp(generated_at, timezone.utc).isoformat(),
@@ -230,7 +230,8 @@ async def _collect_recap(client, league_id, cache_dir, fence, now: int, *, force
                     if not claimed:
                         raise RuntimeError("recap_collection_failed: archive busy; retry")
                     if not store.edition_path(league_id, row.season, row.week).exists():
-                        store.save(league_id, edition_from_snapshot(snapshot, generated_at=row.admitted_at or row.observed_at))
+                        store.save(league_id, edition_from_snapshot(snapshot, generated_at=row.admitted_at or row.observed_at,
+                            facts_digest=row.facts_digest))
         failure.extend(period_errors)
     if failure:
         raise RuntimeError("recap_collection_failed: " + "; ".join(dict.fromkeys(failure)))

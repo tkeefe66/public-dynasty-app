@@ -21,7 +21,7 @@ from sleeper_dynasty.engine.results_signals import (
     latest_played_season as _latest_played_season, results_signals,
 )
 from sleeper_dynasty.engine.skill_signals import lineup_skill_signals
-from sleeper_dynasty.engine.standings import all_play_win_pct, standings_as_of
+from sleeper_dynasty.engine.standings import StandingRow, all_play_win_pct, standings_as_of
 
 
 def _ktc_value(v: Any, fmt: str = "superflex") -> float:
@@ -58,12 +58,27 @@ def compute_rating_signals(
     losers_place_by_season: dict[int, dict] = {}    # finishes within the toilet bracket
     npt_by_season: dict[int, int] = {}
     all_play_by_season: dict[int, dict[str, float]] = {}
+    observed_weeks_by_season: dict[int, dict[str, int]] = {}
     for lg, season in season_by_league.items():
         r2u = r2u_by_league.get(lg, {})
         pws = int(pws_by_league.get(lg, 15))
         standings_by_season[int(season)] = standings_as_of(
             matchups, league_id=lg, through_week=pws - 1,
             playoff_week_start=pws, roster_to_user=r2u)
+        provider_records = (supporting.get("roster_records_by_league") or {}).get(lg)
+        if provider_records is not None:
+            observed_weeks_by_season[int(season)] = {
+                row.owner_id: row.wins + row.losses + row.ties
+                for row in standings_by_season[int(season)]}
+            # Final season records include provider rules such as a second
+            # weekly game against the median. H2H-only reconstruction cannot
+            # stand in for that record. Roster IDs retain historical ownership.
+            rows = [StandingRow(owner_id=r2u[int(rid)], roster_id=int(rid), **record)
+                    for rid, record in provider_records.items() if int(rid) in r2u]
+            rows.sort(key=lambda row: (-(row.wins + row.ties / 2), -row.points_for))
+            for rank, row in enumerate(rows, 1):
+                row.rank = rank
+            standings_by_season[int(season)] = rows
         all_play_by_season[int(season)] = all_play_win_pct(
             matchups, league_id=lg, playoff_week_start=pws, roster_to_user=r2u)
         brackets_by_season[int(season)] = bracket_results(
@@ -229,6 +244,9 @@ def compute_rating_signals(
                 "made_toilet": lp is not None,          # participated in losers bracket
                 "toilet_place": toilet_place,           # 1=toilet champion, not a draft pick
             }
+            if season in observed_weeks_by_season:
+                season_records[str(season)][uid]["weeks_played"] = (
+                    observed_weeks_by_season[season].get(uid, 0))
 
     # v2 Results. Merged into the same dict rather than replacing it: v1's keys
     # have three non-scoring consumers (grader._playoff_rate_by_uid, and

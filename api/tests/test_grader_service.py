@@ -124,8 +124,8 @@ async def test_cold_and_warm_runs_produce_identical_output(tmp_path):
                                      "u_b": {"display_name": "Bob"}}
         async def get_rosters(self, lid):
             self.calls += 1
-            return [SimpleNamespace(roster_id=1, owner_id="u_a"),
-                    SimpleNamespace(roster_id=2, owner_id="u_b")]
+            return [SimpleNamespace(roster_id=1, owner_id="u_a", wins=0, losses=0, ties=0, points_for=0.0, points_against=0.0),
+                    SimpleNamespace(roster_id=2, owner_id="u_b", wins=0, losses=0, ties=0, points_for=0.0, points_against=0.0)]
         async def get_transactions(self, lid, w):
             self.calls += 1
             return [trade_tx] if (lid == "L2023" and w == 2) else []
@@ -240,8 +240,8 @@ async def test_cold_and_warm_identical_with_populated_matchups(tmp_path):
         async def get_rosters(self, lid):
             self.calls += 1
             return [
-                SimpleNamespace(roster_id=1, owner_id="u_a"),
-                SimpleNamespace(roster_id=2, owner_id="u_b"),
+                SimpleNamespace(roster_id=1, owner_id="u_a", wins=0, losses=14, ties=0, points_for=1260.0, points_against=1400.0),
+                SimpleNamespace(roster_id=2, owner_id="u_b", wins=14, losses=0, ties=0, points_for=1400.0, points_against=1260.0),
             ]
 
         async def get_transactions(self, lid, w):
@@ -339,8 +339,8 @@ async def test_run_merges_at_trade_fields_into_grades(tmp_path, monkeypatch):
         async def get_players(self): return {"p_allen": {"full_name": "Josh Allen", "position": "QB"}}
         async def get_users(self, lid): return {"u_a": {"display_name": "A"}, "u_b": {"display_name": "B"}}
         async def get_rosters(self, lid):
-            return [SimpleNamespace(roster_id=1, owner_id="u_a"),
-                    SimpleNamespace(roster_id=2, owner_id="u_b")]
+            return [SimpleNamespace(roster_id=1, owner_id="u_a", wins=0, losses=0, ties=0, points_for=0.0, points_against=0.0),
+                    SimpleNamespace(roster_id=2, owner_id="u_b", wins=0, losses=0, ties=0, points_for=0.0, points_against=0.0)]
         async def get_transactions(self, lid, w): return [trade_tx] if w == 1 else []
         async def get_drafts(self, lid): return []
         async def get_draft_picks(self, did): return []

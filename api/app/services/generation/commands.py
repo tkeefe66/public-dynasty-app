@@ -88,9 +88,17 @@ async def submit_refresh(db, league_id: str, actor_id: str, *,
             db.add(GenerationSubmission(key=key, request_digest=request_hash, operation_id=row.id))
             await db.flush()
         return row
-    active_key = "refresh:" + league_id
+    # Submission identity is per kind: stopped Analyst collection must not
+    # prevent ordinary league data from refreshing. Execution remains serialized
+    # across both kinds by claim_operation's free-running guard. Query by kind
+    # and state as well as using distinct keys so legacy league-only keys retain
+    # their same-kind deduplication without requiring a data migration.
+    active_key = f"refresh:{kind}:{league_id}"
     active = await db.scalar(select(GenerationOperation).where(
-        GenerationOperation.active_key == active_key))
+        GenerationOperation.league_id == league_id,
+        GenerationOperation.kind == kind,
+        GenerationOperation.state.in_(("queued", "running", "held", "needs_attention")))
+        .order_by(GenerationOperation.created_at.desc()).limit(1))
     if active:
         return await remember(active)
     last = await db.scalar(select(GenerationOperation).where(

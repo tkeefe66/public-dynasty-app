@@ -64,9 +64,9 @@ async def invalidate_episode(db, episode, reason, *, actor_id='api-observer'):
 
 
 async def withdraw_changed(db, episode, snapshot):
-    from app.services.recap_video.readiness import competitive_digest, evaluate_readiness
+    from app.services.recap_video.readiness import competitive_digest, evaluate_readiness, previous_competitive_digest
     from app.services.recap_video.publication import edition_row
-    if not episode.facts_digest or episode.facts_digest == competitive_digest(snapshot):
+    if not episode.facts_digest or await previous_competitive_digest(db, episode) == competitive_digest(snapshot):
         return []
     # Missing/incomplete sources are an evidence hold, not a proved stat correction.
     if evaluate_readiness(snapshot,None,stamp()).code not in ('facts_unstable','release_not_due','ready'):

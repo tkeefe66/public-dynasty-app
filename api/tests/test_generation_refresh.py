@@ -47,6 +47,25 @@ def test_post_joins_job_and_observation_is_read_only(client, refresh_db):
     assert asyncio.run(count()) == 1
 
 
+def test_member_refresh_and_league_status_ignore_stopped_analyst_job(client, refresh_db):
+    # Mutation: league-only submission deduplication returns the Analyst failure.
+    async def seed():
+        async with refresh_db.begin() as db:
+            db.add(GenerationOperation(id="stopped-analyst", league_id="synthetic",
+                kind="analyst_refresh", actor_id="test-user", state="needs_attention",
+                reason="execution_failed", active_key="refresh:synthetic"))
+    asyncio.run(seed())
+    response = client.post("/api/league/synthetic/refresh-jobs", json={})
+    assert response.status_code == 202
+    job = response.json()
+    assert job["id"] != "stopped-analyst" and job["state"] == "queued"
+    observed = client.get("/api/league/synthetic/refresh-jobs/" + job["id"])
+    assert observed.json()["state"] == "queued"
+    league = client.get("/api/me/leagues").json()[0]
+    assert league["refresh_job"]["id"] == job["id"]
+    assert league["refresh_job"]["state"] == "queued"
+
+
 def test_job_id_cannot_be_observed_through_another_league(client, refresh_db):
     submitted = client.post("/api/league/synthetic/refresh-jobs", json={}).json()
     response = client.get("/api/league/another/refresh-jobs/" + submitted["id"])

@@ -1201,10 +1201,14 @@ class GraderService:
         if _reuse_prior is not None:
             # Historical pillars don't change without new games/trades; reuse them.
             # outlook_signals stays freshly computed (current roster value/youth).
-            outcome_signals = _reuse_prior.outcome_signals or outcome_signals
+            # Provider totals can correct old H2H-only records even between
+            # games (median games, scoring corrections). Keep the freshly
+            # computed records and their dependent outcome signals together.
+            if not supporting.get("roster_records_by_league"):
+                outcome_signals = _reuse_prior.outcome_signals or outcome_signals
+                season_records_from_signals = _reuse_prior.season_records or season_records_from_signals
             lineup_signals = _reuse_prior.lineup_signals or lineup_signals
             draft_skill_by_season = _reuse_prior.draft_skill_by_season or draft_skill_by_season
-            season_records_from_signals = _reuse_prior.season_records or season_records_from_signals
             head_to_head = _reuse_prior.head_to_head or head_to_head
 
         # --- Per-pick draft results for the Future & Draft tab. ---
