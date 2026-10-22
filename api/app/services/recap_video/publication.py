@@ -266,6 +266,10 @@ async def current_scope(db, episode_id, expected_revision, media_id, *, audience
         media_fence=media_fence)
     if audience == 'members':
         scope['audience'] = 'members'
+        from app.services.recap_video.qualification import member_review_binding
+        binding = await member_review_binding(db, episode_id, media_id)
+        if binding is not None:
+            scope['member_review_binding'] = binding
     return scope
 
 

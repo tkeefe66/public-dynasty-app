@@ -53,6 +53,33 @@ match the original saved SHA-256 and size. MPEG audio is never rewritten. A
 different recording remains blocked. Partial recovery preserves untouched later
 chunks and requires independent speech and media validation before publication.
 
+Older workers may upload the history download before normalizing its metadata.
+The API independently verifies the stored bytes, request identity, stage and
+generation before restoring the original hash. It retains both the downloaded
+receipt and normalized receipt in the audit trail; replaying the same recovery
+does not create another asset or change the original charge.
+
 After repairing the underlying cause, the Weekly recap failure breaker can be
 reset through the existing administrator control. Reset does not retry failed
 jobs, change receipts, clear other holds, or alter approved spending limits.
+
+## Pronunciation corrections
+
+An operator can use `preview_pronunciation` to prepare a narration-only correction
+for an accepted editorial script. The preview keeps the script and voice intact,
+binds the exact pronunciation dictionary version and rules, and prices the
+replacement requests against existing limits. Preparing it makes no provider
+request. This operator path is not yet exposed as a browser form.
+
+Before `approve_pronunciation`, retain the dictionary readback, an actual sample
+request and recording, and the administrator's listening review. A pronunciation
+spelling or a passing transcript is not listening evidence. Additional paid
+requests need explicit approval; the preview does not grant it. Approval creates
+a new media execution using the same script, preserves prior receipts and
+charges, and leaves independent speech and media checks in place. It neither
+rewrites the article nor grants recurring publication authority.
+
+Finished editorial or recovered media uses an exact member-only publication
+review binding. Approval records factual and playback review; selection rechecks
+the same stages, assets, source, receipts and costs. This does not fabricate a
+phone review or grant public sharing or automatic-publication qualification.

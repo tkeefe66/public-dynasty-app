@@ -190,7 +190,10 @@ async def _current(db, stage, *, now):
     await require_actor(db, job)
     from app.services.recap_video.contracts import require_script_inputs
     episode = await require_script_inputs(db, job.series_id, job.league_id, json.loads(job.payload_json), media_checkpoint=True)
-    await require_script_preflight(db, json.loads(job.payload_json))
+    from app.services.recap_video.pronunciation import require_pronunciation_stage
+    pronunciation_preflight = await require_pronunciation_stage(db,stage)
+    if pronunciation_preflight is None:
+        await require_script_preflight(db, json.loads(job.payload_json))
     if episode.episode_id != stage.episode_id:
         raise Held("media_episode_changed")
     config = await resolve_policy(db, job.series_id)

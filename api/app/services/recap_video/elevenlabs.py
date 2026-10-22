@@ -87,13 +87,20 @@ def sanitized_receipt(receipt):
 
 def validate_request(request, rate, maximum):
     if (not isinstance(request, dict) or request.get("model_id") != MODEL
-            or set(request) - {"model_id", "inputs", "settings", "language_code", "seed", "apply_text_normalization", "previous_text", "future_text"}
+            or set(request) - {"model_id", "inputs", "settings", "language_code", "seed", "apply_text_normalization", "previous_text", "future_text", "pronunciation_dictionary_locators"}
             or not isinstance(request.get("inputs"), list) or len(request["inputs"]) != 1):
         raise ValueError("Qualified exact dialogue request required")
     item = request["inputs"][0]
     if set(item) != {"voice_id", "text"} or not isinstance(item["text"], str) or not 0 < len(item["text"]) <= 2000:
         raise ValueError("Narration input character bound invalid")
     identifier(item["voice_id"])
+    if 'pronunciation_dictionary_locators' in request:
+        locators=request['pronunciation_dictionary_locators']
+        if (not isinstance(locators,list) or len(locators)!=1 or not isinstance(locators[0],dict)
+                or set(locators[0])!={'pronunciation_dictionary_id','version_id'}):
+            raise ValueError('One immutable pronunciation dictionary version required')
+        for value in locators[0].values():
+            identifier(value)
     if (rate.get("unit") != "character" or not rate.get("source") or not rate.get("revision")
             or type(rate.get("microusd_per_character")) is not int or rate["microusd_per_character"] <= 0):
         raise ValueError("Qualified billing rate missing")

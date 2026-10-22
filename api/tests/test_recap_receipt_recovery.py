@@ -22,6 +22,21 @@ async def test_episode_detail_loads_running_speech_checkpoint(maker,tmp_path,mon
 
 
 @pytest.mark.asyncio
+async def test_episode_detail_retains_evidence_when_speech_review_preflight_expired(maker,tmp_path,monkeypatch):
+    # Mutation: read-only episode inspection aborts because mutation authority expired.
+    from app.services.recap_video.admin_actions import episode_view
+    from app.services.generation.store import Held
+    episode,_=await seed_media(maker,tmp_path,monkeypatch,'speech_check')
+    async def expired(db,artifact): raise Held('media_qualification_expired')
+    monkeypatch.setattr('app.services.recap_video.speech_reviews.context',expired)
+    async with maker.begin() as db:
+        await work.claim_stage(db,'speech-worker',{'speech_check'},stamp())
+        view=await episode_view(db,episode)
+        assert view['stage']['kind']=='speech_check'
+        assert view['speech_entities']==[] and view['speech_review_hold']=='media_qualification_expired'
+
+
+@pytest.mark.asyncio
 async def test_paid_received_audio_failure_exposes_exact_history_recovery(maker,tmp_path,monkeypatch):
     # A settled charge is still recoverable when its audio upload failed.
     from app.services.recap_video.admin_actions import episode_view

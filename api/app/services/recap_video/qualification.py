@@ -86,7 +86,7 @@ async def qualification_reader(db, episode_id):
         rate_snapshot=json.loads(row.rate_json))
 
 
-async def review_binding(db, episode_id, media_id):
+async def review_binding(db, episode_id, media_id, *, manual_members=False):
     """Bind content and all selected paid/free evidence; timestamps are not content."""
     episode = await db.get(RecapEpisode, episode_id, populate_existing=True)
     stage = await db.get(RecapStage, media_id, populate_existing=True)
@@ -108,16 +108,28 @@ async def review_binding(db, episode_id, media_id):
     for selected in stages:
         if selected.kind == 'narrate':
             dispositioned.update(await replacement_dispositions(db, selected))
-    if not narration or any(item.cost_microusd is None or
-            (item.state in ('dispatching', 'unknown', 'abandoned') or item.error_code == 'response_invalid')
-            and not (item.state == 'abandoned' and item.id in dispositioned) for item in narration):
+    unresolved = not narration
+    for item in narration:
+        resolved = item.state == 'abandoned' and item.id in dispositioned
+        if manual_members and item.error_code == 'response_invalid':
+            from app.services.recap_video.recovery import adopted_audio_resolves_outcome
+            resolved = resolved or await adopted_audio_resolves_outcome(db, item)
+        if item.cost_microusd is None or (
+                item.state in ('dispatching', 'unknown', 'abandoned') or item.error_code == 'response_invalid') and not resolved:
+            unresolved = True
+    if unresolved:
         raise Held('qualification_receipts_unreconciled')
     allocations = (await db.scalars(select(RecapBudgetAllocation).join(RecapBudgetPlan,
         RecapBudgetAllocation.plan_id == RecapBudgetPlan.id).where(RecapBudgetPlan.episode_id == episode_id).execution_options(populate_existing=True))).all()
     if any(item.outstanding_microusd for item in allocations):
         raise Held('qualification_receipts_unreconciled')
     prose = (await db.scalars(select(ProviderAttempt).where(ProviderAttempt.operation_id == script.operation_id).execution_options(populate_existing=True))).all()
-    if not prose or any(item.cost_microusd is None for item in prose):
+    if manual_members and script.provenance == 'editorial_reviewed':
+        from app.services.recap_video.editorial import require_editorial_artifact
+        await require_editorial_artifact(db, script)
+        if prose:
+            raise Held('qualification_receipts_unreconciled')
+    elif not prose or any(item.cost_microusd is None for item in prose):
         raise Held('qualification_receipts_unreconciled')
     assets = (await db.scalars(select(RecapAsset).where(RecapAsset.stage_id.in_([item.id for item in stages])).order_by(RecapAsset.id))).all()
     from app.services.generation.models import ArtifactHead
@@ -135,7 +147,22 @@ async def review_binding(db, episode_id, media_id):
         assets=[[a.id,a.digest] for a in assets],
         recoveries=[[r.id,r.stage_id,r.before_json] for r in recoveries],
         replacement=stage.execution_revision > 1 and any(r.action == 'bounded_replacement_authority' for r in recoveries),
-        receipts=sorted([[a.id,a.cost_microusd,a.state,a.recovery_receipt_json] for a in narration]))
+        receipts=sorted([[a.id,a.cost_microusd,a.state,a.recovery_receipt_json] for a in narration]),
+        **({'receipt_evidence': sorted([[a.id,a.request_digest,a.receipt_json,a.identity_json,a.error_code]
+            for a in narration])} if manual_members else {}))
+
+
+async def member_review_binding(db, episode_id, media_id):
+    """Exact one-edition evidence, without phone or recurring qualification."""
+    if not media_id:
+        return None
+    stage = await db.get(RecapStage, media_id)
+    script = await db.get(ContentArtifact, stage.script_id) if stage else None
+    recovered = await db.scalar(select(RecapRecovery.id).join(RecapStage,
+        RecapRecovery.stage_id == RecapStage.id).where(RecapStage.episode_id == episode_id).limit(1))
+    if script and (script.provenance == 'editorial_reviewed' or recovered or stage.execution_revision > 1):
+        return await review_binding(db, episode_id, media_id, manual_members=True)
+    return None
 
 
 async def qualification_status(db, series_id: str, season: int) -> dict:
@@ -341,6 +368,13 @@ async def target_publication_binding(db, episode_id, scope, *, manual_proof_id=N
 
 async def require_standing_proof(db, proof):
     scope = json.loads(proof.scope_json)
+    if proof.authorization_kind == 'manual' and scope.get('audience') == 'members':
+        current = await member_review_binding(db, proof.episode_id, scope.get('media_id'))
+        if current is not None or scope.get('member_review_binding') is not None:
+            await require_admin_actor(db, proof.reviewer_id)
+        if current != scope.get('member_review_binding'):
+            raise Held('member_publication_review_changed')
+        return {}
     if proof.authorization_kind != 'standing':
         # Manual recovered publication also rechecks its exact review after the
         # separate approval transaction and again before outbox projection.

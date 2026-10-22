@@ -211,6 +211,10 @@ async def apply_editorial(db, *, preview_id, preview_digest, actor_id, reason):
     authority.after_json = dump(dict(preview_id=preview_id, preview_digest=preview_digest,
         artifact_id=artifact.id, artifact_digest=artifact.digest, operation_id=job.id,
         source_digest=digest(saved), original_operation_id=old.id))
+    from app.services.recap_video.editorial_envelope import preview_original_envelope_release, reconcile_original_envelope
+    release = await preview_original_envelope_release(db,artifact_id=artifact.id,actor_id=actor_id)
+    await reconcile_original_envelope(db,artifact_id=artifact.id,preview_digest=release['digest'],actor_id=actor_id,
+        reason='Accepted editorial script supersedes original unused narration reservation')
     from app.services.recap_video.narration_budget import envelope_allocation
     from app.services.generation.recap_budget import reserve_plan
     allocation = await envelope_allocation(db, job)
@@ -219,7 +223,7 @@ async def apply_editorial(db, *, preview_id, preview_digest, actor_id, reason):
     return dict(artifact_id=artifact.id, operation_id=job.id, new_writer_calls=0)
 
 
-async def require_editorial_artifact(db, artifact, *, require_renderable=True):
+async def require_editorial_artifact(db, artifact, *, require_renderable=True, require_preflight=True):
     """Exact durable alternate authority, never a broad managed-provenance bypass."""
     if not artifact or artifact.provenance != 'editorial_reviewed' or artifact.feature != 'recap_video':
         raise Held('recap_editorial_authority_invalid')
@@ -276,6 +280,13 @@ async def require_editorial_artifact(db, artifact, *, require_renderable=True):
             or digest(policy) != manifest['fence']['policy_digest']):
         raise Held('recap_editorial_execution_changed')
     await require_script_inputs(db, job.series_id, job.league_id, saved)
-    await require_script_preflight(db, saved)
+    if require_preflight:
+        try:
+            await require_script_preflight(db, saved)
+        except Held as exc:
+            if exc.code != 'media_qualification_changed':
+                raise
+            from app.services.recap_video.pronunciation import require_pronunciation_preflight
+            await require_pronunciation_preflight(db,artifact)
     _validate(payload['script'], manifest['semantic_review'], saved, require_renderable=require_renderable)
     return job

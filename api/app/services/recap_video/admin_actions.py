@@ -223,8 +223,12 @@ async def episode_view(db, episode_id):
         for s in stages if s.kind=='narrate' and s.state!='succeeded')
     if stage and stage.kind=='speech_check':
         from app.services.recap_video.speech_reviews import context
-        _,entities,_=await context(db,await db.get(ContentArtifact,stage.script_id))
-        values['speech_entities']=[dict(kind=kind,id=ident,name=name) for (kind,ident),name in entities.items()]
+        try:
+            _,entities,_=await context(db,await db.get(ContentArtifact,stage.script_id))
+            values['speech_entities']=[dict(kind=kind,id=ident,name=name) for (kind,ident),name in entities.items()]
+        except Held as exc:
+            values['speech_review_hold']=exc.code
+            values['reason']=values['reason'] or exc.code
     values['revision'] = digest([data(episode), [[s.id,s.generation,s.state,s.input_digest] for s in stages],
         values['authority_revision'], [(a.id,a.state,a.identity_json) for a in attempts]])
     return values
