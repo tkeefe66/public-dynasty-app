@@ -304,21 +304,21 @@ async def verified_media(db, episode_id, media_id):
                 files=public, storage='private', stage_generation=stage.generation, stage_epoch=stage.epoch), stage.script_id
 
 
-async def preview_publication(db, episode_id, expected_revision, media_id):
+async def preview_publication(db, episode_id, expected_revision, media_id, *, audience='public'):
     """Task10 displays this exact preview and submits its digest with the review."""
     media, script_id = await verified_media(db, episode_id, media_id)
-    scope = await current_scope(db, episode_id, expected_revision, media_id)
+    scope = await current_scope(db, episode_id, expected_revision, media_id, audience=audience)
     scope.update(media_digest=digest(media), script_id=script_id)
     return dict(digest=digest(scope), article=scope['article'], media=AnalystMedia.public_metadata(media or None))
 
 
-async def record_approval(db, episode_id, expected_revision, media_id, *, reviewer, reason, preview_digest):
+async def record_approval(db, episode_id, expected_revision, media_id, *, reviewer, reason, preview_digest, audience='public'):
     """Called ONLY behind Task10's require_admin dependency; no worker capability."""
     if not getattr(reviewer, 'is_admin', False) or not getattr(reviewer, 'id', '') or not reason.strip():
         raise Held('publication_admin_review_required')
     media, script_id = await verified_media(db, episode_id, media_id)
     await lock_control(db)
-    scope = await current_scope(db, episode_id, expected_revision, media_id)
+    scope = await current_scope(db, episode_id, expected_revision, media_id, audience=audience)
     scope.update(media_digest=digest(media), script_id=script_id)
     if digest(scope) != preview_digest:
         raise Held('publication_preview_changed')

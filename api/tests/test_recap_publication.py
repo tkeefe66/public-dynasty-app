@@ -711,3 +711,35 @@ async def test_member_http_can_share_only_exact_published_legacy_roast_without_m
     assert public.json()['media'] is None and 'private' not in public.text.lower()
     AnalystStore(get_cache_dir()).save_correction('test',{**article,'markdown':'Corrected roast'},'Correct facts')
     assert client.get(url).json()['status'] == 'withdrawn'
+
+
+@pytest.mark.asyncio
+async def test_manual_members_publication_needs_no_public_grant_or_token(maker,tmp_path,monkeypatch):
+    from sqlalchemy import select
+    from app.services.recap_video import publication as p
+    from app.services.generation.recap_models import RecapShareDecision, RecapPublication
+    ident=await ready_article(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        await db.delete(await db.get(RecapShareDecision,'series:series'))
+        await db.flush()
+        with pytest.raises(Held,match='future_sharing_disabled'):
+            await p.preview_publication(db,ident,0,None)
+        preview=await p.preview_publication(db,ident,0,None,audience='members')
+        approval=await p.record_approval(db,ident,0,None,audience='members',
+            reviewer=SimpleNamespace(id='admin',is_admin=True),reason='Members only review',preview_digest=preview['digest'])
+        await p.select_publication(db,ident,0,None,approval)
+        row=await db.get(RecapPublication,ident)
+        assert row and not row.enabled and not row.withdrawn
+        assert await db.scalar(select(RecapShareDecision.scope)) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('preview_audience,approval_audience',[('public','members'),('members','public')])
+async def test_manual_publication_audience_is_bound_to_preview(maker,tmp_path,monkeypatch,preview_audience,approval_audience):
+    from app.services.recap_video import publication as p
+    ident=await ready_article(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        preview=await p.preview_publication(db,ident,0,None,audience=preview_audience)
+        with pytest.raises(Held,match='publication_preview_changed'):
+            await p.record_approval(db,ident,0,None,audience=approval_audience,
+                reviewer=SimpleNamespace(id='admin',is_admin=True),reason='Review',preview_digest=preview['digest'])
