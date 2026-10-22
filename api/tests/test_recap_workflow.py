@@ -450,3 +450,29 @@ async def test_unqualified_media_preflight_fails_closed(maker):
     async with maker.begin() as db:
         with pytest.raises(Held, match="media_qualification_required"):
             await require_media_preflight(db, "synthetic-episode")
+
+
+@pytest.mark.asyncio
+async def test_preflight_renewed_calibration_creates_fresh_free_proof(maker, tmp_path, monkeypatch):
+    # Mutation: still-fresh proof from an earlier calibration is returned unchanged.
+    from tests.test_recap_video_script import seed
+    from tests.test_recap_narration_adapters import qualified
+    from app.services.recap_video import elevenlabs
+    episode_id, _ = await seed(maker, tmp_path, monkeypatch)
+    approval = qualified(monkeypatch)
+    monkeypatch.setenv("TRADE_GRADER_GENERATION_EXECUTION_EPOCH", "test-epoch")
+    monkeypatch.setattr(work, "PREFLIGHT_CONFIG", elevenlabs.preflight_config)
+    monkeypatch.setitem(work.RESULT_VALIDATORS, "preflight", elevenlabs.validate_preflight)
+    async with maker.begin() as db:
+        old = await work.prepare_preflight(db, episode_id, actor_id="owner", reason="First free proof")
+        old.state = "succeeded"
+        evidence = await elevenlabs.validate_preflight(db, old, {"report": approval["metadata"]})
+        old.result_json = dump({"report": evidence})
+        saved = old.result_json, old.evidence_json
+        assert (await work.prepare_preflight(db, episode_id, actor_id="owner", reason="Reuse same approval")).id == old.id
+        approval["revision"] = "durable-2"
+        fresh = await work.prepare_preflight(db, episode_id, actor_id="owner", reason="Renew calibration proof")
+        assert fresh.id != old.id and fresh.revision == old.revision + 1
+        assert fresh.state == "queued"
+        assert old.state == "succeeded" and (old.result_json, old.evidence_json) == saved
+        assert await db.scalar(select(RecapProviderAttempt.id)) is None

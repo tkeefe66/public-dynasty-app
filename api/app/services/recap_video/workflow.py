@@ -101,6 +101,15 @@ async def prepare_preflight(db, episode_id, *, actor_id, reason):
                 and row.epoch == control.epoch and row.state in ("queued", "running", "succeeded")
                 and row.created_at + PREFLIGHT_MAX_AGE > stamp()):
             await _current(db, row, now=stamp())
+            if row.state == "succeeded":
+                from app.services.recap_video import elevenlabs
+                if elevenlabs.QUALIFICATION_READER is not None:
+                    approved = await elevenlabs.qualification(db, episode_id)
+                    evidence = json.loads(row.result_json).get("report", {})
+                    if evidence.get("qualification_revision") != approved["revision"]:
+                        # Keep completed evidence immutable; queue fresh free proof
+                        # after a new calibration instead of reusing its old approval.
+                        continue
             return row
         if row.state in ("queued", "running"):
             row.state, row.reason, row.lease_until = "held", "media_preflight_inputs_changed", 0
