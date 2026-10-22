@@ -29,9 +29,11 @@ async def require_failed_script(db, job, *, prepared=False):
             GenerationAudit.target==replacement_review_target(job.subject,episode.period_id)))).all()
         if not any(json.loads(review.after_json).get('job_id')==job.id for review in reviews):
             raise Held('recap_script_replacement_review_required')
-    if (await db.get(ArtifactHead,job.subject)
-            or await db.scalar(select(ContentArtifact.id).where(ContentArtifact.subject==job.subject).limit(1))):
+    if await db.get(ArtifactHead,job.subject):
         raise Held('recap_script_saved_output_requires_review')
+    from app.services.recap_video.editorial_amendment import require_retired_editorial
+    for historical in (await db.scalars(select(ContentArtifact).where(ContentArtifact.subject==job.subject))).all():
+        await require_retired_editorial(db, historical)
     if (await db.scalar(select(RecapStage.id).where(RecapStage.episode_id==episode.episode_id,
             RecapStage.kind!='preflight').limit(1))
             or await db.scalar(select(RecapProviderAttempt.id).where(RecapProviderAttempt.episode_id==episode.episode_id).limit(1))):

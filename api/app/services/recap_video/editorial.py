@@ -2,7 +2,7 @@
 import json
 from types import SimpleNamespace
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.services.generation.models import (ArtifactHead, ContentArtifact, GenerationAudit,
@@ -92,7 +92,7 @@ async def get_editorial_source(db, *, operation_id, actor_id):
         claims=saved['claims'], review=review, fence=fence)
 
 
-def _validate(script, review, saved):
+def _validate(script, review, saved, *, require_renderable=True):
     from sleeper_dynasty.llm.recap_video_writer import Script, Review
     from sleeper_dynasty.engine.recap_video_claims import validate_script
     from sleeper_dynasty.engine.recap_narration import narration_chunks
@@ -114,6 +114,9 @@ def _validate(script, review, saved):
                 or validate_script(normalized, saved['claims'], saved['published_article'])):
             raise ValueError()
         narration_chunks(normalized)
+        from media.timeline import scene_plan
+        if require_renderable:
+            scene_plan(normalized, saved['claims'])
         normalize = lambda value: ' '.join(value.casefold().split())
         prior = {normalize(p['premise']) for episode in saved.get('recent_premises', []) for p in episode['premises']}
         if any(normalize(p['premise']) in prior and not p.get('callback_reason', '').strip() for p in normalized['premises']):
@@ -197,8 +200,9 @@ async def apply_editorial(db, *, preview_id, preview_digest, actor_id, reason):
     payload = dict(script=script, claims=saved['claims'], episode_id=episode.episode_id,
         article_digest=saved['published_article']['digest'], source_digest=saved['source_digest'],
         recap_facts_digest=saved['recap_facts_digest'], editorial_authority_id=authority.id, original_operation_id=old.id)
+    revision = (await db.scalar(select(func.max(ContentArtifact.revision)).where(ContentArtifact.subject == old.subject)) or 0) + 1
     artifact = ContentArtifact(operation_id=job.id, series_id=old.series_id, league_id=old.league_id,
-        feature='recap_video', subject=old.subject, revision=1, payload_json=dump(payload), digest=digest(payload),
+        feature='recap_video', subject=old.subject, revision=revision, payload_json=dump(payload), digest=digest(payload),
         facts_json=dump(saved), provenance='editorial_reviewed')
     db.add(artifact)
     await db.flush()
@@ -215,7 +219,7 @@ async def apply_editorial(db, *, preview_id, preview_digest, actor_id, reason):
     return dict(artifact_id=artifact.id, operation_id=job.id, new_writer_calls=0)
 
 
-async def require_editorial_artifact(db, artifact):
+async def require_editorial_artifact(db, artifact, *, require_renderable=True):
     """Exact durable alternate authority, never a broad managed-provenance bypass."""
     if not artifact or artifact.provenance != 'editorial_reviewed' or artifact.feature != 'recap_video':
         raise Held('recap_editorial_authority_invalid')
@@ -273,5 +277,5 @@ async def require_editorial_artifact(db, artifact):
         raise Held('recap_editorial_execution_changed')
     await require_script_inputs(db, job.series_id, job.league_id, saved)
     await require_script_preflight(db, saved)
-    _validate(payload['script'], manifest['semantic_review'], saved)
+    _validate(payload['script'], manifest['semantic_review'], saved, require_renderable=require_renderable)
     return job

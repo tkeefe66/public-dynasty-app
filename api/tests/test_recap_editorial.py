@@ -16,6 +16,9 @@ async def setup(maker, tmp_path, monkeypatch):
     monkeypatch.setenv('TRADE_GRADER_GENERATION_EXECUTION_EPOCH', 'test-epoch')
     script = approved_payload(saved)['script']
     script.pop('reviews')
+    names={owner['id']:owner['name'] for owner in saved['claims']['owners']}
+    for segment in script['segments']:
+        segment['text']=' and '.join(names[owner] for owner in segment['owner_ids'])+' tied this matchup.'
     from sleeper_dynasty.llm.recap_video_writer import Script
     script = Script.model_validate(script).model_dump()
     review = dict(reviewer_identity='Independent synthetic editor', reviewer_kind='delegated_ai_editorial_reviewer',
@@ -177,3 +180,15 @@ async def test_editorial_source_reports_missing_saved_draft_explicitly(maker,tmp
     async with maker.begin() as db:
         with pytest.raises(Held,match='recap_editorial_saved_script_missing'):
             await e.get_editorial_source(db,operation_id='job',actor_id='owner')
+
+
+@pytest.mark.asyncio
+async def test_editorial_preview_rejects_missing_visual_result_anchor_before_approval(maker,tmp_path,monkeypatch):
+    _,script,review=await setup(maker,tmp_path,monkeypatch)
+    script['segments'][0]['text']=script['segments'][0]['text'].replace('tied this matchup','discussed this matchup')
+    review['script_sha256']=digest(script)
+    from app.services.generation.models import GenerationAudit
+    async with maker.begin() as db:
+        with pytest.raises(Held,match='recap_editorial_review_invalid'):
+            await preview(db,script,review)
+        assert await db.scalar(select(GenerationAudit.id).where(GenerationAudit.action=='recap_editorial_preview')) is None

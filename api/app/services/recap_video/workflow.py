@@ -733,7 +733,7 @@ async def advance_media(maker):
                 # Source/prose remain independent; unavailable media spends nothing.
                 await preparation_attention(db, episode_id, exc.code)
                 continue
-        scripts = (await db.scalars(select(ContentArtifact).where(ContentArtifact.feature == "recap_video",
+        scripts = (await db.scalars(select(ContentArtifact).join(ArtifactHead, ArtifactHead.artifact_id == ContentArtifact.id).where(ContentArtifact.feature == "recap_video",
             ~ContentArtifact.id.in_(select(RecapStage.script_id))).order_by(ContentArtifact.created_at).limit(25))).all()
         for script in scripts:
             episode = await db.get(RecapEpisode, json.loads(script.payload_json).get("episode_id", ""))

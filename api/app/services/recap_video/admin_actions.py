@@ -146,7 +146,8 @@ async def episode_view(db, episode_id):
         from app.services.generation.models import GenerationOperation
         script_job = await db.scalar(select(GenerationOperation).where(
             GenerationOperation.subject=='recap_video:'+episode_id,
-            GenerationOperation.feature=='recap_video', GenerationOperation.kind.in_(('generation','recap_editorial')))
+            GenerationOperation.feature=='recap_video', GenerationOperation.kind.in_(('generation','recap_editorial')),
+            ~((GenerationOperation.kind=='recap_editorial') & (GenerationOperation.state=='cancelled')))
             .order_by(GenerationOperation.created_at.desc(),GenerationOperation.id.desc()).limit(1))
         if script_job and script_job.state=='cancelled':
             from app.services.generation.models import GenerationAudit

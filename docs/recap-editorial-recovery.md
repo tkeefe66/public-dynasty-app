@@ -14,6 +14,13 @@ no money. **Approve corrected script** binds the approval to that preview and
 reserves narration under the existing episode, monthly, and application limits.
 Changing content invalidates the preview and review checkboxes.
 
+Preview also validates the video scene plan before approval. If an older
+editorial approval failed before any media stage or request existed, an operator
+may retire that unused approval with `retract_unused_editorial`. The original
+artifact and audit remain immutable, its unused narration reservation is
+released, and a new reviewed revision can be approved. Once media work starts,
+this path refuses retirement so paid work cannot be silently discarded.
+
 The backend independently rechecks the administrator, league access, current
 article and facts, original settled receipts, current voice verification,
 execution epoch, policy, budget and absence of existing media. Both preview
