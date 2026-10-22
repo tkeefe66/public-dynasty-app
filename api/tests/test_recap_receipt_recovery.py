@@ -58,6 +58,13 @@ async def test_recovered_first_chunk_preserves_unused_second_chunk_authority(mak
         allocation_ids=list((await db.scalars(select(RecapBudgetAllocation.id))).all())
         attempt_ids=list((await db.scalars(select(RecapProviderAttempt.id))).all())
         plan=await recovered_audio_plan(db,episode)
+        from app.services.recap_video.admin_actions import episode_view
+        from app.services.generation.recap_models import RecapRecoveryRequest
+        history=RecapRecoveryRequest(attempt_id=attempt.id,worker_id='narrator',actor_id='owner',
+            identity_json=dump(identity),request_digest=attempt.request_digest,epoch=first.epoch,
+            state='held',error='storage_failed',reason='Recover exact audio')
+        db.add(history);await db.flush()
+        assert 'resume_recovered_audio' in (await episode_view(db,episode))['actions']
         from app.services.generation.recap_budget import _obligations
         assert next(row for row in await _obligations(db) if row['attempt_id']==attempt.id)['outcome_unknown']
         await adopt_recovered_audio(db,episode,plan,actor_id='owner',reason='Recover exact first chunk only')
@@ -68,6 +75,10 @@ async def test_recovered_first_chunk_preserves_unused_second_chunk_authority(mak
         assert await work.claim_stage(db,'speech-worker',{'speech_check'},stamp()) is None
         next_lease=await work.claim_stage(db,'narrator',{'narrate'},stamp())
         assert next_lease['stage_id']==second.id
+        view=await episode_view(db,episode)
+        assert 'resume_recovered_audio' not in view['actions']
+        assert view['recovery_requests'][0]['state']=='recovered'
+        assert history.state=='held' and history.error=='storage_failed'
         asset.digest='b'*64
         assert next(row for row in await _obligations(db) if row['attempt_id']==attempt.id)['outcome_unknown']
 

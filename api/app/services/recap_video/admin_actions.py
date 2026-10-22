@@ -172,7 +172,15 @@ async def episode_view(db, episode_id):
     if any(a.state in ('unknown','dispatching','abandoned') or
             (a.state == 'received' and a.error_code == 'response_invalid' and not a.recovery_receipt_json) for a in attempts):
         actions.insert(0, 'reconcile_request')
-    if any(a.recovery_receipt_json and a.state != 'abandoned' for a in attempts) and stage and stage.kind=='narrate':
+    from app.services.recap_video.recovery import recovered_audio_plan, adopted_audio_resolves_outcome
+    recoverable_stages = set()
+    if any(a.recovery_receipt_json for a in attempts):
+        try:
+            recoverable_stages = {item['stage_id'] for item in await recovered_audio_plan(db,episode_id)
+                if not item.get('untouched')}
+        except Held:
+            pass  # An unavailable action is not an invitation to retry paid work.
+    if recoverable_stages:
         actions.insert(0,'resume_recovered_audio')
     if any(a.worker_id != get_settings().media_worker_id for a in attempts):
         actions.append('reassign_worker')
@@ -190,7 +198,15 @@ async def episode_view(db, episode_id):
             identity=json.loads(a.identity_json),worker_id=a.worker_id,error_code=a.error_code) for a in attempts],
         qualification=await qualification_status(db, episode.series_id, episode.season), reason=reason, actions=actions,
         budget=await get_budget_view(db, episode.series_id, episode_id, stamp()))
-    values['recovery_requests']=[data(r) for r in requests]
+    adopted_attempts = {a.id for a in attempts if a.recovery_receipt_json and await adopted_audio_resolves_outcome(db,a)}
+    saved_attempts = {a.id for a in attempts if a.stage_id in recoverable_stages}
+    values['recovery_requests']=[]
+    for request in requests:
+        display=data(request)
+        if request.attempt_id in adopted_attempts | saved_attempts:
+            display.update(original_state=request.state,original_error=request.error,state='recovered',
+                error='recovered_audio_adopted' if request.attempt_id in adopted_attempts else 'recovered_audio_saved_review_required')
+        values['recovery_requests'].append(display)
     values['configured_worker_id']=get_settings().media_worker_id
     values['script_operation_id']=script_job.id if script_job else None
     values['script_operation']=dict(id=script_job.id,state=script_job.state,generation=script_job.generation,
