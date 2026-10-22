@@ -36,6 +36,52 @@ def _facts():
     )
 
 
+@pytest.mark.parametrize('label,rec,valid', [
+    ('half-PPR', '1.0', False), ('half PPR', '0.5', True),
+    ('half-point PPR', '1', False), ('0.5-PPR', 1, False),
+    ('full-PPR', '0.5', False), ('PPR', '0', False),
+    ('non-PPR', '1.0', False), ('non-PPR', '0.0', True),
+    ('full PPR', '1.0', True), ('PPR', 1, True),
+    ('half–PPR', '1.0', False), ('standard scoring', '1', False),
+])
+def test_saved_reception_scoring_overrules_paid_review(writer_factory, label, rec, valid):
+    # Mutation: trust an approving reviewer without comparing named scoring to saved rec.
+    from sleeper_dynasty.llm.recap_packet import ArchivedPacket
+    packet = _facts().to_dict()
+    packet['source_snapshot'] = {'scoring_settings': {'rec': rec}}
+    text = f'In a league with {label} scoring, every catch matters.'
+    writer, requests = writer_factory([
+        _message([_text(text)]), _message([_verdict()], stop_reason='tool_use')])
+    if valid:
+        assert writer.write(ArchivedPacket(packet)) == text
+    else:
+        with pytest.raises(ValueError, match='scoring.*refusing publication'):
+            writer.write(ArchivedPacket(packet))
+    assert len(requests) == 2
+
+
+@pytest.mark.parametrize('claim,valid', [
+    ('Their lowest score of the season.', False),
+    ('His highest total of his career.', False),
+    ('A season-low score.', False),
+    ('The lowest score this week.', True),
+    ('Their highest hopes for the season.', True),
+])
+def test_canonical_week_packet_cannot_prove_historical_scoring_records(writer_factory, claim, valid):
+    # Mutation: let a paid reviewer approve a historical scoring record from one-week evidence.
+    from sleeper_dynasty.llm.recap_packet import ArchivedPacket
+    packet = _facts().to_dict()
+    packet['source_snapshot'] = {'scoring_settings': {'rec': '1'}}
+    writer, requests = writer_factory([
+        _message([_text(claim)]), _message([_verdict()], stop_reason='tool_use')])
+    if valid:
+        assert writer.write(ArchivedPacket(packet)) == claim
+    else:
+        with pytest.raises(ValueError, match='historical scoring.*refusing publication'):
+            writer.write(ArchivedPacket(packet))
+    assert len(requests) == 2
+
+
 def _message(content, *, stop_reason="end_turn", output_tokens=300):
     # Composed from the documented Messages API envelope, not a production capture.
     return {

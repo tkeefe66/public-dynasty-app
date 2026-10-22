@@ -388,6 +388,27 @@ async def test_article_without_video_remains_readable_through_global_pause(maker
 
 
 @pytest.mark.asyncio
+async def test_unshared_article_correction_hold_hides_archive_before_media_publication(maker,tmp_path,monkeypatch):
+    # Mutation: no publication row means a corrected/withdrawn article remains visible.
+    import json
+    from app.routes.analyst import analyst_archive
+    from app.services.analyst_store import AnalystStore
+    from app.services.generation.models import ContentArtifact
+    from app.services.generation.recap_models import RecapEpisode
+    from app.services.recap_video.corrections import invalidate_episode
+    ident = await ready_article(maker,tmp_path,monkeypatch)
+    async with maker.begin() as db:
+        article = json.loads((await db.get(ContentArtifact,'article')).payload_json)
+    AnalystStore(tmp_path).save('synthetic',article)
+    async with maker.begin() as db:
+        assert len((await analyst_archive('synthetic',db))['editions']) == 1
+        episode = await db.get(RecapEpisode,ident)
+        await invalidate_episode(db,episode,'recap_editorial_correction_required',actor_id='admin')
+    async with maker() as db:
+        assert (await analyst_archive('synthetic',db))['editions'] == []
+
+
+@pytest.mark.asyncio
 async def test_authenticated_reader_never_returns_stale_file_beside_current_managed_authority(maker,tmp_path,monkeypatch):
     # Mutation: validate DB source but still return a different filesystem article.
     from app.routes.analyst import analyst_archive

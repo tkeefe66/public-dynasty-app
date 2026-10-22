@@ -15,8 +15,9 @@ from tests.test_generation_gateway import FakeTransport, seed_job
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("changed_facts", [False, True])
+@pytest.mark.parametrize('correction_reason', ['', 'Correct reception scoring'])
 async def test_legacy_recap_receipts_replay_without_spending_or_weakening_digest(
-    maker, changed_facts
+    maker, changed_facts, correction_reason
 ):
     # Mutation: rebuild old repair requests with the new contract, or bypass request-digest checks to recover them.
     fixture = json.loads(
@@ -28,6 +29,8 @@ async def test_legacy_recap_receipts_replay_without_spending_or_weakening_digest
     async with maker.begin() as db:
         job = await db.get(GenerationOperation, "job")
         job.feature, job.calls, job.max_calls = "analyst", 4, 4
+        job.reason = 'Automatic weekly recap'
+        fixture['payload']['correction_reason'] = correction_reason
         if changed_facts:
             fixture["payload"]["edition"]["facts"]["high_scorer"]["points"] = 170
         job.payload_json = dump(fixture["payload"])
@@ -62,6 +65,8 @@ async def test_legacy_recap_receipts_replay_without_spending_or_weakening_digest
             result.payload["markdown"] == "Team A scored **158 points**. Closing joke."
         )
         assert result.stages == 4
+        # Mutation: leak an operational queue reason into the reader's correction notice.
+        assert result.payload['correction_note'] == correction_reason
     assert transport.sends == 0
     async with maker() as db:
         assert (await db.get(GenerationOperation, "job")).calls == 4

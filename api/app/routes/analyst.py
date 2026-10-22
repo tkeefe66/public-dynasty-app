@@ -6,6 +6,8 @@ from pydantic import BaseModel
 from app.deps import get_cache_dir
 from app.db.session import get_db
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import select
+from app.services.generation.recap_models import RecapEpisode
 from app.services.generation.store import Held, digest
 from app.services.recap_video import publication
 from app.services.analyst_store import AnalystEdition, AnalystStore
@@ -25,6 +27,11 @@ async def analyst_archive(league_id: str, db=Depends(get_db)):
             await publication.serving_gate(db)
             visible = []
             for edition in editions:
+                correction = await db.scalar(select(RecapEpisode.episode_id).where(
+                    RecapEpisode.league_id == league_id, RecapEpisode.season == edition['season'],
+                    RecapEpisode.week == edition['week'], RecapEpisode.lifecycle == 'correction').limit(1))
+                if correction:
+                    continue
                 row = await publication.edition_row(db, league_id, edition['season'], edition['week'])
                 if row and (row.withdrawn or row.hold or not await publication.article_current(db, row)):
                     continue

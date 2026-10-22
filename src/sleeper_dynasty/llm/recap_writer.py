@@ -11,6 +11,7 @@ import logging
 import re
 import unicodedata
 from copy import deepcopy
+from decimal import Decimal, InvalidOperation
 from importlib import resources
 from itertools import pairwise
 from typing import Any, cast
@@ -229,6 +230,40 @@ def require_matchup_coverage(text: str, facts, outlook) -> None:
         raise ValueError("; ".join(missing) + "; refusing publication")
 
 
+def require_scoring_claims(text: str, facts) -> None:
+    """Named reception formats must agree with the immutable provider settings."""
+    snapshot = facts.to_dict().get('source_snapshot')
+    normalized = unicodedata.normalize('NFKC', text).casefold()
+    normalized = re.sub(r'[‐‑‒–—−]', '-', normalized).replace('**', '').replace('__', '')
+    # Canonical collector packets seal one period only; no cross-week scoring
+    # history contract exists here. A reviewer cannot supply that missing proof.
+    if snapshot and re.search(
+        r'\b(?:lowest|highest)\s+(?:(?:weekly|team|single-week)\s+)?(?:score|total|point total)'
+        r'(?:\s+\w+){0,5}\s+(?:season|career)\b'
+        r'|\b(?:season|career)[ -](?:low|high)(?:est)?\s+(?:score|total|point total)\b', normalized):
+        raise ValueError('Analyst historical scoring claim lacks cross-week evidence; refusing publication')
+    settings = (snapshot or {}).get('scoring_settings') or {}
+    if 'rec' not in settings:
+        return  # Legacy packets do not establish a reception scoring authority.
+    labels = list(re.finditer(
+        r'(?<![\w.])(?:(half|0\.5|\.5|full|1(?:\.0)?|non|no|zero|0(?:\.0)?)'
+        r'[ -]*(?:point[ -]*)?)?ppr\b|\bstandard[ -]+scoring\b', normalized))
+    if not labels:
+        return
+    try:
+        reception = Decimal(str(settings['rec']))
+        if not reception.is_finite():
+            raise InvalidOperation
+    except (InvalidOperation, ValueError):
+        raise ValueError('Analyst scoring authority is invalid; refusing publication') from None
+    for label in labels:
+        prefix = label.group(1)
+        claimed = Decimal('0.5' if prefix in ('half', '0.5', '.5') else
+            '0' if prefix in ('non', 'no', 'zero', '0', '0.0') or label.group().startswith('standard') else '1')
+        if reception != claimed:
+            raise ValueError(f'Analyst scoring claim {label.group()!r} conflicts with saved rec={reception}; refusing publication')
+
+
 class RecapWriter:
     """Generates recap prose from a facts packet using Claude."""
 
@@ -431,6 +466,7 @@ class RecapWriter:
                 raise ValueError("; ".join(missing) + "; refusing publication")
             violations = missing or self._review(text, facts, outlook, lore)
             if not violations:
+                require_scoring_claims(text, facts)
                 return text
             if attempt < MAX_REPAIRS:
                 logger.info(

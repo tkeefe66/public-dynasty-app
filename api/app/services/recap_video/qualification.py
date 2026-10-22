@@ -180,6 +180,10 @@ async def qualification_status(db, series_id: str, season: int) -> dict:
     config = await resolve_policy(db, series_id)
     from app.services.recap_video import workflow
     settings=get_settings()
+    worker_capabilities = {value.strip() for value in settings.media_worker_capabilities.split(',') if value.strip()}
+    if not workflow.MEDIA_KINDS.issubset(worker_capabilities):
+        status['reason'] = 'media_worker_capabilities_incomplete'
+        return status
     if (settings.generation_emergency_pause or not config['epoch'] or settings.generation_execution_epoch != config['epoch']
             or workflow.MEDIA_PLAN_BUILDER is None or set(workflow.MEDIA_KINDS)-set(workflow.RESULT_VALIDATORS)):
         status['reason']='media_runtime_not_authorized'

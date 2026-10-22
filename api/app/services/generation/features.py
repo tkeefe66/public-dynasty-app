@@ -120,7 +120,7 @@ async def generate(job, gateway):
             context = edition["facts"].get("player_context", {})
             return {**edition, "markdown": markdown, "edition_type": "roast",
                 "model": policy["model"], "generated_at": datetime.now(UTC).isoformat(),
-                "correction_note": job.reason, "sources": context.get("sources", []),
+                "correction_note": saved.get("correction_reason", ""), "sources": context.get("sources", []),
                 "context_note": context.get("note")}
         if job.feature == "trade_story":
             from sleeper_dynasty.llm.trade_story_writer import TradeStoryWriter

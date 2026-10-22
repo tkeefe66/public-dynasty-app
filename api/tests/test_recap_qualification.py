@@ -30,6 +30,7 @@ async def qualified_series(maker,tmp_path,monkeypatch,*,review_target=True):
     ident,media_id=await seed_media(maker,tmp_path,monkeypatch,'media_check')
     monkeypatch.setenv('TRADE_GRADER_RECAP_PUBLICATION_MODE','database')
     monkeypatch.setenv('TRADE_GRADER_RECAP_SERVING_EPOCH','test-serving')
+    monkeypatch.setenv('TRADE_GRADER_MEDIA_WORKER_CAPABILITIES','preflight,narrate,render,speech_check,media_check')
     monkeypatch.setattr(elevenlabs,'preflight_config',lambda:{'voice':'synthetic-v8'})
     monkeypatch.setattr(q,'current_versions',lambda:{'source':'1','template':'1','narrator':'v8','review':'1'})
     async with maker.begin() as db:
@@ -74,6 +75,19 @@ async def qualified_series(maker,tmp_path,monkeypatch,*,review_target=True):
         db.add(m.RecapStandingAuthorization(id='standing',series_id='series',season=2026,calibration_id='calibration',
             review_ids_json=dump(['review-0','review-1','review-2'] if review_target else ['review-1','review-2','review-3']),actor_id='owner'))
     return ident,media_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('missing', ['preflight', 'narrate', 'render', 'speech_check', 'media_check'])
+async def test_automatic_qualification_requires_all_worker_capabilities(maker,tmp_path,monkeypatch,missing):
+    # Mutation: report qualified when configured worker cannot complete one required checkpoint.
+    from app.services.recap_video import qualification as q, workflow
+    await qualified_series(maker,tmp_path,monkeypatch)
+    monkeypatch.setenv('TRADE_GRADER_MEDIA_WORKER_CAPABILITIES', ','.join(sorted(workflow.MEDIA_KINDS - {missing})))
+    async with maker() as db:
+        status = await q.qualification_status(db,'series',2026)
+        assert status['automatic'] is False
+        assert status['reason'] == 'media_worker_capabilities_incomplete'
 
 
 @pytest.mark.asyncio
