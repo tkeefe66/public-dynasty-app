@@ -9,6 +9,19 @@ from tests.test_recap_workflow import seed_media, fence, result
 
 
 @pytest.mark.asyncio
+async def test_episode_detail_loads_running_speech_checkpoint(maker,tmp_path,monkeypatch):
+    # Mutation: conditional ContentArtifact import shadows module binding on unfinished media.
+    from app.services.recap_video.admin_actions import episode_view
+    episode,_=await seed_media(maker,tmp_path,monkeypatch,'speech_check')
+    async with maker.begin() as db:
+        lease=await work.claim_stage(db,'speech-worker',{'speech_check'},stamp())
+        assert lease
+        view=await episode_view(db,episode)
+        assert view['stage']['kind']=='speech_check' and view['stage']['state']=='running'
+        assert isinstance(view['speech_entities'],list)
+
+
+@pytest.mark.asyncio
 async def test_paid_received_audio_failure_exposes_exact_history_recovery(maker,tmp_path,monkeypatch):
     # A settled charge is still recoverable when its audio upload failed.
     from app.services.recap_video.admin_actions import episode_view

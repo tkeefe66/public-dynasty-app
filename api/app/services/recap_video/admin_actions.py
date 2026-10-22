@@ -164,7 +164,6 @@ async def episode_view(db, episode_id):
     requests=(await db.scalars(select(RecapRecoveryRequest).where(RecapRecoveryRequest.attempt_id.in_([a.id for a in attempts])).order_by(RecapRecoveryRequest.created_at.desc()))).all()
     actions = ['disable_future_sharing', 'restore_access', 'skip_video']
     if finished and not episode.hold:
-        from app.services.generation.models import ContentArtifact
         script = await db.get(ContentArtifact, finished.script_id)
         actions.insert(0, 'review_publish_members' if script and script.provenance == 'editorial_reviewed' else 'review_publish')
     if stage and stage.kind in ('speech_check','render','media_check') and stage.state in ('held','needs_attention'):
