@@ -23,6 +23,9 @@ Do not repeat an error from the article: flag that conflict for a hold.
 
 Use full exact values for graphics. Narrate only approved spoken_values and record each
 spoken number as {claim_id, field, exact, spoken}; put its spoken string in segment text.
+score_a and score_b follow the source owner order, not winner/loser order. Match the
+field to its owner even when narration mentions the winner first. Copy exact and spoken
+from that same field; do not attach one owner's score to the other owner's field.
 Compute before rounding. Never turn a win into a tie, reverse a rank, erase a close
 margin, or claim a threshold not established by the evidence. A single legal substitution
 and a full optimal lineup are different scopes, explicitly labeled in claims. Weekly

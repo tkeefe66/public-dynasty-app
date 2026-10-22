@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -125,3 +126,23 @@ def test_successful_repair_requires_final_review_and_stops_at_four():
     assert result["segments"] == script["segments"]
     assert [r["model"] for r in client.requests] == ["draft", "review", "review", "review"]
     assert len(result["reviews"]) == 2
+
+
+def test_score_reference_repair_receives_actual_field_and_expected_values():
+    from sleeper_dynasty.engine.recap_video_claims import compile_claims
+    from sleeper_dynasty.llm.recap_video_writer import RecapVideoWriter
+    claims = compile_claims(snapshot())
+    script = script_for(claims)
+    bad = deepcopy(script)
+    segment = bad['segments'][0]
+    segment['text'] = 'forty point zero zero three points.'
+    segment['spoken_numbers'] = [{'claim_id': segment['id'], 'field': 'score_a',
+        'exact': '40.003', 'spoken': 'forty point zero zero three'}]
+    client = Client([bad, review(bad), script, review(script)])
+    RecapVideoWriter(client=client).write(claims, {'digest': 'published-revision-2'})
+    for request_index, key in [(1, 'deterministic_issues'), (2, 'issues')]:
+        issues = json.loads(client.requests[request_index]['messages'][0]['content'])[key]
+        issue = next(i for i in issues if i['code'].startswith('spoken_number:'))
+        assert issue['segment_id'] == segment['id']
+        assert issue['quote'] == 'forty point zero zero three'
+        assert all(part in issue['evidence'] for part in ('score_a', '40.003', '40.004', 'forty point zero zero four'))

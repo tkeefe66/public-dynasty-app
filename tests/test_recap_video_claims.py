@@ -99,6 +99,24 @@ def test_spoken_number_cannot_round_away_winning_margin():
     assert "spoken_number" in " ".join(validate_script(script, claims, {"digest": "published-revision-2"}))
 
 
+@pytest.mark.parametrize('text,valid', [
+    ('Zero point zero zero one points.', True),
+    ('zero point zero zero one points.', True),
+    ('zero point zero zero ones points.', False),
+    ('zero point zero zero two points.', False),
+])
+def test_spoken_number_presence_ignores_case_but_requires_whole_words(text, valid):
+    from sleeper_dynasty.engine.recap_video_claims import compile_claims, validate_script
+    claims = compile_claims(snapshot())
+    script = script_for(claims)
+    segment = script['segments'][0]
+    segment['text'] = text
+    segment['spoken_numbers'] = [{'claim_id': segment['id'], 'field': 'margin',
+        'exact': '0.001', 'spoken': 'zero point zero zero one'}]
+    errors = validate_script(script, claims, {'digest': 'published-revision-2'})
+    assert (not errors) == valid
+
+
 @pytest.mark.parametrize('change', ['none', 'rounded_exact', 'rounded_spoken', 'unapproved_alternative', 'bench', 'unknown'])
 def test_starter_player_points_are_exact_narration_fields(change):
     # Mutation: expose starter numbers only as operands, or accept arbitrary spoken/bench values.

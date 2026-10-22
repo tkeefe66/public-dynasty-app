@@ -181,7 +181,7 @@ def compile_claims(snapshot: dict) -> dict:
         "claims": claims}
 
 
-def validate_script(script: dict, claims: dict, published_article: dict) -> list[str]:
+def validate_script(script: dict, claims: dict, published_article: dict, *, number_issues: list | None = None) -> list[str]:
     """Deterministic integrity checks; semantic prose review is additionally mandatory."""
     if not isinstance(script, dict):
         return ["script_schema"]
@@ -229,11 +229,25 @@ def validate_script(script: dict, claims: dict, published_article: dict) -> list
                 continue
             claim = index.get(value.get("claim_id"), {})
             field = value.get("field")
+            spoken = value.get("spoken", "")
+            present = (isinstance(spoken, str) and bool(spoken)
+                       and re.search(r"(?<!\w)" + re.escape(spoken) + r"(?!\w)", segment["text"], re.I) is not None)
             if (value.get("claim_id") not in segment["claim_ids"] or not value.get("exact")
                     or value["exact"] != claim.get("values", {}).get(field)
                     or value.get("spoken") != claim.get("spoken_values", {}).get(field)
-                    or value.get("spoken", "") not in segment["text"]):
+                    or not present):
                 errors.append("spoken_number:" + sid)
+                if number_issues is not None:
+                    number_issues.append({"code": "spoken_number:" + sid, "segment_id": sid,
+                        "quote": spoken or "missing spoken phrase",
+                        "evidence": (
+                            f"Claim {value.get('claim_id')!r}, field {field!r}: "
+                            f"submitted exact={value.get('exact')!r}, spoken={spoken!r}; "
+                            f"expected exact={claim.get('values', {}).get(field)!r}, "
+                            f"spoken={claim.get('spoken_values', {}).get(field)!r}. "
+                            f"Claim selected={value.get('claim_id') in segment['claim_ids']}; "
+                            f"spoken phrase present in narration={present}. "
+                            "Use the field belonging to the stated owner; score_a/score_b follow source order, not winner order.")})
     errors.extend("owner_coverage:" + o for o in coverage_errors(claims["owner_ids"], owners))
     errors.extend("matchup_coverage:" + m for m in coverage_errors(claims["matchup_ids"], matchups))
     text = " ".join(p for p in prose if isinstance(p, str))

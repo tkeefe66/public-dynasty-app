@@ -92,7 +92,9 @@ class RecapVideoWriter:
         instruction = ("Audit the WHOLE script, including opening/closing. Return every unresolved issue; "
             "audit semantic claims in jokes, unsupported medical/personal/causal statements, exact numbers, "
             "meaningful owner and matchup coverage, agreement with corrected published prose, and repeated "
-            "premises. A boolean or ID inventory alone is insufficient. Check all categories and each segment."
+            "premises. A boolean or ID inventory alone is insufficient. Check all categories and each segment. "
+            "Issues must contain only unresolved errors, never observations you conclude are correct or 'no issue'. "
+            "For deterministic number errors, inspect the cited claim and field, not just whether a number appears somewhere in the evidence."
             if review else "Write the complete structured show. On repair, fix all evidenced issues using only the original evidence.")
         log.info("Recap video script stage=%s model=%s", stage, self.model if stage == 1 else self.review_model)
         response = self.client.messages.create(model=self.model if stage == 1 else self.review_model,
@@ -115,8 +117,11 @@ class RecapVideoWriter:
         script = self._call(1, evidence)
         reviews = []
         for stage in (2, 4):
+            number_issues = []
+            errors = validate_script(script, claims, published_article, number_issues=number_issues)
             issues = [{"code": e, "segment_id": "script", "quote": "validation", "evidence": e}
-                      for e in validate_script(script, claims, published_article)]
+                      for e in errors if not e.startswith('spoken_number:')]
+            issues.extend(number_issues)
             try:
                 narration_chunks(script)
             except ValueError as exc:
