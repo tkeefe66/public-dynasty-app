@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { generationRequest } from '@/lib/api';
 import { RecapEpisodeSummary, RecapEpisodeView } from '@/lib/generation';
 import { ActionProps, controlClass, money, readable, secondary, TechnicalDetails } from './GenerationShared';
+import { GenerationRecapEditorial } from './GenerationRecapEditorial';
 
 const labels: Record<string,string> = {
   reassign_worker:'Reassign recovery worker', resume_recovered_audio:'Resume free work with recovered audio',
-  review_publish:'Review finished preview', resume_free:'Resume free work', reconcile_request:'Reconcile request',
+  review_publish:'Review finished preview', review_publish_members:'Review video for members', resume_free:'Resume free work', reconcile_request:'Reconcile request',
   bounded_replacement:'Review bounded replacement', skip_video:'Skip video', restore_access:'Restore edition access',
   disable_future_sharing:'Disable future sharing', prepare_preview:'Prepare episode preview', renew_preflight:'Renew free voice verification', review_correction:'Review correction',
 };
@@ -81,7 +82,7 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
     setEntity('');setCanonical('');setAlias('');setReusable(false);
     if(!view)return;
     try {
-      if(next==='review_publish') {const result=await generationRequest<Preview>(`/recap-episodes/${selected}/preview`,{expected_revision:view.authority_revision,media_id:view.media_id});if(request===previewRequest.current)setPreview(result);}
+      if(next==='review_publish' || next==='review_publish_members') {const result=await generationRequest<Preview>(`/recap-episodes/${selected}/${next==='review_publish_members'?'member-preview':'preview'}`,{expected_revision:view.authority_revision,media_id:view.media_id});if(request===previewRequest.current)setPreview(result);}
       if(next==='bounded_replacement') {const result=await generationRequest<Replacement>(`/recap-episodes/${selected}/replacement`);if(request===previewRequest.current)setReplacement(result);}
     } catch(err) {if(request===previewRequest.current)setError(err instanceof Error?err.message:'Current preview could not load. Reload status.');}
   }
@@ -90,7 +91,7 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
     setError('');
     try {
       await run(async()=>{
-        if(action==='review_publish' && preview) return generationRequest(`/recap-episodes/${selected}/approve`,{
+        if((action==='review_publish' || action==='review_publish_members') && preview) return generationRequest(`/recap-episodes/${selected}/${action==='review_publish_members'?'member-approve':'approve'}`,{
           expected_revision:view.authority_revision,media_id:view.media_id,preview_digest:preview.digest,checks:evidence,reason,
         });
         if(action==='bounded_replacement' && replacement) return generationRequest(`/recap-episodes/${selected}/replacement`,{
@@ -101,7 +102,7 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
           attempt_id:attempt,worker_id:action==='reassign_worker'?view.configured_worker_id || '':'',
           ...(alias?{spellings:[{entity_kind:entity.split(':')[0],entity_id:entity.slice(entity.indexOf(':')+1),canonical_token:canonical,aliases:[alias],reusable}]}:{}),
         });
-      },action==='review_publish'?'Reviewed edition selected for publication.':'Episode action recorded.');
+      },action==='review_publish_members'?'Reviewed video selected for member publication.':action==='review_publish'?'Reviewed edition selected for publication.':'Episode action recorded.');
       setReload(value=>value+1);
     }catch(err){setError(err instanceof Error?err.message:'Action failed. Reload current evidence before trying again.');}
   }
@@ -122,6 +123,7 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
       <p className="mt-3 text-prose">{pendingScript ? 'Stage: Script · Awaiting replacement approval' : stoppedScript ? 'Stage: Script · Needs attention' : <>Stage: {readable(view.stage?.kind || view.episode.lifecycle)}{view.stage?` · ${readable(view.stage.state)}`:''}</>}</p>
       {pendingScript && <div className="mt-2 max-w-prose text-prose"><p>Replacement script is waiting for approval. Review current inputs and the additional cost before starting. No new AI request has been sent.</p>{onStartWriting && <button type="button" className={secondary+' mt-2'} disabled={blocked} onClick={onStartWriting}>Review replacement in Start writing</button>}</div>}
       {stoppedScript && <div className="mt-2 max-w-prose text-prose"><p>Script writing stopped. Review the saved attempts and costs in AI Writing. Preparing a replacement sends no AI request; starting it requires separate approval.</p>{onActivity && <button type="button" className={secondary+' mt-2'} disabled={blocked} onClick={onActivity}>Review script in AI Writing</button>}</div>}
+      {stoppedScript && view.script_operation && <GenerationRecapEditorial key={selected+view.script_operation.id} episodeId={selected} operationId={view.script_operation.id} busy={blocked} run={run} onApproved={()=>setReload(n=>n+1)}/>}
       {view.reason && <p className="mt-1 max-w-prose text-prose text-warn-strong">{explanations[view.reason] || (view.reason.startsWith('recap_budget_') ? 'A recap spending limit is holding this episode. Review its limits and outstanding charges.' : readable(view.reason))}</p>}
       {view.reason.startsWith('recap_budget_') && <><p className="mt-2 text-prose">Video needs {money(view.needed_microusd || 0)}; {view.budget?.balances.video_episode_microusd?.remaining_microusd == null?'remaining budget needs accounting review':money(view.budget.balances.video_episode_microusd.remaining_microusd)+' remains in this episode'}.</p>{onRecapBudget ? <button className={secondary + ' mt-2'} onClick={() => onRecapBudget(seriesId,selected)}>Edit recap limits</button> : <a href="#generation-recap-budgets" className="inline-flex min-h-tap items-center text-prose underline">Edit recap limits</a>}</>}
       {view.stage?.result_json && <TechnicalDetails value={JSON.parse(view.stage.result_json)} label="Exact failed evidence"/>}
@@ -142,11 +144,11 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
           {replacement && <><p className="mt-2 text-prose font-semibold">{replacement.requests} requests · maximum {money(replacement.maximum_microusd)}</p><TechnicalDetails value={replacement.original_requests} label="Original request identities and charges"/>
             <label className="mt-2 block text-prose">Why no unique original result can be recovered<textarea className={controlClass} required minLength={20} maxLength={4000} value={disposition} onChange={e=>setDisposition(e.target.value)}/></label></>}
         </>}
-        {action==='review_publish' && preview && <>
+        {(action==='review_publish' || action==='review_publish_members') && preview && <>
           <video controls playsInline preload="metadata" className="mt-3 w-full" src={`/api/admin/generation/recap-episodes/${selected}/preview/${view.media_id}/video.mp4`}><track kind="captions" srcLang="en" label="English" src={`/api/admin/generation/recap-episodes/${selected}/preview/${view.media_id}/captions.vtt`}/></video>
           <p className="mt-3 whitespace-pre-wrap text-prose">{preview.article.markdown}</p>
-          <p className="mt-3 text-prose text-dim">Record actual review evidence for each gate. Emulation or synthetic output does not establish physical phone or message-preview acceptance.</p>
-          {Object.entries(checks).map(([key,label])=><label key={key} className="mt-3 block text-prose">{label}<textarea className={controlClass+' mt-1'} required minLength={20} maxLength={2000} value={evidence[key] || ''} onChange={e=>setEvidence(old=>({...old,[key]:e.target.value}))}/></label>)}
+          <p className="mt-3 text-prose text-dim">{action==='review_publish_members'?'Review the complete video and article before publishing for members. This creates no public link and earns no standing automatic-publication qualification credit.':'Record actual review evidence for each gate. Emulation or synthetic output does not establish physical phone or message-preview acceptance.'}</p>
+          {Object.entries(checks).filter(([key])=>action!=='review_publish_members' || ['factual_coverage','performance'].includes(key)).map(([key,label])=><label key={key} className="mt-3 block text-prose">{label}<textarea className={controlClass+' mt-1'} required minLength={20} maxLength={2000} value={evidence[key] || ''} onChange={e=>setEvidence(old=>({...old,[key]:e.target.value}))}/></label>)}
         </>}
         {action==='skip_video' && <p className="mt-2 text-prose text-dim">Stops unfinished media work and retains a valid article. Requests already sent keep their charges and reservations.</p>}
         {action==='disable_future_sharing' && <p className="mt-2 text-prose text-dim">Stops links for future episodes. Existing edition access is unchanged.</p>}
@@ -156,8 +158,8 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
         {action==='reassign_worker' && <p className="mt-2 text-prose text-warn-strong">Transfer this attempt’s recovery ownership to configured worker {view.configured_worker_id}. Revoke previous recovery leases; preserve receipts and charges.</p>}
         {action==='reconcile_request' && <p className="mt-2 text-prose text-dim">Reconciles saved evidence. Missing responses require exact request/history retrieval by the original worker. This action never resends narration.</p>}
         <label className="mt-3 block text-prose">Reason for episode action<input className={controlClass+' mt-1'} required maxLength={1000} value={reason} onChange={e=>setReason(e.target.value)}/></label>
-        <div className="mt-3 flex flex-wrap gap-2"><button type="submit" className={secondary} disabled={blocked || !reason.trim() || (!!alias && (!entity || !canonical)) || (action==='review_publish' && !preview) || (action==='bounded_replacement' && !replacement)}>
-          {action==='resume_free'?'Confirm free recovery':action==='review_publish'?'Review and publish':action==='bounded_replacement'?'Approve bounded replacement':'Confirm '+(labels[action] || action).toLowerCase()}</button>
+        <div className="mt-3 flex flex-wrap gap-2"><button type="submit" className={secondary} disabled={blocked || !reason.trim() || (!!alias && (!entity || !canonical)) || (['review_publish','review_publish_members'].includes(action) && !preview) || (action==='bounded_replacement' && !replacement)}>
+          {action==='resume_free'?'Confirm free recovery':action==='review_publish_members'?'Publish for members':action==='review_publish'?'Review and publish':action==='bounded_replacement'?'Approve bounded replacement':'Confirm '+(labels[action] || action).toLowerCase()}</button>
           <button type="button" className={secondary} onClick={()=>setAction('')}>Cancel</button></div>
       </form>}
     </>}

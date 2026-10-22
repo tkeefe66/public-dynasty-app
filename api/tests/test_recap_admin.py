@@ -7,7 +7,8 @@ from app.services.generation.recap_models import RecapStage,RecapPublicationAppr
 
 
 @pytest.mark.asyncio
-async def test_http_preview_approval_uses_actual_digest_and_separate_selection_transaction(client,maker,tmp_path,monkeypatch):
+@pytest.mark.parametrize('members', [False, True])
+async def test_http_preview_approval_uses_actual_digest_and_separate_selection_transaction(client,maker,tmp_path,monkeypatch,members):
     # Mutation: trust a client success flag, reuse the preview lock during selection I/O, or auto-grant first-episode standing policy.
     from tests.test_recap_workflow import seed_media
     from app.services.recap_video import publication as p,qualification as q,elevenlabs
@@ -55,18 +56,24 @@ async def test_http_preview_approval_uses_actual_digest_and_separate_selection_t
         return {},'script'
     monkeypatch.setattr(p,'verified_media',storage_checked)
     base=f'/api/admin/generation/recap-episodes/{ident}'
-    preview=client.post(base+'/preview',json={'expected_revision':0,'media_id':mid})
+    prefix='/member-' if members else '/'
+    preview=client.post(base+prefix+'preview',json={'expected_revision':0,'media_id':mid})
     assert preview.status_code==200,preview.text
     body={'expected_revision':0,'media_id':mid,'preview_digest':'a'*64,'reason':'Reviewed actual finished preview',
-        'checks':{key:'Synthetic test evidence only, not release qualification' for key in ('factual_coverage','performance','physical_phone','message_preview')}}
-    assert client.post(base+'/approve',json=body).status_code==409
+        'checks':{key:'Synthetic test evidence only, not release qualification' for key in
+            (('factual_coverage','performance') if members else ('factual_coverage','performance','physical_phone','message_preview'))}}
+    if members:
+        assert client.post(base+prefix+'approve',json={**body,'checks':{'performance':'short'}}).status_code==422
+    assert client.post(base+prefix+'approve',json=body).status_code==409
     body['preview_digest']=preview.json()['digest']
-    approved=client.post(base+'/approve',json=body)
+    approved=client.post(base+prefix+'approve',json=body)
     assert approved.status_code==200,approved.text
-    assert client.post(base+'/approve',json=body).status_code==409
+    assert client.post(base+prefix+'approve',json=body).status_code==409
     async with maker() as db:
-        assert await db.scalar(select(func.count()).select_from(RecapQualificationReview))==1
+        assert await db.scalar(select(func.count()).select_from(RecapQualificationReview))==(0 if members else 1)
         assert await db.scalar(select(func.count()).select_from(RecapPublicationApproval))==1
+        approval=await db.scalar(select(RecapPublicationApproval))
+        assert json.loads(approval.scope_json).get('audience','public')==('members' if members else 'public')
         assert await db.scalar(select(func.count()).select_from(m.RecapStandingAuthorization))==0
 
 

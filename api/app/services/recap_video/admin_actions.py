@@ -146,7 +146,7 @@ async def episode_view(db, episode_id):
         from app.services.generation.models import GenerationOperation
         script_job = await db.scalar(select(GenerationOperation).where(
             GenerationOperation.subject=='recap_video:'+episode_id,
-            GenerationOperation.feature=='recap_video', GenerationOperation.kind=='generation')
+            GenerationOperation.feature=='recap_video', GenerationOperation.kind.in_(('generation','recap_editorial')))
             .order_by(GenerationOperation.created_at.desc(),GenerationOperation.id.desc()).limit(1))
         if script_job and script_job.state=='cancelled':
             from app.services.generation.models import GenerationAudit
@@ -163,7 +163,9 @@ async def episode_view(db, episode_id):
     requests=(await db.scalars(select(RecapRecoveryRequest).where(RecapRecoveryRequest.attempt_id.in_([a.id for a in attempts])).order_by(RecapRecoveryRequest.created_at.desc()))).all()
     actions = ['disable_future_sharing', 'restore_access', 'skip_video']
     if finished and not episode.hold:
-        actions.insert(0, 'review_publish')
+        from app.services.generation.models import ContentArtifact
+        script = await db.get(ContentArtifact, finished.script_id)
+        actions.insert(0, 'review_publish_members' if script and script.provenance == 'editorial_reviewed' else 'review_publish')
     if stage and stage.kind in ('speech_check','render','media_check') and stage.state in ('held','needs_attention'):
         actions.insert(0, 'resume_free')
     if any(a.state in ('unknown','dispatching','abandoned') for a in attempts):

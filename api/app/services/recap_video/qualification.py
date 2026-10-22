@@ -277,6 +277,10 @@ async def require_standing_format(db, episode):
 async def record_standing_approval(db, episode_id, expected_revision, media_id):
     from app.services.recap_video import publication
     media, script_id = await publication.verified_media(db, episode_id, media_id)
+    from app.services.generation.models import ContentArtifact
+    script = await db.get(ContentArtifact, script_id)
+    if script and script.provenance == 'editorial_reviewed':
+        raise Held('recap_editorial_publication_review_required')
     await db.flush()
     db.expire_all()  # Storage I/O may have overlapped a recovery or policy commit.
     await lock_control(db)

@@ -20,8 +20,11 @@ FIELDS = ("id", "series_id", "season", "entity_kind", "entity_id", "canonical_na
 
 
 async def context(db, artifact):
-    if not artifact or artifact.feature != "recap_video" or artifact.provenance != "managed":
+    if not artifact or artifact.feature != "recap_video" or artifact.provenance not in ("managed", "editorial_reviewed"):
         raise Held("speech_review_script_invalid")
+    if artifact.provenance == "editorial_reviewed":
+        from app.services.recap_video.editorial import require_editorial_artifact
+        await require_editorial_artifact(db, artifact)
     payload = json.loads(artifact.payload_json)
     if digest(payload) != artifact.digest:
         raise Held("speech_review_script_changed")

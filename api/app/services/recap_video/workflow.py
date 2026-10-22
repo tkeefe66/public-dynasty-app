@@ -177,7 +177,12 @@ async def _current(db, stage, *, now):
     artifact = await db.get(ContentArtifact, stage.script_id)
     if (not job or job.state != "succeeded" or not artifact or artifact.operation_id != job.id
             or artifact.feature != "recap_video" or artifact.revision != stage.revision
-            or artifact.provenance != "managed" or artifact.digest != digest(json.loads(artifact.payload_json))):
+            or artifact.provenance not in ("managed", "editorial_reviewed") or artifact.digest != digest(json.loads(artifact.payload_json))):
+        raise Held("media_script_invalid")
+    if artifact.provenance == "editorial_reviewed":
+        from app.services.recap_video.editorial import require_editorial_artifact
+        await require_editorial_artifact(db, artifact)
+    elif job.kind != "generation":
         raise Held("media_script_invalid")
     head = await db.get(ArtifactHead, artifact.subject)
     if not head or head.artifact_id != artifact.id or head.hold:

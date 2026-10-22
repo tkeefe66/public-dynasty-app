@@ -79,3 +79,19 @@ it('shows prepared replacement as awaiting approval and navigates without spendi
   expect(run).not.toHaveBeenCalled();
   expect(request.mock.calls).toHaveLength(count);
 });
+
+it('reviews member-only video without public-share or physical-phone assertions',async()=>{
+  // Mutation: member review calls public approval or fabricates physical-device evidence.
+  request.mockImplementation(async(path:string)=>path.includes('?')?{records:[episode]}:path.endsWith('/member-preview')?{digest:'member-digest',article:{markdown:'Saved member article'},media:{}}:{...detail,media_id:'media',actions:['review_publish_members']});
+  render(<GenerationRecapEpisode seriesId="series" busy={false} run={run} version={0} onEpisodeChange={changed}/>);
+  fireEvent.click(await screen.findByRole('button',{name:'Review video for members'}));
+  await screen.findByText('Saved member article');
+  expect(screen.queryByLabelText('Physical phone playback')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Real message preview')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Facts and every league member'),{target:{value:'Reviewed each score and member against the saved article.'}});
+  fireEvent.change(screen.getByLabelText('Complete voice performance'),{target:{value:'Played the complete video and checked narration and captions.'}});
+  fireEvent.change(screen.getByLabelText('Reason for episode action'),{target:{value:'Member review completed.'}});
+  fireEvent.click(screen.getByRole('button',{name:'Publish for members'}));
+  await waitFor(()=>expect(request).toHaveBeenCalledWith('/recap-episodes/episode/member-approve',expect.objectContaining({preview_digest:'member-digest',checks:{factual_coverage:'Reviewed each score and member against the saved article.',performance:'Played the complete video and checked narration and captions.'}})));
+  expect(request.mock.calls.some(([path])=>String(path).endsWith('/approve'))).toBe(false);
+});
