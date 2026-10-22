@@ -559,9 +559,13 @@ async def persist_recovery_receipt(db, attempt_id, receipt, *, worker_id):
     identity = _identity(attempt)
     if not identity.get("history_item_id") or receipt.get("identity") != identity:
         raise Held("provider_recovery_identity_unresolved")
+    original = json.loads(attempt.receipt_json or "{}")
+    if original.get("audio_sha256") and original["audio_sha256"] != receipt.get("audio_sha256"):
+        from app.services.recap_video.recovery_metadata import normalize_recovery_metadata
+        receipt = await normalize_recovery_metadata(db,attempt,receipt,original)
+        raw = dump(receipt)
     if attempt.recovery_receipt_json and attempt.recovery_receipt_json != raw:
         raise Conflict("Recovery receipt conflicts with retained evidence")
-    original = json.loads(attempt.receipt_json or "{}")
     if original.get("audio_sha256") and original["audio_sha256"] != receipt.get("audio_sha256"):
         raise Conflict("Recovered audio differs from original response")
     attempt.recovery_receipt_json = raw
