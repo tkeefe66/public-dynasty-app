@@ -41,7 +41,7 @@ async def test_recovered_first_chunk_preserves_unused_second_chunk_authority(mak
         authority=await work.authorize_dispatch(db,**fence(lease),worker_id='narrator')
         attempt=await db.get(RecapProviderAttempt,authority['attempt_id'])
         first.state='held';first.reason='response_invalid';first.lease_until=0
-        attempt.state='received';attempt.cost_microusd=17
+        attempt.state='received';attempt.cost_microusd=17;attempt.error_code='response_invalid'
         identity={'request_id':'synthetic-request','history_item_id':'synthetic-history'}
         attempt.identity_json=dump([identity])
         asset=RecapAsset(stage_id=first.id,generation=attempt.generation,storage_key='recovered',digest='a'*64,size=10,media_type='audio/mpeg')
@@ -58,13 +58,18 @@ async def test_recovered_first_chunk_preserves_unused_second_chunk_authority(mak
         allocation_ids=list((await db.scalars(select(RecapBudgetAllocation.id))).all())
         attempt_ids=list((await db.scalars(select(RecapProviderAttempt.id))).all())
         plan=await recovered_audio_plan(db,episode)
+        from app.services.generation.recap_budget import _obligations
+        assert next(row for row in await _obligations(db) if row['attempt_id']==attempt.id)['outcome_unknown']
         await adopt_recovered_audio(db,episode,plan,actor_id='owner',reason='Recover exact first chunk only')
+        assert not next(row for row in await _obligations(db) if row['attempt_id']==attempt.id)['outcome_unknown']
         assert first.state=='succeeded' and data(second)==before and data(speech)==speech_before
         assert list((await db.scalars(select(RecapBudgetAllocation.id))).all())==allocation_ids
         assert list((await db.scalars(select(RecapProviderAttempt.id))).all())==attempt_ids
         assert await work.claim_stage(db,'speech-worker',{'speech_check'},stamp()) is None
         next_lease=await work.claim_stage(db,'narrator',{'narrate'},stamp())
         assert next_lease['stage_id']==second.id
+        asset.digest='b'*64
+        assert next(row for row in await _obligations(db) if row['attempt_id']==attempt.id)['outcome_unknown']
 
 
 @pytest.mark.asyncio

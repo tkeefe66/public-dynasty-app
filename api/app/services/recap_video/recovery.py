@@ -11,6 +11,44 @@ from app.services.recap_video.qualification import require_admin_actor
 from app.services.recap_video.workflow import _identity
 
 
+async def adopted_audio_resolves_outcome(db, attempt):
+    """Exact audited adoption resolves outcome only; original charge stays intact."""
+    import json
+    from app.services.generation.recap_models import RecapAsset, RecapStage, RecapRecovery
+    from app.services.generation.store import data, digest
+    if attempt.state != 'received' or attempt.cost_microusd is None:
+        return False
+    stage=await db.get(RecapStage,attempt.stage_id)
+    audits=(await db.scalars(select(RecapRecovery).where(RecapRecovery.stage_id==attempt.stage_id,
+        RecapRecovery.action=='adopt_recovered_audio'))).all()
+    if not stage or stage.state!='succeeded' or len(audits)!=1:
+        return False
+    try:
+        receipt=json.loads(attempt.recovery_receipt_json or '{}')
+        before=json.loads(audits[0].before_json)
+        binding=before['verified_binding']
+        asset=await db.get(RecapAsset,binding['asset_id'])
+        if not asset:
+            return False
+        result=json.loads(stage.result_json)
+        evidence=json.loads(stage.evidence_json)
+        return (binding['stage_id']==stage.id and audits[0].episode_id==stage.episode_id==attempt.episode_id
+            and before['stage']['id']==stage.id and stage.generation==before['stage']['generation']+1
+            and stage.kind=='narrate' and stage.operation_id==attempt.operation_id
+            and asset.stage_id==stage.id and asset.generation==attempt.generation
+            and asset.media_type=='audio/mpeg' and 0<asset.size<=64*1024*1024
+            and receipt.get('outcome')=='recovered' and receipt.get('request_digest')==attempt.request_digest
+            and receipt.get('identity')==_identity(attempt)
+            and all(_identity(attempt).get(key) for key in ('request_id','history_item_id'))
+            and receipt.get('asset')==dict(asset_id=asset.id,digest=asset.digest,size=asset.size)
+            and receipt.get('audio_sha256')==asset.digest and receipt.get('audio_size')==asset.size
+            and binding['binding']==digest([before['stage'],data(attempt),data(asset)])
+            and result.get('asset_ids')==[asset.id] and result.get('report',{}).get('recovery_binding')==binding['binding']
+            and evidence.get('recovered_audio_binding')==binding['binding'])
+    except (ValueError,KeyError,TypeError):
+        return False
+
+
 async def recovered_audio_plan(db, episode_id, *, verify_bytes=False):
     """Recover sent chunks; bind untouched future chunks without granting retries."""
     import asyncio

@@ -12,6 +12,37 @@ RATE = {"unit": "character", "microusd_per_character": 7, "max_credits_per_chara
     "source": "synthetic-qualified-billing", "revision": "synthetic-rate"}
 
 
+def tagged_audio(encoder, *, geob=False, payload=b'\xff\xfbsynthetic-mpeg', padding=10, terminated=True):
+    def size(n): return bytes((n>>21&127,n>>14&127,n>>7&127,n&127))
+    def frame(kind,data): return kind+size(len(data))+b'\x00\x00'+data
+    frames=frame(b'TSSE',b'\x03'+encoder.encode()+(b'\x00' if terminated else b''))
+    if geob: frames+=frame(b'GEOB',b'\x03application/c2pa\x00manifest')
+    tag=frames+b'\x00'*padding
+    return b'ID3\x04\x00\x00'+size(len(tag))+tag+payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('changed_audio',[False,True])
+async def test_history_metadata_reconstruction_requires_original_exact_hash(changed_audio):
+    # Mutation: altered MPEG payload is accepted, or history metadata prevents exact original-byte recovery.
+    original=tagged_audio('Lavf63.1.102')
+    history=tagged_audio('Lavf63.1.102',terminated=False,geob=True,payload=b'\xff\xfbchanged' if changed_audio else b'\xff\xfbsynthetic-mpeg',padding=0)
+    calls=[];events=[]
+    def http(request):
+        calls.append(request.method)
+        if request.url.path.endswith('/audio'): return httpx.Response(200,content=history)
+        return httpx.Response(200,json={'history_item_id':'synthetic-history','request_id':'synthetic-request','model_id':'eleven_v4',**REQUEST['inputs'][0]})
+    action=transport(http,events).recover(REQUEST,{'history_item_id':'synthetic-history','request_id':'synthetic-request'},original_receipt={'audio_sha256':hashlib.sha256(original).hexdigest(),'audio_size':len(original)})
+    if changed_audio:
+        with pytest.raises(ValueError,match='original audio hash'): await action
+        assert not any(kind=='audio' for kind,_ in events)
+    else:
+        recovered=await action
+        assert recovered['audio_sha256']==hashlib.sha256(original).hexdigest()
+        assert recovered['audio_size']==len(original)
+    assert calls==['GET','GET']
+
+
 def response():
     return {"audio_base64": base64.b64encode(b"synthetic-mp3").decode(),
         "alignment": {"characters": list("Avery won."), "character_start_times_seconds": [i * .1 for i in range(10)],

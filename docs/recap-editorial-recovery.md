@@ -44,3 +44,15 @@ Script approval does not publish the video or expand sharing. A corrected
 edition still requires explicit finished-media publication approval. Member-only
 publication does not create a public share link. Existing failed operations and
 their charges remain available for diagnosis and accounting.
+
+If narration succeeded but storage failed, recover the exact retained provider
+history item before considering another request. History downloads can add ID3
+provenance metadata and alter the encoder tag terminator. Recovery restores only
+bounded metadata variants and accepts a recording only when its complete bytes
+match the original saved SHA-256 and size. MPEG audio is never rewritten. A
+different recording remains blocked. Partial recovery preserves untouched later
+chunks and requires independent speech and media validation before publication.
+
+After repairing the underlying cause, the Weekly recap failure breaker can be
+reset through the existing administrator control. Reset does not retry failed
+jobs, change receipts, clear other holds, or alter approved spending limits.

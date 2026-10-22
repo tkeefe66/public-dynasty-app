@@ -93,10 +93,13 @@ async def _obligations(db):
     media = (await db.scalars(select(RecapProviderAttempt))).all()
     attempts_by_id = {attempt.id: attempt for attempt, _ in attempts}
     attempts_by_id.update({attempt.id: attempt for attempt in media})
+    from app.services.recap_video.recovery import adopted_audio_resolves_outcome
+    adopted = {attempt.id for attempt in media if attempt.state == 'received'
+        and attempt.error_code == 'response_invalid' and await adopted_audio_resolves_outcome(db, attempt)}
 
     def unresolved_outcome(attempt):
         return (attempt.state in UNRESOLVED_OUTCOMES or
-                (attempt.state == "received" and attempt.error_code == "response_invalid"))
+                (attempt.state == "received" and attempt.error_code == "response_invalid" and attempt.id not in adopted))
 
     rows = (await db.execute(select(RecapBudgetAllocation, RecapBudgetPlan).join(
         RecapBudgetPlan, RecapBudgetPlan.id == RecapBudgetAllocation.plan_id))).all()

@@ -232,7 +232,7 @@ class ElevenLabsTransport:
                 log.error("Narration evidence persistence failed; exact-identity reconciliation required")
         return receipt
 
-    async def recover(self, request, identity):
+    async def recover(self, request, identity, *, original_receipt=None):
         """Only exact retained history IDs. Request-only identity cannot guess history.
 
         History has no documented alignment endpoint. Recovered audio is held for
@@ -264,6 +264,8 @@ class ElevenLabsTransport:
                         raise ValueError("Recovered audio exceeds bound")
             if not data:
                 raise ValueError("Recovered audio empty")
+            if original_receipt and original_receipt.get('audio_sha256'):
+                data = restore_exact_mp3_metadata(bytes(data), original_receipt)
             sha = hashlib.sha256(data).hexdigest()
             asset = await self.persist_audio(bytes(data), sha)
             # Per-item history metering is retained as evidence; account-wide balance
@@ -273,6 +275,70 @@ class ElevenLabsTransport:
                 "audio_size": len(data), "asset": asset,
                 "history_evidence": {k: metadata[k] for k in ("history_item_id", "request_id", "content_type",
                     "character_count_change_from", "character_count_change_to") if k in metadata}}
+
+
+def restore_exact_mp3_metadata(audio, original_receipt):
+    """Restore only bounded ID3 metadata variants, accepted by exact original SHA.
+
+    History may append GEOB provenance and omit the TSSE trailing NUL. MPEG
+    bytes are never modified. No perceptual/audio-equivalence comparison applies.
+    """
+    expected = original_receipt.get('audio_sha256')
+    size = original_receipt.get('audio_size')
+    fail = 'Recovered history cannot reproduce original audio hash'
+    if (not isinstance(expected, str) or len(expected) != 64 or not isinstance(size, int)
+            or isinstance(size, bool) or not 0 < size <= 64*1024*1024):
+        raise ValueError(fail)
+    if len(audio) == size and hashlib.sha256(audio).hexdigest() == expected:
+        return audio
+    def decode(raw):
+        if len(raw) != 4 or any(byte & 128 for byte in raw):
+            raise ValueError(fail)
+        return sum(byte << shift for byte, shift in zip(raw, (21, 14, 7, 0)))
+    def encode(value):
+        return bytes((value >> 21 & 127, value >> 14 & 127, value >> 7 & 127, value & 127))
+    if len(audio) < 10 or audio[:6] != b'ID3\x04\x00\x00':
+        raise ValueError(fail)
+    tag_size = decode(audio[6:10])
+    if tag_size > 1024*1024 or tag_size + 10 > len(audio):
+        raise ValueError(fail)
+    tag, payload = audio[10:10+tag_size], audio[10+tag_size:]
+    if len(payload) < 2 or payload[0] != 255 or payload[1] & 224 != 224:
+        raise ValueError(fail)
+    frames=[]; offset=0; encoder_count=0
+    while offset < len(tag) and tag[offset] != 0:
+        if len(frames) >= 128 or offset+10 > len(tag):
+            raise ValueError(fail)
+        name=tag[offset:offset+4]; length=decode(tag[offset+4:offset+8])
+        if (any(byte not in b'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' for byte in name)
+                or tag[offset+8:offset+10] != b'\x00\x00' or offset+10+length > len(tag)):
+            raise ValueError(fail)
+        body=tag[offset+10:offset+10+length]
+        if name == b'TSSE':
+            encoder_count+=1
+            if not body.startswith(b'\x03Lavf') or len(body)>100:
+                raise ValueError(fail)
+        frames.append((name,body)); offset+=10+length
+    if any(tag[offset:]) or encoder_count != 1:
+        raise ValueError(fail)
+    restored_tag_size=size-len(payload)-10
+    if not 0 <= restored_tag_size <= 1024*1024:
+        raise ValueError(fail)
+    for terminated in (True,False):
+        restored=[]
+        for name,body in frames:
+            if name == b'GEOB':
+                continue
+            if name == b'TSSE':
+                body=body.rstrip(b'\x00')+(b'\x00' if terminated else b'')
+            restored.append(name+encode(len(body))+b'\x00\x00'+body)
+        value=b''.join(restored)
+        if len(value)>restored_tag_size:
+            continue
+        candidate=b'ID3\x04\x00\x00'+encode(restored_tag_size)+value+b'\x00'*(restored_tag_size-len(value))+payload
+        if hashlib.sha256(candidate).hexdigest()==expected:
+            return candidate
+    raise ValueError(fail)
 
 
 def settle_receipt(request, rate, receipt):

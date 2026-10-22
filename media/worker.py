@@ -201,7 +201,7 @@ async def recover_narration(client, attempt_id, *, api_key):
             headers={"Content-Type": "audio/mpeg", "X-Content-SHA256": sha})
         result.raise_for_status()
         return result.json()
-    receipt = await ElevenLabsTransport(api_key, identity, audio).recover(saved["request"], saved["identity"])
+    receipt = await ElevenLabsTransport(api_key, identity, audio).recover(saved["request"], saved["identity"], original_receipt=saved.get("receipt"))
     result = await client.post("/api/internal/media/recovery-receipt", json={"attempt_id": attempt_id, "receipt": receipt})
     result.raise_for_status()
     return receipt

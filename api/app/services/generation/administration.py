@@ -120,7 +120,7 @@ async def control_action(db, body, actor):
         raise Held("Choose the affected provider and account alias in provider recovery controls")
     elif body.action == "reset_breaker":
         breakers = json.loads(control.breakers_json)
-        if body.feature not in ("trade_story", "gm_rating_blurb", "franchise_blurb", "analyst"):
+        if body.feature not in ("trade_story", "gm_rating_blurb", "franchise_blurb", "analyst", "recap_video"):
             raise ValueError("Choose a registered feature")
         breakers[body.feature] = {"failures": 0, "open": False}
         control.breakers_json = dump(breakers)
