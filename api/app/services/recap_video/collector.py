@@ -22,6 +22,21 @@ from sleeper_dynasty.api.nfl_schedule import fetch_week_evidence
 log = logging.getLogger(__name__)
 
 
+async def refresh_player_metadata(client, cache_dir, *, force=False):
+    """Free source I/O only; paid script execution reads this shared cache."""
+    from sleeper_dynasty.cache import FileCache
+    cache = FileCache(cache_dir / 'scoring')
+    def valid(value):
+        return isinstance(value, dict) and bool(value) and all(isinstance(p, dict) for p in value.values())
+    if not force and valid(cache.read('players.json')):
+        return
+    log.info('Fetching recap player metadata source=/players/nfl')
+    players = await client.get_players()
+    if not valid(players):
+        raise ValueError('Sleeper player metadata is incomplete; retry free source collection before preparing player narration.')
+    cache.write('players.json', players)
+
+
 def _scores(rows):
     for row in rows:
         for key in ("points", "custom_points"):
@@ -180,6 +195,12 @@ async def _collect_recap(client, league_id, cache_dir, fence, now: int, *, force
         if errors:
             raise RuntimeError("recap_collection_failed: " + "; ".join(errors))
         return True
+    try:
+        await refresh_player_metadata(client, cache_dir, force=force)
+    except Exception:
+        # Optional names never fabricate facts or stop independently valid
+        # article/source observations. The next free collection retries.
+        log.exception('Recap player metadata unavailable; retry free collection before player narration league=%s', league_id)
     aliases = NameOverrideStore(cache_dir=cache_dir).read(league_id)
     names = {u["user_id"]: (u.get("metadata") or {}).get("team_name") or u.get("display_name") or u["user_id"] for u in users or []}
     roster_data = [{**r, "owner_name": aliases.get(r.get("owner_id"), names.get(r.get("owner_id"), r.get("owner_id")))} for r in rosters or []]

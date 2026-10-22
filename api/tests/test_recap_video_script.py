@@ -230,17 +230,18 @@ async def test_relevant_cached_metadata_bound_unrelated_players_ignored(maker, t
     players = {"p1": {"full_name": "Synthetic Quarterback", "fantasy_positions": ["QB"]},
                "p2": {"full_name": "Synthetic Runner", "fantasy_positions": ["RB"]},
                "p3": {"full_name": "Synthetic Bench", "fantasy_positions": ["RB"]}}
-    (tmp_path / "players.json").write_text(dump(players))
+    (tmp_path / "scoring").mkdir(exist_ok=True)
+    (tmp_path / "scoring" / "players.json").write_text(dump(players))
     async with maker.begin() as db:
         saved = await prepare_script(db, ident, cache_dir=tmp_path)
         assert saved["player_evidence"]["available"]
         assert any(c["kind"] == "starters" for c in saved["claims"]["claims"])
     players["unrelated"] = {"full_name": "Not Rostered", "fantasy_positions": ["QB"]}
-    (tmp_path / "players.json").write_text(dump(players))
+    (tmp_path / "scoring" / "players.json").write_text(dump(players))
     async with maker.begin() as db:
         await require_script_inputs(db, "series", "synthetic", saved)
     players["p1"]["fantasy_positions"] = ["WR"]
-    (tmp_path / "players.json").write_text(dump(players))
+    (tmp_path / "scoring" / "players.json").write_text(dump(players))
     async with maker.begin() as db:
         with pytest.raises(Held, match="recap_player_evidence_changed"):
             await require_script_inputs(db, "series", "synthetic", saved)
@@ -251,7 +252,8 @@ async def test_malformed_optional_metadata_preserves_required_coverage(maker, tm
     # Mutation: malformed optional player record aborts required matchup/owner script facts.
     from app.services.recap_video.contracts import prepare_script
     ident, _ = await seed(maker, tmp_path, monkeypatch)
-    (tmp_path / "players.json").write_text(dump({"p1": None, "p2": {"first_name": 42}}))
+    (tmp_path / "scoring").mkdir(exist_ok=True)
+    (tmp_path / "scoring" / "players.json").write_text(dump({"p1": None, "p2": {"first_name": 42}}))
     async with maker.begin() as db:
         saved = await prepare_script(db, ident, cache_dir=tmp_path)
     assert saved["claims"]["owner_ids"] == ["owner-1", "owner-2"]

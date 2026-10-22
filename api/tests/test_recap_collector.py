@@ -27,6 +27,10 @@ class Sources:
     season = 2026
     week = 5
 
+    async def get_players(self):
+        return {'p1': {'full_name': 'Synthetic Quarterback', 'fantasy_positions': ['QB']},
+                'p2': {'full_name': 'Synthetic Runner', 'fantasy_positions': ['RB']}}
+
     async def get_recap_source(self, path):
         if path.endswith("/state/nfl"):
             data = {"season": str(self.season), "week": self.week, "season_type": "regular"}
@@ -46,6 +50,39 @@ class Sources:
             data = {"season": str(self.season), "name": "Synthetic League", "roster_positions": ["QB", "RB", "BN"], "settings": {
                 "playoff_week_start": 15, "playoff_round_type": 0, "playoff_teams": 6}}
         return {"ok": True, "data": data, "raw": dump(data), "source": path, "provider_timestamp": "synthetic"}
+
+
+@pytest.mark.asyncio
+async def test_free_player_collection_refreshes_real_shared_cache_without_caching_failures(tmp_path):
+    # Mutation: reuse stale metadata forever, ignore explicit refresh, or cache failed/invalid provider data.
+    import os
+    from app.services.recap_video.collector import refresh_player_metadata
+    from app.services.recap_video.contracts import player_evidence
+    class Client(Sources):
+        calls = 0
+        result = {'p1': {'full_name': 'Initial Name', 'fantasy_positions': ['QB']}}
+        async def get_players(self):
+            self.calls += 1
+            if isinstance(self.result, Exception):
+                raise self.result
+            return self.result
+    client = Client()
+    await refresh_player_metadata(client, tmp_path)
+    path = tmp_path / 'scoring' / 'players.json'
+    await refresh_player_metadata(client, tmp_path)
+    assert client.calls == 1
+    os.utime(path, (0, 0))
+    client.result = {'p1': {'full_name': 'Updated Name', 'fantasy_positions': ['QB']}}
+    await refresh_player_metadata(client, tmp_path)
+    assert client.calls == 2
+    assert player_evidence(snapshot(), tmp_path)['players']['p1']['name'] == 'Updated Name'
+    retained = path.read_bytes()
+    for invalid in ({}, {'p1': None}, TimeoutError('synthetic timeout')):
+        client.result = invalid
+        with pytest.raises((ValueError, TimeoutError)):
+            await refresh_player_metadata(client, tmp_path, force=True)
+        assert path.read_bytes() == retained
+    assert client.calls == 5
 
 
 @pytest.fixture
@@ -82,6 +119,12 @@ async def test_collection_persists_due_time_then_complete_private_packet(maker, 
             yield db
     start = int(datetime(2026, 10, 13, 14, tzinfo=timezone.utc).timestamp())
     assert await collect_recap(free_sources, "synthetic", tmp_path, fence, start)
+    from app.services.recap_video.contracts import player_evidence
+    metadata = player_evidence(snapshot(), tmp_path)
+    assert metadata['available']
+    assert metadata['players']['p1']['name'] == 'Synthetic Quarterback'
+    assert (tmp_path / 'scoring' / 'players.json').exists()
+    assert not (tmp_path / 'players.json').exists()
     assert not AnalystStore(tmp_path).editions("synthetic")
     assert await collect_recap(free_sources, "synthetic", tmp_path, fence, start + 30)
     async with maker() as db:

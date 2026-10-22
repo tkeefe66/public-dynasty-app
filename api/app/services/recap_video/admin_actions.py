@@ -140,6 +140,15 @@ async def episode_view(db, episode_id):
     preparation = await db.get(RecapAttention, digest([episode_id, 'media_preparation']))
     if not reason and preparation and preparation.state == 'needs_attention':
         reason = preparation.reason
+    script_job = None
+    if not stages:
+        from app.services.generation.models import GenerationOperation
+        script_job = await db.scalar(select(GenerationOperation).where(
+            GenerationOperation.subject=='recap_video:'+episode_id,
+            GenerationOperation.feature=='recap_video', GenerationOperation.kind=='generation')
+            .order_by(GenerationOperation.created_at.desc(),GenerationOperation.id.desc()).limit(1))
+        if script_job and script_job.state in ('held','needs_attention'):
+            reason = episode.hold or script_job.reason or 'recap_script_needs_review'
     from app.services.generation.recap_models import RecapRecoveryRequest
     requests=(await db.scalars(select(RecapRecoveryRequest).where(RecapRecoveryRequest.attempt_id.in_([a.id for a in attempts])).order_by(RecapRecoveryRequest.created_at.desc()))).all()
     actions = ['disable_future_sharing', 'restore_access', 'skip_video']
@@ -169,6 +178,14 @@ async def episode_view(db, episode_id):
         budget=await get_budget_view(db, episode.series_id, episode_id, stamp()))
     values['recovery_requests']=[data(r) for r in requests]
     values['configured_worker_id']=get_settings().media_worker_id
+    values['script_operation_id']=script_job.id if script_job else None
+    values['script_operation']=dict(id=script_job.id,state=script_job.state,generation=script_job.generation,
+        reason=script_job.reason) if script_job else None
+    if script_job and script_job.state in ('held','needs_attention'):
+        # Presentation reflects the durable operation instead of claiming that
+        # an exhausted script is still running. The stored episode is untouched.
+        values['episode']['lifecycle']='needs_attention'
+        values['actions']=[action for action in values['actions'] if action!='prepare_preview']
     values['speech_entities']=[]
     values['needed_microusd']=sum(json.loads(s.input_json).get('paid',{}).get('max_microusd',0)
         for s in stages if s.kind=='narrate' and s.state!='succeeded')

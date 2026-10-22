@@ -73,7 +73,11 @@ def _lineup_claims(snapshot, row, week, owner, matchup_ids):
         return {"id": f"{kind}:{week}:{rid}", "kind": kind, "scope": scope,
                 "owner_ids": [owner], "matchup_ids": matchup_ids, "values": values,
                 "operands": operands, "source_ids": [source] + ([meta["source"] + ":" + meta["digest"]] if enriched else [])}
-    result = [claim("starters", f"week:{week}", {"total": str(total)}, components)]
+    # Every narratable starter operand needs the same exact-value contract as
+    # team totals. Bench scores remain outside this starter-only authority.
+    starter_values = {"total": str(total), **{
+        "players_points:" + component["player_id"]: component["value"] for component in components}}
+    result = [claim("starters", f"week:{week}", starter_values, components)]
     pool = snapshot.get("lineup_eligibility", {}).get(str(week), {}).get(str(rid), {})
     # Present-day roster reserve/taxi state cannot establish historical eligibility.
     if (not enriched or len(slots) > 12 or any(s not in SLOT_ELIGIBILITY for s in slots) or not pool.get("source_id")

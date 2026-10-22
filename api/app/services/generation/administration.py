@@ -192,6 +192,8 @@ async def apply_campaign(db, preview_id, expected_digest, actor, reason):
         raise Conflict("Campaign preview expired or control state changed; preview again")
     candidates = {row.key: row for row in (await db.scalars(select(GenerationCandidate).where(
         GenerationCandidate.key.in_([item["key"] for item in manifest["items"]])))).all()}
+    from app.services.recap_video.script_replacement import verify_replacement_cost
+    await verify_replacement_cost(db,manifest,candidates)
     statuses = await classify_candidates(db, list(candidates.values()), actor_id=actor)
     jobs = []
     for item in manifest["items"]:

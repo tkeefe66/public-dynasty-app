@@ -4,7 +4,7 @@ import { GenerationRecapEpisode } from './GenerationRecapEpisode';
 import { GenerationRecapBudget } from './GenerationRecapBudget';
 import { ActionProps, controlClass } from './GenerationShared';
 
-export function GenerationRecapWorkspace({ leagues, busy, run, version, budgetSeriesId, budgetRequestId, budgets = false, onRecapBudget, scopeSeries, initialEpisodeId }: ActionProps & {
+export function GenerationRecapWorkspace({ leagues, busy, run, version, budgetSeriesId, budgetRequestId, budgets = false, onRecapBudget, onActivity, scopeSeries, initialEpisodeId }: ActionProps & {
   leagues: GenerationSeries[]; version: number; budgetSeriesId?: string; budgetRequestId?: number; budgets?: boolean; scopeSeries?: string; initialEpisodeId?: string;
 }) {
   const [localSeries, setSeries] = useState(budgetSeriesId || '');
@@ -28,7 +28,7 @@ export function GenerationRecapWorkspace({ leagues, busy, run, version, budgetSe
     </label>}
     {!selected && <p className="mt-5 text-prose text-dim">Select an individual league above to {budgets ? 'view and edit its recap spending limits.' : 'review its saved episodes and finished previews.'}</p>}
     {selected && <>
-      <GenerationRecapEpisode key={'episode:' + selected.id} seriesId={selected.id} busy={busy} run={run} version={version} selectionOnly={budgets} initialEpisodeId={series === budgetSeriesId ? initialEpisodeId : undefined} onRecapBudget={onRecapBudget} onEpisodeChange={(id, name) => { setEpisodeId(id); setLabel(name); }} />
+      <GenerationRecapEpisode key={'episode:' + selected.id} seriesId={selected.id} busy={busy} run={run} version={version} selectionOnly={budgets} initialEpisodeId={series === budgetSeriesId ? initialEpisodeId : undefined} onRecapBudget={onRecapBudget} onActivity={onActivity} onEpisodeChange={(id, name) => { setEpisodeId(id); setLabel(name); }} />
       {budgets && <GenerationRecapBudget key={'budget:' + selected.id} seriesId={selected.id} episodeId={episodeId} episodeLabel={label} busy={busy} run={run} version={version} />}
     </>}
   </div>;

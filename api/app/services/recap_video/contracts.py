@@ -63,7 +63,9 @@ def player_evidence(snapshot, cache_dir):
     """Enrich only relevant names/eligibility from the trusted local Sleeper cache."""
     from sleeper_dynasty.cache import FileCache
     from app.services.generation.store import digest
-    raw = FileCache(cache_dir).read("players.json")
+    # Same cache populated by the free scoring source collector and recap
+    # collection. The root players.json path has no production writer.
+    raw = FileCache(cache_dir / "scoring").read("players.json")
     if not isinstance(raw, dict):
         return {"available": False}
     ids = {p for rows in snapshot.get("scores", {}).values() for row in rows for p in row.get("players", []) if p != "0"}

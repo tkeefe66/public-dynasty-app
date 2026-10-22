@@ -81,6 +81,15 @@ async def resolution(db, job):
             return result("retry_refresh", "Data import stopped", "The import did not finish. Retry it once; if it fails again, copy the issue details so the app can be fixed.", "No paid AI request.")
         return result("support", "Data import needs checking", "Copy the issue details so the import failure can be investigated before retrying.")
     if job.feature == "recap_video":
+        from app.services.recap_video.script_replacement import require_failed_script
+        try:
+            await require_failed_script(db,job)
+        except Held:
+            pass
+        else:
+            return result("replacement", "A replacement script needs approval",
+                "The script exhausted its request allowance and every previous charge is settled. Review a fresh script proposal using the current saved article and evidence. This preserves the old receipts.",
+                "Preparing the proposal sends no AI request. Separate approval starts new paid script writing; narration is not included in this preview.")
         return result("episode", "Recap needs attention", "Open the recap episode for its next action and spending limits.")
     if len(own_attempts) != job.calls or any(row.state in UNRESOLVED or row.cost_microusd is None for row in attempts):
         return result("support", "Previous AI request needs checking", "The app cannot confirm the outcome or cost of an earlier request for this content. Copy the issue details for investigation; starting again could pay for the same work twice.", "Earlier charges may still apply. No new request will be sent.")
@@ -135,12 +144,24 @@ async def prepare_replacement(db, job_id, body, actor):
     guidance = await resolution(db, job)
     if guidance["action"] != "replacement":
         raise Held(guidance["explanation"])
+    prior_cost = None
+    if job.feature == 'recap_video':
+        from app.services.recap_video.script_replacement import require_failed_script
+        _, prior_cost = await require_failed_script(db,job)
     await administration.job_action(db, job_id, SimpleNamespace(action="cancel",
         expected_generation=job.generation, expected_state=job.state, reason=body.reason), actor)
-    candidate = await db.get(GenerationCandidate, job.candidate_key)
+    if job.feature == 'recap_video':
+        from app.services.recap_video.script_replacement import prepare_candidate
+        candidate = await prepare_candidate(db,job)
+    else:
+        candidate = await db.get(GenerationCandidate, job.candidate_key)
     candidate.hold = "manual_approval_required"
     candidate.revision += 1
     audit(db, actor, "replacement_review_required", replacement_review_target(candidate.subject, candidate.event),
         body.reason, after={"job_id": job_id, "candidate_key": candidate.key, "event": candidate.event})
     await db.flush()
-    return await administration.preview(db, [job.candidate_key], actor, body.reason)
+    preview = await administration.preview(db, [candidate.key], actor, body.reason)
+    if prior_cost is not None:
+        from app.services.recap_video.script_replacement import add_replacement_cost
+        return await add_replacement_cost(db,preview,job,prior_cost)
+    return preview

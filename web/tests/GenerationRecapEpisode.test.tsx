@@ -44,3 +44,20 @@ it('discards old league responses before changing selected episode',async()=>{
   await waitFor(()=>expect(screen.queryByText('Week 4 · 2026')).not.toBeInTheDocument());
   expect(changed).not.toHaveBeenCalledWith('episode');
 });
+
+it('shows stopped script ahead of preflight and opens existing writing review without spending',async()=>{
+  const onActivity=vi.fn();
+  const failed={...detail,episode:{...episode,lifecycle:'needs_attention'},
+    stage:{...detail.stage,kind:'preflight',state:'succeeded',result_json:''},
+    script_operation_id:'failed-script',script_operation:{id:'failed-script',state:'needs_attention',generation:1,reason:'execution_failed'},
+    reason:'execution_failed',actions:['skip_video']};
+  request.mockImplementation(async(path:string)=>path.includes('?')?{records:[episode]}:failed);
+  render(<GenerationRecapEpisode seriesId="series" busy={false} run={run} version={0} onEpisodeChange={changed} onActivity={onActivity}/>);
+  expect(await screen.findByText('Stage: Script · Needs attention')).toBeInTheDocument();
+  expect(screen.queryByText('Stage: Preflight · Succeeded')).not.toBeInTheDocument();
+  const count=request.mock.calls.length;
+  fireEvent.click(screen.getByRole('button',{name:'Review script in AI Writing'}));
+  expect(onActivity).toHaveBeenCalledOnce();
+  expect(run).not.toHaveBeenCalled();
+  expect(request.mock.calls).toHaveLength(count);
+});

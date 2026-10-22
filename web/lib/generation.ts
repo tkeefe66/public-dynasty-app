@@ -89,6 +89,9 @@ export interface RecapBudgetOvercommit {
 }
 export interface GenerationPage<T> { records: T[]; next_offset: number | null }
 export interface CampaignPreview {
+  prior_cost_microusd?: number;
+  maximum_additional_microusd?: number;
+  cost_scope?: string;
   skipped?: Record<string, number>;
   id: string; digest: string; max_calls: number; expires_at: number;
   items: { key: string; label: string; league_id: string; feature: GenerationFeature; event: string;
@@ -101,6 +104,8 @@ export const FEATURE_LABELS: Record<GenerationFeature, string> = {
 export interface RecapEpisodeSummary { episode_id: string; season: number; week: number; round?: number | null; lifecycle: string; hold: string }
 export interface RecapEpisodeStage { id: string; kind: string; state: string; generation: number; reason: string; result_json: string; evidence_json?: string }
 export interface RecapEpisodeView {
+  script_operation_id?: string | null;
+  script_operation?: { id: string; state: string; generation: number; reason: string } | null;
   configured_worker_id?: string;
   recovery_requests?: { id:string; attempt_id:string; state:string; error:string; worker_id:string }[];
   speech_entities?: { kind: string; id: string; name: string }[];

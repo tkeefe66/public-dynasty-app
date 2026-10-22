@@ -99,6 +99,36 @@ def test_spoken_number_cannot_round_away_winning_margin():
     assert "spoken_number" in " ".join(validate_script(script, claims, {"digest": "published-revision-2"}))
 
 
+@pytest.mark.parametrize('change', ['none', 'rounded_exact', 'rounded_spoken', 'unapproved_alternative', 'bench', 'unknown'])
+def test_starter_player_points_are_exact_narration_fields(change):
+    # Mutation: expose starter numbers only as operands, or accept arbitrary spoken/bench values.
+    # Production-shaped regression: script uses field players_points:<id> on a
+    # starters claim. IDs/names are synthetic; scores retain decimal precision.
+    from sleeper_dynasty.engine.recap_video_claims import compile_claims, validate_script
+    claims = compile_claims(snapshot())
+    starter = next(c for c in claims['claims'] if c['id'] == 'starters:4:1')
+    script = script_for(claims)
+    segment = script['segments'][0]
+    segment['claim_ids'].append(starter['id'])
+    number = {'claim_id': starter['id'], 'field': 'players_points:a',
+              'exact': '10.001', 'spoken': 'ten point zero zero one'}
+    if change == 'rounded_exact': number['exact'] = '10.00'
+    if change == 'rounded_spoken': number['spoken'] = 'ten'
+    if change == 'unapproved_alternative': number['spoken'] = 'ten and one thousandth'
+    if change == 'bench': number.update(field='players_points:e', exact='30', spoken='thirty')
+    if change == 'unknown': number.update(field='players_points:invented', exact='10.001')
+    segment['spoken_numbers'] = [number]
+    segment['text'] = 'The starter scored ' + number['spoken'] + ' points.'
+    errors = validate_script(script, claims, {'digest': 'published-revision-2'})
+    if change == 'none':
+        assert errors == []
+        assert starter['values']['players_points:a'] == starter['operands'][0]['value'] == '10.001'
+        assert starter['spoken_values']['players_points:a'] == 'ten point zero zero one'
+        assert set(starter['values']) == {'total', *(f'players_points:{p}' for p in ('a','b','c','d'))}
+    else:
+        assert 'spoken_number:' + segment['id'] in errors
+
+
 def test_full_playoff_round_custom_override_and_inactive_coverage():
     # Mutation: calculate only final week, discard custom_points, or omit inactive owner.
     from sleeper_dynasty.engine.recap_video_claims import compile_claims, validate_script
