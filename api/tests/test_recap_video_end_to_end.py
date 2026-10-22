@@ -289,6 +289,7 @@ async def test_tuesday_to_three_reviews_real_linux_postgres_and_authenticated_ad
     for name,value in {'ADMIN_EMAILS':'owner@test.local,e2e@test.local','CACHE_DIR':str(tmp_path),
         'GENERATION_EXECUTION_EPOCH':'test-epoch','RECAP_PUBLICATION_MODE':'database','RECAP_SERVING_EPOCH':'test-serving',
         'MEDIA_ASSET_ROOT':str(tmp_path/'objects'),'ELEVENLABS_VOICE_ID':'synthetic-voice',
+        'MEDIA_WORKER_CAPABILITIES':'preflight,narrate,render,speech_check,media_check',
         'ELEVENLABS_ACCOUNT_IDENTITY_DIGEST':el.canonical({'user_id':'synthetic-user','workspace_id':'synthetic-workspace'}),
         'AUTH_BACKEND_SECRET':'throwaway-recap-acceptance-backend-secret'}.items():
         monkeypatch.setenv('TRADE_GRADER_'+name,value)
