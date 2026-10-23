@@ -96,6 +96,7 @@ async def test_held_review_adopts_previous_generation_without_changing_original(
     class Store:
         def read_range(self,key,start,end): return objects[key][start:end+1]
         def put_verified(self,key,data,checksum):
+            storage.valid_key(key)
             assert key not in objects and hashlib.sha256(data).hexdigest()==checksum
             objects[key]=data
     monkeypatch.setattr(storage,'configured_store',Store)

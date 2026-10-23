@@ -63,7 +63,7 @@ async def approve_listening(db,*,stage_id,expected_binding_digest,review,actor_i
     original_evidence=json.loads(stage.evidence_json)
     if asset.generation!=stage.generation:
         from app.services.recap_video.storage import configured_store
-        identity=str(uuid.uuid4());key=f'listening-recovery/{identity}.json'
+        identity=str(uuid.uuid4());key=str(uuid.uuid4())
         await asyncio.to_thread(configured_store().put_verified,key,data,asset.digest)
         adopted=RecapAsset(id=identity,stage_id=stage.id,generation=stage.generation,
             digest=asset.digest,size=asset.size,media_type=asset.media_type,storage_key=key)
