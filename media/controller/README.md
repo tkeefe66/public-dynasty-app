@@ -38,7 +38,12 @@ is recovered using its unique nonce; it is never blindly repeated.
 
 The controller permits at most two launches in a rolling day and a one-hour VM
 lifetime. These are infrastructure bounds, separate from generation spending
-caps. The hard lifetime can interrupt a stuck stage; the API must reconcile its
+caps. Creation attempts reserve a launch before the cloud request; failed or
+unconfirmed attempts still count, even if no running VM is found. When demand
+exceeds that limit, the cron exits successfully with `waiting_daily_limit`, the
+attempt count, and `next_eligible_at` in UTC. The next scheduled run at or after
+that time can resume queued work; no counter reset or manual retry is needed.
+The hard lifetime can interrupt a stuck stage; the API must reconcile its
 durable receipt before any replacement. A ten-minute idle VM timeout limits
 orphan lifetime if the controller itself is unavailable. API demand outages do
 not bypass reconciliation of an existing VM or authorize another launch.

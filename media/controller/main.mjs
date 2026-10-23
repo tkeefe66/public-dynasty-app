@@ -1,5 +1,5 @@
 import { setTimeout } from 'node:timers/promises';
-import { reconcile } from './controller.mjs';
+import { reconcile, MAX_DAILY_LAUNCHES } from './controller.mjs';
 import { cloudAdapter } from './cloud.mjs';
 import { fileStore } from './store.mjs';
 
@@ -40,11 +40,24 @@ async function main() {
       } catch {
         console.error('Demand API unavailable; reconciling existing VM lifetime without launching work.');
       }
-      const status = await reconcile({ store, cloud, needed, now: Math.floor(Date.now() / 1000) });
+      const now = Math.floor(Date.now() / 1000);
+      const status = await reconcile({ store, cloud, needed, now });
+      if (status === 'daily_limit') {
+        // The volume lock keeps this snapshot stable across reconciliation and logging.
+        const state = await store.read();
+        const launches = state.launches.filter(t => t > now - 86400)
+          .sort((a, b) => a - b);
+        const nextEligible = launches[launches.length - MAX_DAILY_LAUNCHES] + 86400;
+        console.log(JSON.stringify({ event: 'recap_worker_lifecycle', status: 'waiting_daily_limit',
+          launches_used: launches.length, launch_limit: MAX_DAILY_LAUNCHES,
+          next_eligible_at: new Date(nextEligible * 1000).toISOString(),
+          message: 'Waiting for rolling 24-hour worker launch capacity. Failed or unconfirmed creation attempts count toward the limit. The next scheduled run at or after next_eligible_at can resume queued work.',
+        }));
+        return;
+      }
       if (status !== last) console.log(JSON.stringify({ event: 'recap_worker_lifecycle', status }));
       last = status;
       if (['idle', 'destroyed', 'creation_expired'].includes(status)) return;
-      if (status === 'daily_limit') throw new Error('Daily infrastructure limit reached');
     } catch {
       // Preserve durable state and let the next cron reconnect. Never dump SDK
       // errors: provider response bodies and command arguments may be sensitive.

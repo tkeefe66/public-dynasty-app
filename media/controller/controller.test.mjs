@@ -123,3 +123,14 @@ test('hard lifetime and daily creation limit bound infrastructure spending', asy
   assert.equal(await reconcile({ ...f, needed: true, now: 5000 }), 'daily_limit');
   assert.equal(f.events.filter(e => e === 'create').length, 1);
 });
+
+test('creation capacity resumes exactly 24 hours after the oldest reserved attempt', async () => {
+  // Mutation: using >= for the rolling cutoff blocks work at the advertised eligibility time.
+  const f = fixture();
+  await f.store.write({ phase: 'idle', launches: [1000, 2000] });
+  assert.equal(await reconcile({ ...f, needed: true, now: 87399 }), 'daily_limit');
+  assert.deepEqual(f.events, []);
+  assert.equal(await reconcile({ ...f, needed: true, now: 87400 }), 'running');
+  assert.equal(f.events.filter(e => e === 'create').length, 1);
+  assert.deepEqual(f.state().launches, [2000, 87400]);
+});
