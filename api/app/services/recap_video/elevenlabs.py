@@ -505,10 +505,14 @@ async def validate_speech(db, stage, result):
     from app.services.recap_video.speech_reviews import validate_binding
     inputs = json.loads(stage.input_json)
     binding = await validate_binding(db, stage, inputs)
-    report = verify_speech(inputs["script"], raw, reviewed_aliases=binding["aliases"])
+    from app.services.recap_video.listening import approved_review
+    from media.reviewed_speech import review_speech
+    review = await approved_review(db,stage)
+    report = review_speech(inputs["script"], raw, aliases=binding["aliases"], review=review)
     stage.evidence_json = dump({"verifier_revision": report["verifier_revision"], "passed": report["passed"],
         "transcript_asset_id": identity, "transcript_digest": asset.digest, "audio_asset_ids": expected_audio,
-        "speech_review": binding, "issues": report["issues"]})
+        "speech_review": binding, "issues": report["issues"],
+        **({'listening_review_digest':canonical(review),'original_issues':report['original_issues']} if review else {})})
     if not report["passed"]:
         raise Held("speech_verification_failed")
 

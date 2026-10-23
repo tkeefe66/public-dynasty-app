@@ -41,8 +41,10 @@ async def bundle(db, stage, result):
         audio, data = await read(db, files["audio.wav"], stage=stage, mime="audio/wav", maximum=64*1024*1024)
         with wave.open(io.BytesIO(data)) as wav:
             duration = wav.getnframes()/wav.getframerate()
+        from app.services.recap_video.listening import approved_review
+        review=await approved_review(db,speech)
         expected = build_episode(inputs, raw, speech_evidence["audio_asset_ids"], audio.digest, duration,
-            aliases=speech_evidence["speech_review"]["aliases"],chunk_timing=episode['chunk_timing'])
+            aliases=speech_evidence["speech_review"]["aliases"],chunk_timing=episode['chunk_timing'],listening_review=review)
         for chunk in episode['chunk_timing']:
             source=await db.get(RecapAsset,chunk['asset_id'])
             if not source or source.digest!=chunk['sha256']:

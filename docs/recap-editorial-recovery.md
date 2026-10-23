@@ -83,3 +83,18 @@ Finished editorial or recovered media uses an exact member-only publication
 review binding. Approval records factual and playback review; selection rechecks
 the same stages, assets, source, receipts and costs. This does not fabricate a
 phone review or grant public sharing or automatic-publication qualification.
+
+When a person has listened to the finished recordings and confirmed flagged
+passages, the operator-only `listening.approve_listening` path can adjudicate
+spelling differences and low recognizer confidence. It binds the exact audio,
+raw transcript, script, stage generation, reviewer and listening evidence.
+Original recognition results, timestamps and confidence scores remain intact.
+Only explicit bounded word-span corrections are used for caption alignment;
+score, result, negation and malformed-evidence failures cannot be waived.
+Rendering and publication recheck the saved review. This makes no provider call
+and does not grant public sharing or automatic publication authority.
+
+`pronunciation.renew_finished_preflight` can bind a fresh free preflight to
+already completed narration after a verification-code release. It requires the
+same voice, account, settings and rate, and preserves the original approval.
+It cannot renew an unfinished paid checkpoint or authorize a new narration.

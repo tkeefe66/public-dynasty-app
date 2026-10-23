@@ -120,15 +120,18 @@ def validate_episode(e):
         issues.append("timeline_invalid")
     return sorted(set(issues))
 
-def build_episode(inputs, raw, audio_chunks, audio_sha256, duration, *, aliases=None, chunk_timing=None):
+def build_episode(inputs, raw, audio_chunks, audio_sha256, duration, *, aliases=None, chunk_timing=None, listening_review=None):
     """Match approved prose spans to independently verified words. Ambiguity holds.
 
     Prefix matching permits cardinal/decimal normalization without assigning invented
     per-word times. Caption groups retain exact approved prose and real end times.
     """
     from app.services.recap_video.audio import _tokens, script_segments, verify_speech, word_text, audible_tokens
-    if not verify_speech(inputs["script"], raw, reviewed_aliases=aliases)["passed"]:
+    from media.reviewed_speech import review_speech
+    reviewed=review_speech(inputs['script'],raw,aliases=aliases,review=listening_review)
+    if not reviewed['passed']:
         raise ValueError("speech_verification_failed")
+    raw=reviewed['timeline_transcript']
     replacements = {variant.lower(): name.lower() for name, variants in (aliases or {}).items() for variant in variants}
     words = raw["words"]
     expected = _tokens(' '.join(s['text'] for s in script_segments(inputs['script'])))

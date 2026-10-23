@@ -119,3 +119,29 @@ def test_dictionary_version_locator_is_strict(locator):
     from app.services.recap_video.elevenlabs import validate_request
     from tests.test_recap_elevenlabs import REQUEST,RATE
     with pytest.raises(ValueError): validate_request({**REQUEST,'pronunciation_dictionary_locators':[locator]},RATE,100000)
+
+
+@pytest.mark.asyncio
+async def test_finished_narration_can_requalify_free_steps_without_new_requests(maker,tmp_path,monkeypatch):
+    # Mutation: fresh free preflight strands paid recordings, or renewal allows new paid stages.
+    episode,output=await seeded(maker,tmp_path,monkeypatch)
+    from app.services.recap_video import elevenlabs
+    from app.services.recap_video.admin_actions import active_stages
+    async with maker.begin() as db:
+        p=await pronunciation.preview_pronunciation(db,episode_id=episode,dictionary=DICTIONARY,actor_id='owner',reason='Synthetic pronunciation')
+        await pronunciation.approve_pronunciation(db,preview_id=p['preview_id'],preview_digest=p['digest'],actor_id='owner',reason='Synthetic listening',sample_evidence=EVIDENCE)
+        rows=await active_stages(db,episode)
+        for row in rows:
+            if row.kind=='narrate': row.state='succeeded'
+        old=await elevenlabs.qualification(db,episode);new={**old,'revision':'new-free-calibration'}
+        oldflight=await workflow.require_media_preflight(db,episode)
+        async def qualified(db,episode_id): return new
+        async def preflight(db,episode_id): return {**oldflight,'qualification_revision':new['revision']}
+        monkeypatch.setattr(elevenlabs,'QUALIFICATION_READER',qualified)
+        monkeypatch.setattr(workflow,'require_media_preflight',preflight)
+        with pytest.raises(Held): await workflow._current(db,rows[-1],now=0)
+        await pronunciation.renew_finished_preflight(db,episode_id=episode,actor_id='owner',reason='Retain completed audio; renewed free checks')
+        for row in rows: await workflow._current(db,row,now=0)
+        assert await db.scalar(select(func.count()).select_from(RecapProviderAttempt))==0
+        next(row for row in rows if row.kind=='narrate').state='queued'
+        with pytest.raises(Held): await pronunciation.renew_finished_preflight(db,episode_id=episode,actor_id='owner',reason='Cannot renew unfinished paid work')

@@ -29,9 +29,9 @@ async def require_admin_actor(db, actor_id):
 def current_versions():
     from sleeper_dynasty.engine import recap_video_claims, recap_narration
     from sleeper_dynasty.llm import recap_video_writer
-    from media import timeline, geometry, qa, audio_seams
+    from media import timeline, geometry, qa, audio_seams, reviewed_speech
     from app.services.recap_video import audio, rendering, elevenlabs, periods, readiness
-    modules = (recap_video_claims, recap_narration, recap_video_writer, timeline, geometry, qa, audio_seams, audio, rendering, elevenlabs, periods, readiness)
+    modules = (recap_video_claims, recap_narration, recap_video_writer, timeline, geometry, qa, audio_seams, reviewed_speech, audio, rendering, elevenlabs, periods, readiness)
     result={module.__name__: hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest() for module in modules}
     root=Path(timeline.__file__).parent
     for name in ('render/render.cjs','render/scene.js','render/style.css','render/index.html','Dockerfile','requirements.lock','package-lock.json'):
@@ -139,7 +139,7 @@ async def review_binding(db, episode_id, media_id, *, manual_members=False):
     article_head=await db.get(ArtifactHead,article.subject) if article else None
     heads=[[head.artifact_id,head.revision,head.hold] if head else None for head in (script_head,article_head)]
     recoveries = (await db.scalars(select(RecapRecovery).where(RecapRecovery.stage_id.in_([item.id for item in stages]),
-        RecapRecovery.action.in_(('adopt_recovered_audio', 'bounded_replacement_authority'))).order_by(RecapRecovery.id))).all()
+        RecapRecovery.action.in_(('adopt_recovered_audio', 'bounded_replacement_authority','human_listening_approved','pronunciation_free_requalified'))).order_by(RecapRecovery.id))).all()
     return dict(facts_digest=episode.facts_digest, article_digest=episode.article_digest,
         heads=heads,
         script_id=script.id, script_digest=script.digest, media_id=media_id, versions=current_versions(),

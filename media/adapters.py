@@ -64,7 +64,8 @@ def install(client, handlers):
                 duration = wav.getnframes()/wav.getframerate()
             try:
                 episode = build_episode(lease["input"], json.loads((root/"transcript.json").read_text()), audio_ids,
-                    digest_file(root/"audio.wav"), duration, aliases=lease["input"]["speech_review"]["aliases"], chunk_timing=timing)
+                    digest_file(root/"audio.wav"), duration, aliases=lease["input"]["speech_review"]["aliases"], chunk_timing=timing,
+                    listening_review=lease.get('listening_review'))
             except ValueError as exc:
                 # Original paid audio/raw speech remain in immutable prerequisites.
                 return {"status":"input_failure", "asset_ids":[], "report":{"issues":[str(exc).split(":")[0]]}}

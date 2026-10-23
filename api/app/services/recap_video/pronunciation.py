@@ -175,10 +175,19 @@ async def require_pronunciation_stage(db,stage):
             or digest(manifest)!=approved['preview_digest'] or manifest['script_id']!=stage.script_id
             or approved['sample_evidence']['dictionary_readback']!=manifest['dictionary']['content_digest']
             or manifest['script_digest']!=artifact.digest or manifest['execution_revision']!=stage.execution_revision
-            or value['input_digest']!=stage.input_digest or digest(expected)!=stage.input_digest
-            or await _continuity(db,artifact)!=manifest['continuity']):
+            or value['input_digest']!=stage.input_digest or digest(expected)!=stage.input_digest):
         raise Held('pronunciation_authority_changed')
-    return manifest['continuity']['preflight']
+    current=await _continuity(db,artifact)
+    if current!=manifest['continuity']:
+        renewals=(await db.scalars(select(RecapRecovery).where(RecapRecovery.stage_id==stage.id,
+            RecapRecovery.action=='pronunciation_free_requalified').order_by(RecapRecovery.created_at.desc(),RecapRecovery.id.desc()))).all()
+        if not renewals: raise Held('pronunciation_authority_changed')
+        renewal=renewals[0];await require_admin_actor(db,renewal.actor_id)
+        renewed=json.loads(renewal.before_json)
+        if (renewed['approval_id']!=approval.id or renewed['input_digest']!=stage.input_digest
+                or renewed['continuity']!=current or renewed['script_digest']!=artifact.digest):
+            raise Held('pronunciation_authority_changed')
+    return current['preflight']
 
 
 async def require_pronunciation_preflight(db,artifact):
@@ -189,3 +198,30 @@ async def require_pronunciation_preflight(db,artifact):
     for stage in rows:
         if await require_pronunciation_stage(db,stage) is None:
             raise Held('media_qualification_changed')
+
+
+async def renew_finished_preflight(db,*,episode_id,actor_id,reason):
+    """Renew free verification of retained paid audio; no new request authority."""
+    from app.services.recap_video.admin_actions import active_stages
+    await require_admin_actor(db,actor_id);await lock_control(db)
+    rows=await active_stages(db,episode_id)
+    paid=[r for r in rows if r.kind=='narrate']
+    if not reason.strip() or not paid or any(r.state!='succeeded' for r in paid) or any(r.state=='running' for r in rows):
+        raise Held('finished_narration_required')
+    artifact=await db.get(ContentArtifact,paid[0].script_id)
+    current=await _continuity(db,artifact)
+    policy=await resolve_policy(db,artifact.series_id)
+    pd=digest([policy['policy']['features']['recap_video'],policy['revisions'],current['preflight']])
+    for stage in rows:
+        authority=await db.scalar(select(RecapRecovery).where(RecapRecovery.stage_id==stage.id,
+            RecapRecovery.action=='pronunciation_amendment_authority'))
+        if not authority: raise Held('pronunciation_authority_required')
+        value=json.loads(authority.before_json)
+        if value['input_digest']!=stage.input_digest: raise Held('pronunciation_authority_changed')
+        db.add(RecapRecovery(episode_id=episode_id,stage_id=stage.id,action='pronunciation_free_requalified',
+            actor_id=actor_id,reason=reason,before_json=dump(dict(approval_id=value['approval_id'],input_digest=stage.input_digest,
+                script_digest=artifact.digest,continuity=current,previous_policy_digest=stage.policy_digest))))
+        stage.policy_digest=pd
+    await db.flush()
+    for stage in rows: await require_pronunciation_stage(db,stage)
+    return dict(stages=len(rows),new_provider_calls=0)

@@ -337,7 +337,13 @@ async def claim_stage(db, worker_id: str, capabilities: set[str], now: int) -> d
             episode.lifecycle, episode.hold = LIFECYCLE[row.kind], ""
         assets = await allowed_asset_ids(db, row)
         audit(db, worker_id, "media_claimed", row.id, "Subordinate checkpoint leased")
-        return lease_data(row, assets)
+        lease=lease_data(row, assets)
+        if row.kind=='render':
+            from app.services.recap_video.listening import approved_review
+            speech=await db.get(RecapStage,row.predecessor_id)
+            review=await approved_review(db,speech)
+            if review is not None: lease['listening_review']=review
+        return lease
     return None
 
 
