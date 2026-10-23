@@ -40,3 +40,36 @@ test('daily quota exits successfully with waiting status and next eligible time'
     assert.match(event.message, /next scheduled run/i);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('unknown create outcome logs safe operation context and retains reconciliation state', async () => {
+  // Mutation: generic catch hides the failed operation; dumping the error leaks provider secrets.
+  const dir = await mkdtemp(join(tmpdir(), 'recap-error-'));
+  try {
+    const preload = join(dir, 'preload.mjs');
+    await writeFile(preload, `
+      import { registerHooks } from 'node:module';
+      globalThis.fetch = async () => ({ ok: true, json: async () => ({ needed: true }) });
+      registerHooks({ load(url, context, next) {
+        if (url.endsWith('/store.mjs')) return { format: 'module', shortCircuit: true,
+          source: 'let state=null; export const fileStore=()=>({read:async()=>state,write:async s=>{state=s;}});' };
+        if (url.endsWith('/cloud.mjs')) return { format: 'module', shortCircuit: true,
+          source: 'export const cloudAdapter=()=>({create:async()=>{throw Object.assign(new Error("SECRET provider payload"),{name:"RailwayConnectionError",closeCode:1006});}});' };
+        return next(url, context);
+      }});
+    `);
+    const env = Object.fromEntries(['RAILWAY_TOKEN', 'RAILWAY_ENVIRONMENT_ID',
+      'RECAP_WORKER_CHECKPOINT', 'RECAP_WORKER_IMAGE', 'MEDIA_API_URL',
+      'MEDIA_WORKER_TOKEN', 'ELEVENLABS_API_KEY'].map(key => [key, 'test-only']));
+    const result = spawnSync(process.execPath, ['--import', preload, fileURLToPath(new URL('./main.mjs', import.meta.url))], {
+      env: { ...process.env, ...env, MEDIA_CONTROL_API_URL: 'https://example.test' }, encoding: 'utf8', timeout: 5000,
+    });
+    assert.equal(result.status, 1);
+    assert.doesNotMatch(result.stderr + result.stdout, /SECRET|provider payload/);
+    const event = JSON.parse(result.stderr.trim());
+    assert.equal(event.operation, 'cloud.create');
+    assert.equal(event.error_type, 'RailwayConnectionError');
+    assert.equal(event.close_code, 1006);
+    assert.equal(event.phase, 'creating');
+    assert.match(event.next_step, /reconcile/i);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

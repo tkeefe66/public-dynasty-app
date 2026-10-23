@@ -420,6 +420,7 @@ async def advance_qualified_publication(maker):
     for ident in targets:
         try:
             async with maker.begin() as db:
+                await lock_control(db)
                 stages=await active_stages(db,ident)
                 finished=next((row for row in stages if row.kind=='media_check' and row.state=='succeeded'),None)
                 if not finished:
@@ -433,6 +434,12 @@ async def advance_qualified_publication(maker):
                     # Selection already owns this exact content (possibly still
                     # awaiting its outbox). The projector owns delivery/rechecks;
                     # a tick must not invent a new approval or recovery warning.
+                    if authority.projected_revision == authority.authority_revision:
+                        from app.services.recap_video.publication import authorize_member_read
+                        await authorize_member_read(db,episode.league_id,episode.season,episode.week)
+                        episode.lifecycle='published'
+                        audit(db,'api-projector','recap_publication_reconciled',ident,
+                            'Restored published lifecycle from current delivered selection')
                     continue
                 expected_revision=authority.authority_revision if authority else 0
                 proof=await record_standing_approval(db,ident,expected_revision,media_id)

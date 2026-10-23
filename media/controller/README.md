@@ -48,6 +48,13 @@ durable receipt before any replacement. A ten-minute idle VM timeout limits
 orphan lifetime if the controller itself is unavailable. API demand outages do
 not bypass reconciliation of an existing VM or authorize another launch.
 
+Failures emit `recap_controller_failure` with the operation (`cloud.create`,
+`cloud.start`, `store.read`, etc.), last saved phase, allowlisted error type/code,
+HTTP or transport status, and a reconciliation instruction. Worker startup/drain
+failures include exit code and timeout status. Messages, response bodies, command
+arguments, and credentials are never logged. Unknown creation outcomes retain
+their nonce and quota reservation; the next cron reconciles instead of resending.
+
 Before activating weekly generation, verify a real restart/drain/destruction
 cycle, the current image's isolated Linux runtime, provider billing and voice
 qualification, database publication reconciliation, and the owner's member-only

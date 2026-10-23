@@ -40,13 +40,15 @@ export function cloudAdapter(config) {
       await handle.stdin.write(JSON.stringify({ image: config.image, env: config.workerEnv }));
       await handle.stdin.end();
       const outcome = await result;
-      if (outcome.exitCode !== 0 || outcome.timedOut) throw new Error('Worker startup failed');
+      if (outcome.exitCode !== 0 || outcome.timedOut) throw Object.assign(new Error('Worker startup failed'),
+        { code: 'WORKER_START_FAILED', exitCode: outcome.exitCode, timedOut: outcome.timedOut });
     },
     async heartbeat(id) { await (await connect(id)).heartbeat(); },
     async drain(id) {
       const vm = await connect(id);
       const result = await vm.execHttp("docker exec recap-worker python3 -c 'from pathlib import Path; Path(\"/scratch/drain\").touch(); print(\"drained\" if Path(\"/scratch/drained\").exists() else \"draining\")'", { timeoutSec: 15 });
-      if (result.exitCode !== 0) throw new Error('Worker drain handshake unavailable');
+      if (result.exitCode !== 0 || result.timedOut) throw Object.assign(new Error('Worker drain handshake unavailable'),
+        { code: 'WORKER_DRAIN_FAILED', exitCode: result.exitCode, timedOut: result.timedOut });
       return result.stdout.trim() === 'drained';
     },
     async destroy(id) { await (await connect(id)).destroy(); },

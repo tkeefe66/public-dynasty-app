@@ -422,6 +422,7 @@ async def test_recovered_target_revalidates_after_review_at_selection_and_projec
 @pytest.mark.asyncio
 @pytest.mark.parametrize('projection', ['pending', 'held', 'delivered'])
 async def test_manual_selection_is_idempotent_under_automatic_ticks(maker,tmp_path,monkeypatch,projection):
+    # Mutation: skipping delivered selections without restoring published keeps scheduling free preflight VMs.
     from app.services.recap_video import qualification as q,publication as p
     from app.services.generation import recap_models as m
     from app.services.generation.models import GenerationPolicy,GenerationOutbox
@@ -448,3 +449,5 @@ async def test_manual_selection_is_idempotent_under_automatic_ticks(maker,tmp_pa
         assert not await db.scalar(select(m.RecapAttention).where(m.RecapAttention.episode_id==ident))
         row=await p.authority_for_episode(db,await db.get(m.RecapEpisode,ident))
         assert row.authority_revision==1 and row.projected_revision==(1 if projection=='delivered' else 0)
+        episode=await db.get(m.RecapEpisode,ident)
+        assert episode.lifecycle==('published' if projection=='delivered' else 'review')
