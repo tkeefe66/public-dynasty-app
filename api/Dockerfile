@@ -9,6 +9,9 @@ COPY api ./api
 COPY scripts ./scripts
 COPY media ./media
 RUN uv sync --frozen --all-packages --no-dev --no-editable
+# The installed API resolves its verified renderer resources from the Python
+# library root; keep that path linked to the same immutable shipped media tree.
+RUN ln -s /app/media /app/.venv/lib/python3.11/media
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
