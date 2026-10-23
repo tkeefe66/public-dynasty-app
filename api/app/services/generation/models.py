@@ -105,6 +105,8 @@ class GenerationOperation(Base):
     generation: Mapped[int] = mapped_column(Integer, default=0)
     epoch: Mapped[str] = mapped_column(String, default="")
     lease_until: Mapped[int] = mapped_column(BigInteger, default=0)
+    next_attempt_at: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     calls: Mapped[int] = mapped_column(Integer, default=0)
     max_calls: Mapped[int] = mapped_column(Integer, default=0)
     expected_artifact: Mapped[str] = mapped_column(String, default="")

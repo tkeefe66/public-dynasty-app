@@ -180,15 +180,21 @@ class Worker:
             raise
         except Exception as exc:
             code = exc.code if isinstance(exc, Held) else ("publication_failed" if publishing else "execution_failed")
-            from sleeper_dynasty.api.yahoo import YahooRateLimitError
-            if isinstance(exc, YahooRateLimitError):
+            from app.services.generation.yahoo_backoff import (
+                defer_refresh,
+                throttle_error,
+            )
+            throttled = throttle_error(exc)
+            if throttled:
                 code = "yahoo_rate_limited"
             log.exception("operation stopped id=%s reason=%s", job.id, code)
             try:
                 async with self.maker.begin() as db:
                     await lock_control(db)
                     row = await require_owner(db, job.id, job.generation)
-                    if code in ("concurrency_busy", "series_concurrency_busy", "provider_cooldown"):
+                    if throttled and await defer_refresh(db, row, throttled):
+                        pass
+                    elif code in ("concurrency_busy", "series_concurrency_busy", "provider_cooldown"):
                         row.state, row.reason = "queued", code
                     elif code == "publication_failed" or isinstance(exc, Held) and code not in (
                             "provider_outcome_unknown", "response_invalid", "pricing_unknown",

@@ -494,7 +494,9 @@ export function refreshStream(
     }
     onEvent({ ...job.progress, stage: job.progress.stage || "queued",
       message: job.progress.message || "Refresh queued. You can leave this page while it runs." });
-    if (++polls >= 300) {
+    const cooling = job.state === "queued" && job.reason === "yahoo_rate_limited";
+    if (cooling) polls = 0;
+    if (!cooling && ++polls >= 300) {
       onEvent({ stage: "error", message: "Refresh is still running. It will continue in the background; return later to see the updated data." });
       close();
       return;
@@ -504,7 +506,7 @@ export function refreshStream(
         `${BASE}/league/${encodeURIComponent(leagueId)}/refresh-jobs/${encodeURIComponent(job.id)}`,
         { signal: controller.signal },
       ).then(observe).catch(() => error());
-    }, 2000);
+    }, cooling ? 30000 : 2000);
   };
   const path = `${BASE}/league/${encodeURIComponent(leagueId)}/refresh-jobs`;
   // Returning to an existing job is read-only, including failed or paused jobs.

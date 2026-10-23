@@ -685,3 +685,20 @@ Auth/config checklist for a fresh deploy:
 - Set CORS on the backend (`TRADE_GRADER_CORS_ORIGINS`) to the deployed frontend origin.
 
 Both app services **auto-deploy on push to `main`** via Railway's native GitHub integration (no GitHub Actions workflow). `railway up --service <api|web>` is the manual fallback.
+
+## Yahoo sync recovery
+
+Free league and Analyst refreshes automatically defer when Yahoo returns HTTP
+429 or 999, including during account discovery or token renewal. The same durable
+job resumes after 15 minutes, then 30 minutes, 1 hour, 2 hours, 4 hours, and at
+most every 6 hours thereafter. A longer `Retry-After` takes precedence. The
+cooldown survives worker restarts and also pauses other Yahoo refresh jobs;
+Sleeper refreshes remain eligible. The original member and connection are
+rechecked on every attempt. Cancelled jobs stay cancelled, and authentication
+or data-validation failures still require attention.
+
+Completed historical season bundles are reused from the persistent raw cache;
+an unfinished season is fetched again. Current-season data is refreshed. No
+paid request allowance or provider receipt can enter this automatic recovery
+path. My Leagues shows “Yahoo cooldown · auto-retry,” and the open refresh view
+shows the retry time without requiring another submission.

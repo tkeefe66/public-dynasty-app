@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from app.db.models import LeagueMembership, User, YahooConnection, YahooLeagueGrant
 from app.services.generation.models import (
@@ -150,7 +150,18 @@ async def claim_operation(db, worker_id: str, *, now: int | None = None, capabil
         job.updated_at = now
     await db.flush()
     allowed = set(capabilities) & {"refresh", "analyst_refresh", "generation"}
-    query = select(GenerationOperation).where(GenerationOperation.state == "queued", GenerationOperation.kind.in_(allowed))
+    query = select(GenerationOperation).where(
+        GenerationOperation.state == "queued", GenerationOperation.kind.in_(allowed),
+        GenerationOperation.next_attempt_at <= now)
+    # Yahoo may throttle the application/IP rather than only one member. Keep
+    # other Yahoo refreshes quiet too, without blocking Sleeper or paid work.
+    yahoo_cooldown = await db.scalar(select(func.max(GenerationOperation.next_attempt_at)).where(
+        GenerationOperation.kind.in_(FREE_REFRESH_KINDS),
+        GenerationOperation.league_id.contains(".l."))) or 0
+    if yahoo_cooldown > now:
+        query = query.where(or_(
+            ~GenerationOperation.kind.in_(FREE_REFRESH_KINDS),
+            ~GenerationOperation.league_id.contains(".l.")))
     free_running = await db.scalar(select(GenerationOperation.id).where(
         GenerationOperation.state == "running",
         GenerationOperation.kind.in_(("refresh", "analyst_refresh"))).limit(1))
@@ -224,7 +235,10 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
     settings = await resolve_policy(db, candidate.series_id)
     if settings["blocked_by"]:
         raise Held(settings["blocked_by"][0])
-    from app.services.generation.provider_control import account_alias, require_provider_ready
+    from app.services.generation.provider_control import (
+        account_alias,
+        require_provider_ready,
+    )
     await require_provider_ready(db, "anthropic", account_alias("anthropic"), stamp())
     feature = settings["policy"]["features"][candidate.feature]
     if feature["paused"] or feature["mode"] == "disabled":

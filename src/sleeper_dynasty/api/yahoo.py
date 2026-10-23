@@ -38,6 +38,26 @@ class YahooPermissionError(YahooAuthenticationError):
 class YahooRateLimitError(YahooDataError):
     """Yahoo is refusing requests; do not immediately retry the import."""
 
+    def __init__(self, message, *, retry_after=0):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def retry_after_seconds(value: str | None) -> int:
+    """Accept Retry-After seconds or an HTTP date; malformed hints use backoff."""
+    import math
+    from datetime import UTC, datetime
+    from email.utils import parsedate_to_datetime
+
+    try:
+        return max(0, int(value or "0"))
+    except ValueError:
+        try:
+            date = parsedate_to_datetime(value)
+            return max(0, math.ceil((date - datetime.now(UTC)).total_seconds()))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
 
 def roster_id_for(team_key) -> int:
     match = re.fullmatch(r"\d+\.l\.\d+\.t\.(\d+)", str(team_key or ""))
@@ -446,7 +466,8 @@ class YahooAdapter:
                 if response.status_code in (429, 999):
                     raise YahooRateLimitError(
                         "Yahoo is limiting API access right now. Wait before retrying; "
-                        "your Yahoo connection is still saved."
+                        "your Yahoo connection is still saved.",
+                        retry_after=retry_after_seconds(response.headers.get("Retry-After")),
                     )
                 if response.status_code >= 500:
                     if attempt < 2:

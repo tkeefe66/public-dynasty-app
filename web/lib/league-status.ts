@@ -2,6 +2,9 @@ import type { MyLeague } from "./api";
 
 /** Availability alone must never claim that a refresh is running. */
 export function leagueStatus(league: Pick<MyLeague, "warm" | "refresh_job">): string {
+  if (league.refresh_job?.state === "queued" && league.refresh_job.reason === "yahoo_rate_limited") {
+    return "Yahoo cooldown · auto-retry";
+  }
   switch (league.refresh_job?.state) {
     case "queued": return league.warm ? "Update queued" : "Queued";
     case "running": return league.warm ? "Updating" : "Building";

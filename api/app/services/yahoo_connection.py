@@ -118,10 +118,13 @@ async def exchange(data: dict) -> dict:
         raise HTTPException(
             409, "Yahoo authorization expired or was declined. Reconnect Yahoo."
         )
-    if response.status_code == 429:
+    if response.status_code in (429, 999):
+        from sleeper_dynasty.api.yahoo import YahooRateLimitError, retry_after_seconds
+
         raise HTTPException(
             429, "Yahoo is rate limiting requests. Wait a minute and retry."
-        )
+        ) from YahooRateLimitError("Yahoo token renewal rate limited",
+            retry_after=retry_after_seconds(response.headers.get("Retry-After")))
     if response.status_code != 200:
         raise HTTPException(502, "Yahoo authorization is unavailable. Try again later.")
     try:

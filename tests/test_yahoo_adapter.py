@@ -453,7 +453,7 @@ async def test_provider_limits_stop_without_immediate_retries(monkeypatch, statu
 
     def respond(request):
         calls.append(request)
-        return httpx.Response(status, text="private-token upstream details")
+        return httpx.Response(status, text="private-token upstream details", headers={"Retry-After": "1800"})
 
     monkeypatch.setattr("sleeper_dynasty.api.yahoo.asyncio.sleep", AsyncMock())
     a = YahooAdapter("private-token", id_map={}, transport=httpx.MockTransport(respond))
@@ -462,6 +462,8 @@ async def test_provider_limits_stop_without_immediate_retries(monkeypatch, statu
             await a.get_league(LK)
         assert len(calls) == 1
         assert "private-token" not in str(exc.value)
+        # Mutation: dropping the provider hint schedules the retry too early.
+        assert exc.value.retry_after == 1800
     finally:
         await a.close()
 

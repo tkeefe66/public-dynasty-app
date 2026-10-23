@@ -437,6 +437,9 @@ def test_discovery_provider_limit_preserves_connection(
             with pytest.raises(HTTPException) as error:
                 await yd.discover(db, "u1")
             assert error.value.status_code == 503
+            # Mutation: flattening the typed cause prevents durable automatic backoff.
+            from app.services.generation.yahoo_backoff import throttle_error
+            assert throttle_error(error.value) is not None
             assert "wait" in error.value.detail.lower()
             assert (await db.get(YahooConnection, "u1")).status == "connected"
 

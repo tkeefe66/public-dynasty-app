@@ -2,6 +2,25 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { ApiError, dashboard, refreshStream } from "../lib/api";
 
 describe("api client", () => {
+  it("keeps observing a long Yahoo cooldown without demanding a retry", async () => {
+    // Mutation: counting cooldown polls as active work stops observation before retry is due.
+    vi.useFakeTimers();
+    try {
+      let finished = false;
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+        new Response(JSON.stringify({ id: "job", state: finished ? "succeeded" : "queued",
+          reason: "yahoo_rate_limited", progress: { stage: "cooldown", message: "Resumes automatically" } })));
+      const onEvent = vi.fn();
+      const watcher = refreshStream("synthetic", onEvent, { jobId: "job" });
+      await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+      expect(onEvent.mock.calls.some(([event]) => event.stage === "error")).toBe(false);
+      expect(fetchSpy.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+      finished = true;
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(onEvent).toHaveBeenLastCalledWith({ stage: "done" });
+      watcher.close();
+    } finally { vi.useRealTimers(); }
+  });
   beforeEach(() => {
     vi.restoreAllMocks();
   });

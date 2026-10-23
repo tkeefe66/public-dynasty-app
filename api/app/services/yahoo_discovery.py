@@ -73,12 +73,12 @@ async def discover(db, user_id) -> list[dict]:
         raise HTTPException(
             409, "Yahoo refused access. Reconnect Yahoo and approve read access."
         ) from None
-    except YahooRateLimitError:
+    except YahooRateLimitError as exc:
         raise HTTPException(
             503,
             "Yahoo is limiting API access right now. Wait before retrying; "
             "your Yahoo connection is still saved.",
-        ) from None
+        ) from exc
     except (YahooDataError, KeyError, TypeError, ValueError):
         raise HTTPException(
             502, "Yahoo leagues could not be loaded. Try again in a minute."
