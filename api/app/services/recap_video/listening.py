@@ -1,5 +1,7 @@
 """Administrator-only adjudication of exact saved speech evidence; never TTS."""
+import asyncio
 import json
+import uuid
 from sqlalchemy import select
 from app.services.generation.models import stamp
 from app.services.generation.recap_models import RecapAsset,RecapRecovery,RecapStage
@@ -7,11 +9,13 @@ from app.services.generation.store import Held,digest,dump,lock_control
 from app.services.recap_video.qualification import require_admin_actor
 
 
-async def binding(db,stage):
+async def binding(db,stage,*,allow_fenced=False):
     result=json.loads(stage.result_json)
     identity=result['report']['transcript_asset_id']
     asset=await db.get(RecapAsset,identity)
-    if not asset or asset.stage_id!=stage.id or asset.generation!=stage.generation:
+    allowed={stage.generation}
+    if allow_fenced and stage.state=='held': allowed.add(stage.generation-1)
+    if not asset or asset.stage_id!=stage.id or asset.generation not in allowed:
         raise Held('listening_transcript_changed')
     audio=[]
     for ident in result['report']['audio_asset_ids']:
@@ -45,19 +49,31 @@ async def approve_listening(db,*,stage_id,expected_binding_digest,review,actor_i
     stage=await db.get(RecapStage,stage_id)
     if not stage or stage.kind!='speech_check' or stage.state!='held' or not reason.strip():
         raise Held('listening_held_speech_required')
-    current=await binding(db,stage)
+    current=await binding(db,stage,allow_fenced=True)
     if digest(current)!=expected_binding_digest: raise Held('listening_recording_changed')
-    _,data=await read(db,current['transcript'][0],stage=stage)
+    asset,data=await read(db,current['transcript'][0])
     inputs=json.loads(stage.input_json)
     try: review_speech(inputs['script'],json.loads(data),aliases=inputs['speech_review']['aliases'],review=review)
     except ValueError as exc: raise Held(str(exc)) from None
     await lock_control(db)
     await _current(db,stage,now=stamp())
-    if current!=await binding(db,stage) or stage.state!='held': raise Held('listening_recording_changed')
+    if current!=await binding(db,stage,allow_fenced=True) or stage.state!='held': raise Held('listening_recording_changed')
     if await approved_review(db,stage) is not None: raise Held('listening_already_reviewed')
+    original_result=json.loads(stage.result_json)
+    original_evidence=json.loads(stage.evidence_json)
+    if asset.generation!=stage.generation:
+        from app.services.recap_video.storage import configured_store
+        identity=str(uuid.uuid4());key=f'listening-recovery/{identity}.json'
+        await asyncio.to_thread(configured_store().put_verified,key,data,asset.digest)
+        adopted=RecapAsset(id=identity,stage_id=stage.id,generation=stage.generation,
+            digest=asset.digest,size=asset.size,media_type=asset.media_type,storage_key=key)
+        db.add(adopted);await db.flush()
+        result=json.loads(stage.result_json)
+        result['asset_ids']=[identity];result['report']['transcript_asset_id']=identity
+        stage.result_json=dump(result)
     row=RecapRecovery(episode_id=stage.episode_id,stage_id=stage.id,action='human_listening_approved',
-        actor_id=actor_id,reason=reason,before_json=dump(dict(binding=current,review=review,
-            original_result=json.loads(stage.result_json),original_evidence=json.loads(stage.evidence_json))))
+        actor_id=actor_id,reason=reason,before_json=dump(dict(binding=await binding(db,stage),review=review,
+            original_binding=current,original_result=original_result,original_evidence=original_evidence)))
     db.add(row);await db.flush()
     result=json.loads(stage.result_json)
     await validate_speech(db,stage,result)

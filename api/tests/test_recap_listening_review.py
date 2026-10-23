@@ -79,3 +79,44 @@ async def test_api_review_is_bound_to_assets_input_and_admin(maker,monkeypatch):
         with pytest.raises(Held,match='listening_recording_changed'): await listening.approved_review(db,stage)
         asset.digest='audio';proof.actor_id='worker'
         with pytest.raises(Held,match='admin_permission_removed'): await listening.approved_review(db,stage)
+
+
+@pytest.mark.asyncio
+async def test_held_review_adopts_previous_generation_without_changing_original(maker,monkeypatch):
+    from app.services.recap_video import listening,workflow,rendering,elevenlabs,storage
+    from app.services.generation.recap_models import RecapStage,RecapAsset,RecapRecovery
+    from app.services.generation.store import dump,digest,Held
+    import json,hashlib
+    script,raw,review=fixture();payload=dump(raw).encode();sha=hashlib.sha256(payload).hexdigest()
+    async def noop(*args,**kwargs): pass
+    monkeypatch.setattr(listening,'require_admin_actor',noop)
+    monkeypatch.setattr(listening,'lock_control',noop)
+    monkeypatch.setattr(workflow,'_current',noop)
+    objects={'raw':payload}
+    class Store:
+        def read_range(self,key,start,end): return objects[key][start:end+1]
+        def put_verified(self,key,data,checksum):
+            assert key not in objects and hashlib.sha256(data).hexdigest()==checksum
+            objects[key]=data
+    monkeypatch.setattr(storage,'configured_store',Store)
+    monkeypatch.setattr(rendering,'configured_store',Store)
+    async def validate(db,stage,result):
+        asset,data=await rendering.read(db,result['report']['transcript_asset_id'],stage=stage)
+        assert data==payload and asset.generation==2
+        assert await listening.approved_review(db,stage)==review
+    monkeypatch.setattr(elevenlabs,'validate_speech',validate)
+    async with maker.begin() as db:
+        result={'asset_ids':['raw'],'report':{'transcript_asset_id':'raw','audio_asset_ids':[]}}
+        stage=RecapStage(id='held',episode_id='episode',revision=1,kind='speech_check',script_id='script',operation_id='job',
+            input_json=dump({'script':script,'speech_review':{'aliases':{}}}),input_digest='input',policy_digest='policy',
+            generation=2,state='held',result_json=dump(result))
+        original=RecapAsset(id='raw',stage_id=stage.id,generation=1,digest=sha,size=len(payload),media_type='application/json',storage_key='raw')
+        db.add_all([stage,original]);await db.flush()
+        with pytest.raises(Held,match='listening_transcript_changed'): await listening.binding(db,stage)
+        bound=await listening.binding(db,stage,allow_fenced=True)
+        await listening.approve_listening(db,stage_id=stage.id,expected_binding_digest=digest(bound),review=review,actor_id='owner',reason='Approved saved audio')
+        assert stage.state=='succeeded' and original.generation==1 and objects['raw']==payload
+        assert json.loads(stage.result_json)['asset_ids']!=['raw']
+        from sqlalchemy import select
+        proof=json.loads((await db.scalar(select(RecapRecovery).where(RecapRecovery.stage_id==stage.id))).before_json)
+        assert proof['original_result']==result and proof['original_binding']==bound
