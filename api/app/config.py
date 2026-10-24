@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # Liveness: keep known leagues warm via an in-process scheduler.
     auto_refresh: bool = True
+    # Cloud monitor is activated only after explicit scope/email setup and proof.
+    recap_monitor_enabled: bool = False
     refresh_interval_seconds: int = 3 * 3600
     llm_model: str | None = None  # env: TRADE_GRADER_LLM_MODEL — overrides all writer defaults
     # Separately configured epoch must match owner activation. Restore rotates
