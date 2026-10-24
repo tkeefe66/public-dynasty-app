@@ -20,7 +20,7 @@ from app.services.generation.registry import register_entry, set_series
 from app.services.generation.store import dump
 from sqlalchemy import delete, select
 
-from sleeper_dynasty.api.yahoo import YahooAdapter
+from sleeper_dynasty.api.yahoo import YahooAdapter, YahooRateLimitError
 from sleeper_dynasty.engine.capabilities import (
     capabilities_to_dict,
     derive_capabilities,
@@ -57,7 +57,7 @@ async def provider_entry(*, format=None, league_id=LEAGUE, season=2026):
 
 
 @pytest.fixture
-def format_db(app, maker):
+def format_db(app, maker, monkeypatch):
     async def seed():
         async with maker.begin() as db:
             row = await register_entry(db, await provider_entry(), verified=True)
@@ -72,8 +72,17 @@ def format_db(app, maker):
     sid = asyncio.run(seed())
 
     async def isolated():
-        async with maker.begin() as db:
-            yield db
+        async with maker() as db:
+            try:
+                yield db
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
+    async def no_provider_verification(*args):
+        raise AssertionError("Unexpected live Yahoo authorization verification")
+    monkeypatch.setattr("app.services.yahoo_discovery.verify_league", no_provider_verification)
     app.dependency_overrides[get_db] = isolated
     app.dependency_overrides[require_admin] = lambda: SimpleNamespace(id="owner", is_admin=True)
     yield maker, sid
@@ -176,7 +185,7 @@ def test_conflicting_provider_format_invalidates_confirmation_and_preserves_stro
 
 
 @pytest.mark.parametrize("invalid", ["legacy", "unknown_caps", "missing_identity", "identity_conflict",
-    "provider_format", "not_member", "not_admin", "missing_actor", "expired_grant", "changed_grant"])
+    "provider_format", "not_member", "not_admin", "missing_actor", "changed_grant"])
 def test_confirmation_cannot_bypass_identity_capability_or_actor_gates(client, format_db, invalid):
     # Mutation: use owner input to bless unverifiable data or bypass current private-league authorization.
     maker, sid = format_db
@@ -202,10 +211,7 @@ def test_confirmation_cannot_bypass_identity_capability_or_actor_gates(client, f
                 await db.execute(delete(User))
             else:
                 grant = await db.get(YahooLeagueGrant, ("owner", LEAGUE))
-                if invalid == "expired_grant":
-                    grant.expires_at = stamp() - 1
-                else:
-                    grant.generation = "replaced"
+                grant.generation = "replaced"
             row.evidence_json = dump(evidence)
     asyncio.run(invalidate())
     response = confirm(client, sid)
@@ -244,6 +250,157 @@ def test_owner_confirmation_never_rescues_unverified_refresh(client, format_db, 
     listed = client.get("/api/admin/generation/leagues").json()["records"][0]["seasons"][0]
     assert listed["format_confirmation_available"] is False
     assert listed["format_verification_source"] is None
+
+
+def expire_format_grant(maker):
+    async def expire():
+        async with maker.begin() as db:
+            (await db.get(YahooLeagueGrant, ("owner", LEAGUE))).expires_at = stamp() - 1
+    asyncio.run(expire())
+
+
+def format_verifier(monkeypatch, *, change=None, error=None):
+    from app.routes import generation_admin
+    from app.services.generation import registry
+
+    calls = []
+    original_lock = registry.lock_control
+
+    async def track_lock(db):
+        db.info["generation_global_lock"] = True
+        return await original_lock(db)
+    monkeypatch.setattr(registry, "lock_control", track_lock)
+    monkeypatch.setattr(generation_admin, "lock_control", track_lock, raising=False)
+
+    async def verify(db, user_id, league_id):
+        assert (user_id, league_id) == ("owner", LEAGUE)
+        assert not db.info.get("generation_global_lock")
+        calls.append((user_id, league_id))
+        if error:
+            raise error
+        grant = await db.get(YahooLeagueGrant, (user_id, league_id))
+        grant.expires_at = stamp() + 300
+        connection = await db.get(YahooConnection, user_id)
+        if change == "connection":
+            connection.generation = grant.generation = "reconnected"
+        elif change == "disconnected":
+            connection.status = "disconnected"
+        elif change == "membership":
+            await db.execute(delete(LeagueMembership))
+        elif change == "admin":
+            (await db.get(User, user_id)).is_admin = False
+        return {"league_id": league_id}
+    monkeypatch.setattr("app.services.yahoo_discovery.verify_league", verify)
+    return calls
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_format_confirmation_renews_only_expired_grant_outside_global_lock(client, format_db, monkeypatch, expired):
+    # Mutation: reject an expired valid grant, refresh a fresh one, or verify while holding the generation lock.
+    maker, sid = format_db
+    if expired:
+        expire_format_grant(maker)
+    calls = format_verifier(monkeypatch)
+    response = confirm(client, sid)
+    assert response.status_code == 200, response.text
+    assert calls == ([("owner", LEAGUE)] if expired else [])
+    async def checked():
+        async with maker() as db:
+            assert (await db.get(LeagueSeason, LEAGUE)).verified_at > 0
+            assert (await db.get(LeagueSeries, sid)).revision == 2
+    asyncio.run(checked())
+
+
+@pytest.mark.parametrize("change", ["connection", "disconnected", "membership", "admin"])
+def test_format_confirmation_rechecks_saved_principal_after_renewal(client, format_db, monkeypatch, change):
+    # Mutation: adopt the new connection or trust identity cached before provider verification commits.
+    maker, sid = format_db
+    expire_format_grant(maker)
+    calls = format_verifier(monkeypatch, change=change)
+    response = confirm(client, sid)
+    assert response.status_code == 409, response.text
+    assert calls == [("owner", LEAGUE)]
+    async def unchanged():
+        async with maker() as db:
+            assert (await db.get(LeagueSeason, LEAGUE)).verified_at == 0
+            assert (await db.get(LeagueSeries, sid)).revision == 1
+            assert not (await db.scalars(select(GenerationAudit))).all()
+    asyncio.run(unchanged())
+
+
+def test_format_confirmation_throttle_returns_retry_after_without_writing_evidence(client, format_db, monkeypatch):
+    # Mutation: collapse typed Yahoo throttling into a grant error or confirm without renewed authorization.
+    from fastapi import HTTPException
+
+    maker, sid = format_db
+    expire_format_grant(maker)
+    wrapped = HTTPException(503, "Yahoo discovery unavailable")
+    wrapped.__cause__ = YahooRateLimitError("Synthetic throttle", retry_after=900)
+    calls = format_verifier(monkeypatch, error=wrapped)
+    response = confirm(client, sid)
+    assert response.status_code == 429, response.text
+    assert response.headers["retry-after"] == "900"
+    assert "retry" in response.json()["detail"].lower()
+    assert calls == [("owner", LEAGUE)]
+    async def unchanged():
+        async with maker() as db:
+            assert (await db.get(LeagueSeries, sid)).revision == 1
+            assert not (await db.scalars(select(GenerationAudit))).all()
+    asyncio.run(unchanged())
+
+
+def test_stale_format_form_does_not_renew_yahoo_grant(client, format_db, monkeypatch):
+    # Mutation: contact Yahoo before noticing that the owner is submitting a stale form.
+    maker, sid = format_db
+    expire_format_grant(maker)
+    calls = format_verifier(monkeypatch)
+    assert confirm(client, sid, expected_revision=2).status_code == 409
+    assert calls == []
+
+
+@pytest.mark.parametrize("revoked", ["missing", "disconnected", "reconnected", "membership"])
+def test_format_confirmation_never_renews_revoked_private_league_access(client, format_db, monkeypatch, revoked):
+    # Mutation: acquire fresh grants for a revoked or replaced identity while repairing expiration.
+    maker, sid = format_db
+    expire_format_grant(maker)
+    calls = format_verifier(monkeypatch)
+    async def revoke():
+        async with maker.begin() as db:
+            if revoked == "missing":
+                await db.execute(delete(YahooLeagueGrant))
+            elif revoked == "membership":
+                await db.execute(delete(LeagueMembership))
+            else:
+                connection = await db.get(YahooConnection, "owner")
+                if revoked == "disconnected":
+                    connection.status = "disconnected"
+                else:
+                    connection.generation = "replacement"
+    asyncio.run(revoke())
+    assert confirm(client, sid).status_code == 409
+    assert calls == []
+
+
+def test_format_confirmation_discards_identity_cache_before_locked_recheck(client, format_db, monkeypatch):
+    # Mutation: retain a cached connected identity after another session disconnects it before admission.
+    from app.routes import generation_admin
+
+    maker, sid = format_db
+    calls = format_verifier(monkeypatch)
+    original_lock = generation_admin.lock_control
+
+    async def disconnect_before_lock(db):
+        async with maker.begin() as other:
+            (await other.get(YahooConnection, "owner")).status = "disconnected"
+        return await original_lock(db)
+    monkeypatch.setattr(generation_admin, "lock_control", disconnect_before_lock)
+    response = confirm(client, sid)
+    assert response.status_code == 409, response.text
+    assert calls == []
+    async def unchanged():
+        async with maker() as db:
+            assert (await db.get(LeagueSeries, sid)).revision == 1
+    asyncio.run(unchanged())
 
 
 def test_matching_provider_evidence_retains_owner_history_and_uses_provider_label(client, format_db):

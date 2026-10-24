@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from app.auth.deps import require_admin
 from app.config import get_settings
-from app.db.models import LeagueMembership, User
+from app.db.models import LeagueMembership, User, YahooConnection
 from app.db.session import get_db
 from app.services.generation import administration as commands
 from app.services.generation.candidate_status import classify_candidates
@@ -30,7 +30,13 @@ from app.services.generation.registry import (
     format_evidence_view,
     set_series,
 )
-from app.services.generation.store import Conflict, Held, data, resolve_policy
+from app.services.generation.store import (
+    Conflict,
+    Held,
+    data,
+    lock_control,
+    resolve_policy,
+)
 
 router = APIRouter(prefix="/api/admin/generation", dependencies=[Depends(require_admin)])
 DB = Annotated[object, Depends(get_db)]
@@ -182,9 +188,53 @@ async def series(series_id: str, body: SeriesChange, db: DB, owner: Owner):
 @router.post("/leagues/{series_id}/format-confirmation")
 async def confirm_format(series_id: str, body: FormatConfirmation, db: DB,
                          owner: Annotated[User, Depends(require_admin)]):
-    row = await execute(confirm_season_format(db, series_id, expected_revision=body.expected_revision,
-        league_id=body.league_id, format=body.format, actor=owner.id, reason=body.reason))
+    row = await execute(_confirm_format_with_renewal(db, series_id, body, owner.id))
     return data(row)
+
+
+async def _confirm_format_with_renewal(db, series_id, body, actor_id):
+    from app.services.generation.commands import require_actor
+    from app.services.generation.yahoo_authorization import _renew_actor_grant
+    from app.services.generation.yahoo_backoff import throttle_error
+    from sleeper_dynasty.api.yahoo import YahooDataError
+
+    # Invalid/stale forms retain the command's existing errors without provider
+    # I/O. Renewal may commit, so all command gates run again after it completes.
+    series = await db.get(LeagueSeries, series_id)
+    seasons = (await db.scalars(select(LeagueSeason).where(LeagueSeason.series_id == series_id))).all()
+    latest = max((row.season for row in seasons), default=0)
+    current = [row for row in seasons if row.season == latest]
+    eligible = (series and series.revision == body.expected_revision and body.reason.strip()
+        and len(current) == 1 and current[0].league_id == body.league_id
+        and format_evidence_view(current[0], current=True,
+            series_hold=series.hold)["format_confirmation_available"])
+    if eligible:
+        connection = await db.get(YahooConnection, actor_id)
+        principal = GenerationOperation(kind="generation", actor_id=actor_id, league_id=body.league_id,
+            connection_generation=connection.generation if connection else "")
+        try:
+            await _renew_actor_grant(db, principal)
+            # Re-read authorization after the free provider call/commit. A
+            # reconnect cannot substitute a different account for this request.
+            db.expire_all()
+            await lock_control(db)
+            await require_actor(db, principal)
+        except Held as exc:
+            if exc.code == "provider_grant_changed":
+                raise HTTPException(409, "Yahoo access changed. Open this league and reconnect Yahoo "
+                    "if requested, then retry format confirmation.") from exc
+            raise
+        except (HTTPException, YahooDataError) as exc:
+            throttled = throttle_error(exc)
+            if throttled:
+                raise HTTPException(429, "Yahoo is limiting access. Wait before retrying format confirmation.",
+                    headers={"Retry-After": str(max(1, throttled.retry_after))}) from exc
+            if isinstance(exc, HTTPException):
+                raise
+            raise HTTPException(503, "Yahoo access could not be verified. Open this league and retry "
+                "format confirmation after its data refreshes.") from exc
+    return await confirm_season_format(db, series_id, expected_revision=body.expected_revision,
+        league_id=body.league_id, format=body.format, actor=actor_id, reason=body.reason)
 
 
 @router.get("/records/{kind}")
