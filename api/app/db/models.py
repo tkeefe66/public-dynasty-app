@@ -182,3 +182,4 @@ class SideBet(Base):
 # Register durable generation tables with the same migration/backup metadata.
 from app.services.generation import models as generation_models  # noqa: E402,F401
 from app.services.generation import recap_models  # noqa: E402,F401
+from app.services.recap_monitor import models as monitor_models  # noqa: E402,F401

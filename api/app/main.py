@@ -55,6 +55,10 @@ def create_app() -> FastAPI:
         # Create the identity DB engine eagerly (one pool, no first-request race).
         init_engine()
         tasks = [asyncio.create_task(worker_loop(settings.cache_dir))]
+        if settings.recap_monitor_enabled:
+            from app.services.recap_monitor.runner import monitor_loop
+            tasks.append(asyncio.create_task(monitor_loop(settings.cache_dir)))
+            log.info('Railway recap monitor started (durable due checks, help-only email)')
         # Liveness: keep known leagues warm in the background.
         if settings.auto_refresh:
             tasks.append(asyncio.create_task(auto_refresh_loop(
