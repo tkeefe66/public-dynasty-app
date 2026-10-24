@@ -36,7 +36,23 @@ REQUEST_TIMEOUT_SECONDS = 300.0
 MAX_TOKENS = 8192
 REVIEW_MAX_TOKENS = 8192
 MAX_REPAIRS = 1
-REVIEW_GROUNDING_VERSION = "recap-owner-evidence-v1"
+REVIEW_GROUNDING_VERSION = "recap-owner-evidence-v2"
+REVIEW_GROUNDING_VERSIONS = ("recap-owner-evidence-v1", REVIEW_GROUNDING_VERSION)
+# Append only for v2. The v1 prompt file and evidence layout are paid-receipt contracts.
+USAGE_UNIT_GUIDANCE = """
+The player_usage index labels the exact unit of each saved usage field.
+usage.offense_snaps counts offensive snaps played, never routes run, touches, targets, carries, or receptions.
+usage.offense_share is a fraction of team offensive snaps, not route participation
+or target share; multiply by 100 only when expressing it as a percentage.
+Routes, touches, targets, carries, catches and yards each need their own explicit
+stat or report for that same player. Never infer them from snaps or fantasy points.
+Missing or null usage is unknown, not zero. Keep units attached to every number.
+Audit ALL usage claims in the first review, even after finding another error.
+Verify each player's value AND unit before approval; the check-list limit does
+not limit the whole-article audit. Report all required corrections together so
+the single correction can fix them. A correct number with a wrong unit requires
+needs_correction and approved=false. Repeat this full audit after correction.
+"""
 REVIEW_TOOL: anthropic.types.ToolParam = {
     "name": "submit_recap_review",
     "description": (
@@ -129,7 +145,7 @@ LEGACY_REPAIR_INSTRUCTIONS = (
 )
 
 
-def _claim_evidence(packet: dict) -> dict:
+def _claim_evidence(packet: dict, version: str) -> dict:
     """Keep each saved swap and NFL report attached to its own source row."""
     swaps = [
         {**deepcopy(swap), "source_id": f"/facts/bench_regret/{i}/legal_swaps/{j}",
@@ -154,8 +170,17 @@ def _claim_evidence(packet: dict) -> dict:
                 "player": player["player"], "player_kickoff_at": kickoff,
                 "published_at": published, "publication_relative_to_player_kickoff": relation,
             })
-    return {"version": REVIEW_GROUNDING_VERSION, "single_swaps": swaps,
-            "player_news_timing": timing}
+    evidence = {"version": version, "single_swaps": swaps, "player_news_timing": timing}
+    if version == "recap-owner-evidence-v2":
+        evidence["player_usage"] = [
+            {"source_id": f"/facts/player_context/players/{i}/usage/{field}",
+             "player": player["player"], "field": field, "value": player["usage"][field], "unit": unit}
+            for i, player in enumerate(packet["player_context"].get("players", []))
+            for field, unit in (("offense_snaps", "offensive_snaps"),
+                                ("offense_share", "fraction_of_team_offensive_snaps"))
+            if (player.get("usage") or {}).get(field) is not None
+        ]
+    return evidence
 
 
 def _passage_spans(text: str) -> dict[str, tuple[int, int]]:
@@ -309,6 +334,7 @@ class RecapWriter:
         client=None,
         legacy_repair: bool = False,
         grounded_review: bool = True,
+        grounding_version: str | None = None,
     ) -> None:
         self.model = model
         self.review_model = review_model
@@ -318,10 +344,14 @@ class RecapWriter:
         self._cost_store = cost_store
         self._league_id = league_id
         self._legacy_repair = legacy_repair
+        self._grounding_version = grounding_version or REVIEW_GROUNDING_VERSION
+        if self._grounding_version not in REVIEW_GROUNDING_VERSIONS:
+            raise ValueError(f"Unsupported recap grounding version {self._grounding_version!r}; review the saved request")
         # Generation selects the saved first request's contract before replay.
         # Keeping this off preserves both literal- and passage-repair receipts.
         self._grounding_prompt = (
-            REVIEW_GROUNDING_VERSION + "\n" + resources.files(_PROMPTS).joinpath("analyst_grounding.md").read_text()
+            self._grounding_version + "\n" + resources.files(_PROMPTS).joinpath("analyst_grounding.md").read_text()
+            + (USAGE_UNIT_GUIDANCE if self._grounding_version == "recap-owner-evidence-v2" else "")
             if grounded_review else None
         )
 
@@ -357,7 +387,7 @@ class RecapWriter:
             )
         if self._grounding_prompt:
             user_parts.append("CLAIM EVIDENCE INDEX:\n```json\n"
-                              + json.dumps(_claim_evidence(packet), separators=(",", ":")) + "\n```")
+                              + json.dumps(_claim_evidence(packet, self._grounding_version), separators=(",", ":")) + "\n```")
         messages = [
             {
                 "role": "user",
@@ -436,7 +466,7 @@ class RecapWriter:
         system = [{"type": "text", "text": review_prompt}]
         if self._grounding_prompt:
             system.append({"type": "text", "text": self._grounding_prompt})
-            evidence["claim_evidence"] = _claim_evidence(packet)
+            evidence["claim_evidence"] = _claim_evidence(packet, self._grounding_version)
         review = self._request(
             system,
             [{"role": "user", "content": json.dumps(evidence)}],

@@ -1,5 +1,6 @@
 import json
 from importlib import import_module
+from pathlib import Path
 
 import anthropic
 import pytest
@@ -211,6 +212,74 @@ def test_grounded_news_timing_uses_player_kickoff_without_inventing_missing_time
                        "publication_relative_to_player_kickoff": relation}]
 
 
+@pytest.mark.parametrize("approved", [True, False])
+@pytest.mark.parametrize("unknown_usage", [None, {}, {"offense_snaps": None}])
+def test_usage_evidence_preserves_units_in_draft_repair_and_both_reviews(writer_factory, approved, unknown_usage):
+    # Mutation: relabel snaps as routes, omit zero, dereference null usage, or supply units only to the final reviewer.
+    from sleeper_dynasty.llm.recap_packet import ArchivedPacket
+
+    packet = _facts().to_dict()
+    packet["lineups"] = [{"owner": "Team A", "starters": [
+        {"player": "Juwan Johnson (TE, NO)", "points": 0},
+        {"player": "Synthetic Receiver (WR, TEST)", "points": 0},
+        {"player": "Unknown Usage (WR, TEST)", "points": 0},
+    ]}]
+    # Reduced production evidence: Johnson's 42 is offense_snaps, not routes.
+    # Synthetic rows distinguish actual zero from null and absent usage.
+    packet["player_context"] = {"players": [
+        {"player": "Juwan Johnson", "usage": {"offense_snaps": 42}, "news": []},
+        {"player": "Synthetic Receiver", "usage": {"offense_snaps": 0, "offense_share": 0.25}, "news": []},
+        {"player": "Unknown Usage", "usage": unknown_usage, "news": []},
+    ]}
+    original = "Johnson ran 42 routes."
+    corrected = "Johnson played 42 offensive snaps."
+    rejection = {"approved": False, "checks": [{
+        "quote": original, "evidence": "usage.offense_snaps is 42 offensive snaps; route count is unknown.",
+        "status": "needs_correction",
+    }]}
+    writer, requests = writer_factory([
+        _message([_text(original)]),
+        _message([_verdict(rejection)], stop_reason="tool_use"),
+        _message([_passage_edits([{"passage_id": "p1", "after": corrected if approved else original}])], stop_reason="tool_use"),
+        _message([_verdict() if approved else _verdict(rejection)], stop_reason="tool_use"),
+    ])
+    if approved:
+        assert writer.write(ArchivedPacket(packet)) == corrected
+    else:
+        with pytest.raises(ValueError, match="after one correction"):
+            writer.write(ArchivedPacket(packet))
+    assert len(requests) == 4
+    draft_index = json.loads(requests[0]["messages"][0]["content"][0]["text"].split("CLAIM EVIDENCE INDEX:\n```json\n")[1].split("\n```")[0])
+    assert draft_index["version"] == "recap-owner-evidence-v2"
+    assert draft_index["player_usage"] == [
+        {"source_id": "/facts/player_context/players/0/usage/offense_snaps", "player": "Juwan Johnson",
+         "field": "offense_snaps", "value": 42, "unit": "offensive_snaps"},
+        {"source_id": "/facts/player_context/players/1/usage/offense_snaps", "player": "Synthetic Receiver",
+         "field": "offense_snaps", "value": 0, "unit": "offensive_snaps"},
+        {"source_id": "/facts/player_context/players/1/usage/offense_share", "player": "Synthetic Receiver",
+         "field": "offense_share", "value": 0.25, "unit": "fraction_of_team_offensive_snaps"},
+    ]
+    assert draft_index == json.loads(requests[1]["messages"][0]["content"])["claim_evidence"]
+    assert draft_index == json.loads(requests[3]["messages"][0]["content"])["claim_evidence"]
+    assert requests[2]["messages"][0] == requests[0]["messages"][0]
+    for request in requests:
+        prompt = request["system"][1]["text"]
+        assert prompt.startswith("recap-owner-evidence-v2\n")
+        assert "never routes run, touches, targets, carries, or receptions" in prompt
+        assert "Audit ALL usage claims in the first review" in prompt
+
+
+def test_v1_rejected_receipts_remain_byte_exact_after_unit_prompt_upgrade(writer_factory):
+    # Mutation: append v2 guidance or typed usage evidence to an already-paid v1 request.
+    from sleeper_dynasty.llm.recap_packet import ArchivedPacket
+
+    fixture = json.loads((Path(__file__).parents[1] / "api/tests/fixtures/synthetic_analyst_grounded_v1_receipts.json").read_text())
+    writer, requests = writer_factory(fixture["responses"], grounding_version="recap-owner-evidence-v1")
+    with pytest.raises(ValueError, match=fixture["expected_error"]):
+        writer.write(ArchivedPacket(fixture["payload"]["edition"]["facts"]))
+    assert [{key: value for key, value in request.items() if key != "_timeout"} for request in requests] == fixture["requests"]
+
+
 def test_passage_correction_preserves_other_prose_and_reviews_complete_result(writer_factory):
     # Mutation: require the model to reproduce source text, or skip review after an indexed repair.
     draft = "# Week 9\n\nHe ran **39 snaps**, and this is what he does with them.\n\nAn unchanged joke."
@@ -360,7 +429,7 @@ def writer_factory(monkeypatch):
 
     real_client = anthropic.Anthropic
 
-    def make(responses, *, cost_store=None):
+    def make(responses, *, cost_store=None, **writer_options):
         requests = []
 
         def handle(request):
@@ -399,7 +468,7 @@ def writer_factory(monkeypatch):
         )
         writer = RecapWriter(
             client=anthropic.Anthropic(api_key="test", max_retries=0, timeout=300),
-            cost_store=cost_store, league_id="test-league"
+            cost_store=cost_store, league_id="test-league", **writer_options
         )
         clients.append(writer._client)
         return writer, requests
