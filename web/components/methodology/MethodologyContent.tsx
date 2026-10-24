@@ -169,10 +169,18 @@ function Verdict() {
       <SampleCard />
       <p className="mb-4 max-w-[68ch] text-prose leading-relaxed text-body">
         The <span className="text-ink font-semibold">Franchise Rating</span> is your platform-wide owner verdict
-        — one letter, your whole career. It is a number centered at{" "}
+        — one letter for your career through the selected season. All shows your current career rating.
+        It is a number centered at{" "}
         <span className="text-ink font-semibold">1,500</span> (exactly league-average = a <strong>C</strong>),
         clamped between <span className="font-mono text-prose">800</span> and{" "}
         <span className="font-mono text-prose">2,200</span>, and mapped to a letter by fixed bands.
+      </p>
+
+      <p className="mb-4 max-w-[68ch] text-prose leading-relaxed text-body">
+        Past seasons use results through that season and verified season-end rosters, player ages,
+        pick ownership, and asset prices. The current season uses the latest refresh until it is complete.
+        Missing historical evidence displays Historical data unavailable; it is never replaced with
+        today&rsquo;s assets or an estimate.
       </p>
 
       {/* The three things v2 makes true that the old page didn't say, or said
@@ -337,7 +345,7 @@ const SIGNAL_DEFS: Record<string, { def: string; formula?: string; extra?: React
     formula: "value in players ≤25 / total valued roster",
   },
   draft_capital: {
-    def: "Tier-adjusted dynasty market value of all future rookie picks currently held. Weaker teams' earlier picks are worth more (higher upside). Always reflects today's holdings, not a fixed snapshot.",
+    def: "Value of future picks owned at the selected cutoff, using prices and roster-strength evidence available then. All uses current holdings. Historical ownership and prices must be verified.",
     formula: "Σ value(held future picks, tier-adjusted)",
   },
 };
@@ -654,9 +662,9 @@ function Columns() {
         <div>
           <EntryHead title="Draft Capital" formula="Σ value(held future picks, tier-adjusted)" />
           <p className="max-w-[68ch] text-prose leading-relaxed text-body">
-            Dynasty market value of all future rookie picks currently held, tiered by the originating team&rsquo;s
-            roster strength — weaker teams have earlier picks worth more. Not year-scoped; always reflects
-            today&rsquo;s holdings.
+            Market value of future picks owned at the selected season&rsquo;s cutoff. Historical prices and
+            ownership must be verified. All uses today&rsquo;s holdings, with pick tiers based on current
+            roster strength.
           </p>
         </div>
 

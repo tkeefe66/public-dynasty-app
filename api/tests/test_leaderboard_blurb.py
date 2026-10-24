@@ -25,8 +25,13 @@ def test_blurb_attached_for_scope():
 
 
 def test_blurb_none_when_missing_for_scope():
-    # owner_rating_blurbs only has the "all" scope; the 2025 scope has no entry,
-    # so the row's blurb is None.
-    resp = build_leaderboard(_entry(), year=2025, prev_ratings={})
+    # Mutation: reuse old year prose, which described a current-career rating.
+    entry = _entry()
+    entry.owner_rating_blurbs["2025"] = {"u1": {"blurb": "Old current-career claim"}}
+    entry.season_rating_inputs = {"2025": {
+        "version": 1, "status": "ready", "format": "redraft", "owners": ["u1"],
+        "outcome_signals": {"u1": {"expected_wins": 0.5, "playoff_success": 0, "luck": 0}},
+        "season_records": entry.season_records}}
+    resp = build_leaderboard(entry, year=2025, prev_ratings={})
     row = next(r for r in resp.rows if r.user_id == "u1")
     assert row.blurb is None

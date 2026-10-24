@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from app.models.common import OwnerRef
+from app.models.rating_scope import RatingScope
 
 
 class SignalBreakdown(BaseModel):
@@ -63,6 +64,7 @@ class GMRow(BaseModel):
 
 
 class LeaderboardResp(BaseModel):
+    rating_scope: RatingScope | None = None
     league_id: str
     scope: str            # "all" or the season as a string
     rows: list[GMRow]

@@ -36,22 +36,12 @@ def all_time_ratings(entry: ChainCacheEntry) -> dict[str, int]:
 
 
 def compute_season_ratings(entry: ChainCacheEntry) -> dict[str, dict[str, int]]:
-    """Always {} under v2: there is no year-scoped rating left to compute.
+    """Keep legacy rank-change baselines disabled.
 
-    v1 could scope a season because the Skill pillar's trade signals were
-    year-filtered. Under v2, `outcome_signals`/`outlook_signals` are single
-    all-time dicts and the Results signals are recency-decayed across the
-    whole chain rather than sliced per year — `live_ratings`'s `year` param
-    is accepted but unused (see franchise_redesign.py::live_ratings). Looping
-    over seasons and calling it per-year would just replay the same all-time
-    number under N different keys. That is not a real per-season measurement
-    and its downstream consumer `_rise_hero_stat` reads it as a genuine
-    "this owner did not move" — a confident zero standing in for an absent
-    one. Returning {} lets it fall back to its existing "no signal" path
-    instead. (`_backfill_yoy` was the other consumer; it died with the
-    Strength x Trajectory window model.) A true per-season v2 rating needs
-    per-season signal persistence that does not exist yet (v2.1 follow-on;
-    see the design doc's Snapshots section)."""
+    Dated ratings now resolve from season_rating_inputs, but their eligible
+    owner populations and evidence coverage can differ. They must not silently
+    become comparable rank-change baselines or change All's existing KPI.
+    """
     return {}
 
 
@@ -63,13 +53,15 @@ def build_leaderboard(
 ) -> LeaderboardResp:
     rows = _aggregate_owner_rows(entry, _filter_trades_by_year(entry, year))
     ratings = live_ratings(entry, year=year)
+    from app.services.season_ratings import rating_scope, scoped_rating_entry
+    rating_entry = scoped_rating_entry(entry, year)
 
     # Same gate aggregations.py uses for the standings row's roster_rank/of
     # (_outlooks_apply): a redraft league carries no roster to rank between
     # seasons, so it stays None rather than reading entry.roster_ranks at
     # all. Not recomputed here — roster_ranks is already persisted at refresh.
-    _outlooks_apply = capabilities_from_dict(entry.capabilities).format != "redraft"
-    roster_ranks = (entry.roster_ranks or {}) if _outlooks_apply else {}
+    _outlooks_apply = capabilities_from_dict((rating_entry or entry).capabilities).format != "redraft"
+    roster_ranks = (rating_entry.roster_ranks or {}) if _outlooks_apply and rating_entry else {}
 
     # Unrated owners (no completed season — franchise_redesign.rated_owners)
     # are absent from `ratings` and so never reach a row. This board *is* a
@@ -91,12 +83,13 @@ def build_leaderboard(
     prev_rank = {
         uid: i + 1
         for i, (uid, _) in enumerate(
-            sorted(prev_ratings.items(), key=lambda kv: kv[1], reverse=True)
+            sorted((prev_ratings if year == "all" else {}).items(), key=lambda kv: kv[1], reverse=True)
         )
     }
 
     scope_key = "all" if year == "all" else str(year)
-    blurbs_for_scope = (entry.owner_rating_blurbs or {}).get(scope_key, {})
+    # Existing saved year blurbs described the old current-career model.
+    blurbs_for_scope = (entry.owner_rating_blurbs or {}).get(scope_key, {}) if year == "all" else {}
 
     out_rows: list[GMRow] = []
     for i, r in enumerate(ordered):
@@ -125,6 +118,7 @@ def build_leaderboard(
         )
 
     return LeaderboardResp(
+        rating_scope=rating_scope(entry, year),
         league_id=entry.league_id,
         scope=scope_key,
         rows=out_rows,

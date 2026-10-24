@@ -56,9 +56,12 @@ class ChainCacheEntry:
     owner_rating_blurbs: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
     # uid -> {blurb, facts_hash, generated_at}
     franchise_blurbs: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # str(year) -> {uid: rating} — synthetic per-season GM ratings computed at refresh.
-    # Used as historical baselines for the context-aware riser KPI card.
+    # Retired synthetic rank-change baselines; refresh keeps this empty.
+    # Dated rating inputs below are not interchangeable ranking populations.
     season_ratings: dict[str, dict[str, int]] = field(default_factory=dict)
+    # Versioned as-of-season inputs. Missing/default is explicitly unavailable,
+    # never used as zero/current math, so existing career caches stay readable.
+    season_rating_inputs: dict[str, dict[str, Any]] = field(default_factory=dict)
     # str(year) -> {uid: skill_score} — per-season rookie draft skill for Draft Ace card.
     draft_skill_by_season: dict[str, dict[str, float]] = field(default_factory=dict)
     # str(year) -> {uid -> season record dict}

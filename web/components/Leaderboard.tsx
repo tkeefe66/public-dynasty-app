@@ -1,4 +1,5 @@
 "use client";
+import { RatingScopeNotice } from "./RatingScopeNotice";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -98,7 +99,7 @@ const PILLAR_HELP: Record<string, string> = {
   results:
     "What this franchise has actually achieved, luck-adjusted and weighted toward recent seasons: all-play win rate, playoff depth, and schedule luck. 60% of the rating.",
   assets:
-    "What the franchise holds right now and is building toward: roster value share, young-core share, and draft capital. 40% of the rating.",
+    "What the franchise holds at the selected cutoff: roster value share, young-core share, and draft capital. All uses current assets. 40% of the rating.",
 };
 const SIGNAL_HELP: Record<string, string> = {
   expected_wins:
@@ -423,6 +424,7 @@ export function Leaderboard({ leagueId, initialYear, seasons, format }: Props) {
         your league. Tap a row for the full receipt.
       </p>
       <RatingExplainer hasOutlook={hasOutlook} />
+      {rows.length > 0 && <RatingScopeNotice scope={data?.rating_scope} />}
 
       {error ? (
         <StateMessage
@@ -435,9 +437,9 @@ export function Leaderboard({ leagueId, initialYear, seasons, format }: Props) {
       ) : rows.length === 0 && !loading ? (
         <StateMessage
           className="mt-6"
-          kicker="No completed season yet"
-          headline="Every franchise gets a rating here."
-          body="Franchise Rating grades a full season of results and assets. The board fills in once this league has one in the books."
+          kicker={data?.rating_scope?.status === "unavailable" ? "Rating history" : "No completed season yet"}
+          headline={data?.rating_scope?.status === "unavailable" ? data.rating_scope.label : "Every franchise gets a rating here."}
+          body={data?.rating_scope?.reason ?? "Franchise Rating needs enough played games to evaluate results. The board fills in when that evidence is available."}
         />
       ) : (
         <div className={loading ? "opacity-60" : ""}>
@@ -445,19 +447,14 @@ export function Leaderboard({ leagueId, initialYear, seasons, format }: Props) {
             <Row variant="head" className="grid-cols-[28px_minmax(0,1fr)_136px]">
               <span>#</span>
               <span>Franchise</span>
-              {/* The Season control above legitimately re-filters the trade
-                  columns in each row's expanded receipt (net_ktc/production
-                  are year-scoped in _aggregate_owner_rows) — but v2's rating
-                  itself has no per-season signal left (franchise_redesign
-                  .live_ratings ignores `year` entirely) and reads the same
-                  letter for every year. Same framing as StandingsTable's
-                  Franchise Rating tooltip, so the two surfaces agree. */}
+              {/* Ratings and the trade receipt now share the selected season.
+                  The rating includes career results through that cutoff. */}
               <span className="flex items-center justify-end gap-1 text-right">
                 Rating
                 <InfoTooltip
                   align="right"
                   title="Franchise Rating"
-                  body="Career-scoped: weighted toward recent seasons but always as-of-now. Picking a season above re-filters the trade ledger below, not this letter."
+                  body="Picking a season uses career results through that season and verified assets at its cutoff. All shows the current career rating. Missing historical evidence is unavailable."
                 />
               </span>
             </Row>

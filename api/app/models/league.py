@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.models.common import OwnerRef
+from app.models.rating_scope import RatingScope
 
 
 class LeagueSummary(BaseModel):
@@ -239,6 +240,7 @@ class LeagueCapabilitiesResp(BaseModel):
 
 
 class DashboardResp(BaseModel):
+    rating_scope: RatingScope | None = None
     league: LeagueSummary
     selected_year: Year
     selected_lens: Lens

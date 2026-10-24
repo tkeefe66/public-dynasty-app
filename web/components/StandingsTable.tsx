@@ -4,7 +4,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { StandingRow, Year } from "@/lib/types";
+import { RatingScope, StandingRow, Year } from "@/lib/types";
+import { RatingScopeNotice } from "./RatingScopeNotice";
 import { decodeDashboardState, encodeDashboardState, SortState } from "@/lib/url-state";
 import { applyStandingsState, franchiseSortKey } from "@/lib/standings-filter";
 import { InfoTooltip } from "./InfoTooltip";
@@ -38,6 +39,7 @@ interface Props {
   rows: StandingRow[];
   year: Year;
   currentSeason: number;
+  ratingScope?: RatingScope | null;
   youUserId?: string | null;
 }
 
@@ -76,22 +78,22 @@ export const FRANCHISE_COLS: Col[] = [
   },
   {
     key: "gm_rating", label: "Rating", sortable: true,
-    tooltip: { title: "Franchise Rating", body: "The franchise verdict as a letter: 0.60·Results + 0.40·Assets (Results only for redraft), z-scored across the league and scaled to 1500. Weighted toward recent seasons — always as-of-now, not affected by the year filter." },
+    tooltip: { title: "Franchise Rating", body: "Results and assets as of the selected season, with career results weighted toward its recent seasons. All shows today's career rating. Past seasons require verified historical assets; missing history is unavailable. Redraft scores Results only." },
   },
   {
     key: "roster_rank", label: "Roster",
-    tooltip: { title: "Roster Rank", body: "Today's roster rank by market value among the league's franchises. Not affected by the year filter." },
+    tooltip: { title: "Roster Rank", body: "Roster rank by market value at the selected season's cutoff. All uses current rosters and values. Unavailable when historical assets are unverified." },
   },
   {
     key: "window", label: "Window",
     tooltip: {
       title: "Roster Window",
-      body: "Your competitive stage, banded off the Franchise Rating on this same row — Rebuilding, Retooling, Competing, Contending, Dynasty. Not a separate model: a better rating can never land on a lower stage. Reflects today, not the year filter.",
+      body: "Competitive stage derived from the Franchise Rating at the same selected cutoff: Rebuilding, Retooling, Competing, Contending, Dynasty. All reflects today. Unavailable when historical assets are unverified.",
     },
   },
   {
     key: "draft_capital_value", label: "Draft cap", sortable: true,
-    tooltip: { title: "Draft Capital", body: "Trade Value of all future rookie picks currently held. Not affected by the year filter." },
+    tooltip: { title: "Draft Capital", body: "Value of future picks owned at the selected season's cutoff, using prices from that time. All uses current ownership and values. Unavailable when historical ownership or prices are unverified." },
   },
 ];
 
@@ -508,7 +510,7 @@ function LedgerEntry({ href, isYou, children }: { href: string; isYou: boolean; 
   );
 }
 
-export function StandingsTable({ sections = "franchises", yearControl, leagueId, rows, year, youUserId }: Props) {
+export function StandingsTable({ sections = "franchises", yearControl, leagueId, rows, year, youUserId, ratingScope }: Props) {
   const showFranchises = sections === "franchises";
   const showTrades = sections === "trades";
   const router = useRouter();
@@ -606,6 +608,7 @@ export function StandingsTable({ sections = "franchises", yearControl, leagueId,
       />
       {franchises.open && (
         <>
+          <RatingScopeNotice scope={ratingScope} />
           {/* Desktop — one rule per entry. */}
           <Panel className="hidden min-[701px]:block">
             <HeaderRow cols={franchiseCols} grid={franchiseGrid} sort={effectiveSort} onSort={toggleSort} testId="franchise-head" />

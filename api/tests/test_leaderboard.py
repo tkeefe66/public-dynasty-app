@@ -146,7 +146,13 @@ def test_trend_from_prev_ratings():
 
 
 def test_year_filter_scopes_metrics():
-    resp = build_leaderboard(_sample_entry(), year=2026, prev_ratings={})
+    # Mutation: ignore the selected year's trade filter with a valid scoped rating.
+    entry = _sample_entry()
+    entry.season_rating_inputs = {"2026": {
+        "version": 1, "status": "ready", "basis": "current", "format": "dynasty",
+        "owners": list(entry.owners), "outcome_signals": entry.outcome_signals,
+        "outlook_signals": entry.outlook_signals, "season_records": entry.season_records}}
+    resp = build_leaderboard(entry, year=2026, prev_ratings={})
     assert resp.scope == "2026"
     alice = next(r for r in resp.rows if r.user_id == "u_alice")
     assert alice.trades == 1

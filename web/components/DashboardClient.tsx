@@ -250,6 +250,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
               rows={data.standings}
               year={data.selected_year}
               currentSeason={data.league.season}
+              ratingScope={data.rating_scope}
               youUserId={youUserId}
             />
           </>

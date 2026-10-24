@@ -538,6 +538,8 @@ class GraderService:
                 "name": lg.name, "total_rosters": lg.total_rosters,
                 "playoff_week_start": lg.playoff_week_start,
                 "format_verified": getattr(lg, "format_verified", False),
+                "format": getattr(lg, "format", None) if isinstance(getattr(lg, "format", None), str) else None,
+                "status": getattr(lg, "status", None) if isinstance(getattr(lg, "status", None), str) else None,
             }
             for lg in chain
         ]
@@ -1890,6 +1892,31 @@ class GraderService:
             bracket_watch=bracket_watch,
             llm_generated_at=_llm_generated_at,
         )
+
+        # Rebuild dated inputs on every free refresh, including the historical
+        # rollup reuse path. New verified evidence and identity fixes must apply.
+        try:
+            from app.services.historical_rating_assets import HistoricalAssetStore
+            from app.services.season_ratings import build_season_rating_inputs
+            asset_store = HistoricalAssetStore(cache_dir, current_league_id) if cache_dir else None
+            supporting["season_end_dates"] = {}
+            if asset_store is not None:
+                for lid, season in entry.league_season_by_id.items():
+                    if not asset_store.exists(lid, season):
+                        continue
+                    through_week = max((key[1] for key in (supporting.get("matchups") or {}) if key[0] == lid), default=0)
+                    try:
+                        supporting["season_end_dates"][lid] = await asset_store.verified_week_cutoff(season, through_week)
+                    except Exception:
+                        log.exception("historical cutoff verification failed league=%s season=%s week=%s; rating unavailable",
+                                      lid, season, through_week)
+            entry.season_rating_inputs = build_season_rating_inputs(
+                entry, supporting, asset_store=asset_store)
+            log.info("season rating inputs built league=%s ready=%s unavailable=%s", current_league_id,
+                     sum(s["status"] == "ready" for s in entry.season_rating_inputs.values()),
+                     sum(s["status"] != "ready" for s in entry.season_rating_inputs.values()))
+        except Exception:
+            log.exception("season rating inputs failed for league %s; historical ratings unavailable", current_league_id)
 
         _no_key_blurbs = _blurb_writer is None
         if skip_llm or _no_key_blurbs:

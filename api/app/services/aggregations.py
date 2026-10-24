@@ -380,15 +380,14 @@ def _intel_hero_stats(
     prev_ratings: dict[str, int] | None = None,
 ) -> HeroStats:
     """Four intelligence-focused KPI cards: Top GM, Biggest Riser, Best Roster, Draft Ace."""
-    outlook = entry.outlook_signals or {}
+    from app.services.season_ratings import scoped_rating_entry
+    scoped = scoped_rating_entry(entry, year)
+    outlook = (scoped.outlook_signals or {}) if scoped else {}
 
     # Top GM — use year-scoped ratings when viewing a specific past season,
     # all-time ratings otherwise (all years / current season).
-    _sr = entry.season_ratings or {}
-    top_gm_ratings = (
-        _sr.get(str(year)) if isinstance(year, int) and str(year) in _sr else ratings
-    )
-    top_gm_context = f"GM Rating · {year}" if isinstance(year, int) and str(year) in _sr else "GM Rating"
+    top_gm_ratings = ratings
+    top_gm_context = f"GM Rating · {year}" if isinstance(year, int) else "GM Rating"
     if top_gm_ratings:
         top_uid = max(top_gm_ratings, key=lambda u: top_gm_ratings[u])
         top_gm = HeroStat(
@@ -402,21 +401,22 @@ def _intel_hero_stats(
 
     # Biggest Riser (context-aware) -----------------------------------------
     biggest_weekly_rise = _rise_hero_stat(
-        entry, ratings, year, is_in_season, prev_ratings or {}
+        entry, ratings, year, is_in_season, (prev_ratings or {}) if year == "all" else {}
     )
 
     # Best Roster ------------------------------------------------------------
     roster_vals = {uid: float(outlook.get(uid, {}).get("roster_value") or 0) for uid in entry.owners}
+    roster_context = "Roster value · today" if year == "all" else f"Roster value · {year}"
     if any(v > 0 for v in roster_vals.values()):
         roster_uid = max(roster_vals, key=lambda u: roster_vals[u])
         best_roster = HeroStat(
             value=f"{int(roster_vals[roster_uid]):,}",
-            context="KTC roster value · today",
+            context=roster_context,
             owner=owner_name(entry, roster_uid),
             owner_user_id=roster_uid,
         )
     else:
-        best_roster = HeroStat(value="—", context="KTC roster value · today")
+        best_roster = HeroStat(value="—", context=roster_context)
 
     # Draft Ace — year-scoped when viewing a specific year, all-time otherwise -
     if year != "all" and isinstance(year, int):
@@ -758,8 +758,11 @@ def build_dashboard(
                 if uid in members or row["trades"] > 0
             }
 
-    # All-time GM ratings (independent of year filter)
-    ratings = _all_time_ratings(entry)  # {uid: int}
+    from app.services.franchise_redesign import live_ratings
+    from app.services.season_ratings import rating_scope, scoped_rating_entry
+    rating_entry = scoped_rating_entry(entry, year)
+    scope = rating_scope(entry, year)
+    ratings = {uid: row["rating"] for uid, row in live_ratings(entry, year=year).items()}
     # This league's own stage band unit, derived ONCE from the one helper the
     # owner page and the LLM packet also call — never re-derived here.
     from app.services.franchise_redesign import league_stage_sd
@@ -770,7 +773,7 @@ def build_dashboard(
             sorted(ratings.items(), key=lambda kv: kv[1], reverse=True)
         )
     }
-    gm_trend_by_uid = _compute_gm_trends(ratings, prev_ratings or {})
+    gm_trend_by_uid = _compute_gm_trends(ratings, (prev_ratings or {}) if year == "all" else {})
 
     # Standings: primary sort by GM rating, tiebreak by net_ktc. An unrated
     # owner (no completed season — franchise_redesign.rated_owners) is absent
@@ -798,15 +801,15 @@ def build_dashboard(
     # derived from the rating below — but it is still read as the per-owner
     # GATE. See `_has_outlook` at the `window=` kwarg.
     _outlooks_apply = (
-        capabilities_from_dict(entry.capabilities).format != "redraft")
+        capabilities_from_dict((rating_entry or entry).capabilities).format != "redraft")
     # Which owners actually hold a current roster. `ratings` covers every owner
     # with a completed season, including departed ones; refresh writes a
     # `dynasty_outlooks` blob only for owners still holding a roster, and
     # `owner_view` gates its whole Outlook block on exactly this truthiness.
     # Sharing the condition is what makes the two surfaces agree by
     # construction rather than by coincidence.
-    _has_outlook = entry.dynasty_outlooks or {}
-    outlook_signals = (entry.outlook_signals or {}) if _outlooks_apply else {}
+    _has_outlook = (rating_entry.dynasty_outlooks or {}) if rating_entry else {}
+    outlook_signals = (rating_entry.outlook_signals or {}) if _outlooks_apply and rating_entry else {}
     season_recs = entry.season_records or {}
     phase = entry.league_phase or {}
     phase_season = str(phase.get("season") or "")
@@ -820,7 +823,7 @@ def build_dashboard(
     # roster_ranks is already computed and persisted at refresh (never
     # recomputed here) - same redraft gate as the outlook columns above,
     # since a redraft league carries no roster to rank between seasons.
-    roster_ranks = (entry.roster_ranks or {}) if _outlooks_apply else {}
+    roster_ranks = (rating_entry.roster_ranks or {}) if _outlooks_apply and rating_entry else {}
 
     standings = []
     for i, r in enumerate(sorted_rows):
@@ -884,7 +887,7 @@ def build_dashboard(
             ),
             draft_capital_value=(
                 float((outlook_signals.get(uid) or {}).get("draft_capital") or 0)
-                if _outlooks_apply else None
+                if _outlooks_apply and uid in outlook_signals else None
             ),
             season_record=_record,
             best_finish=_finish,
@@ -930,6 +933,7 @@ def build_dashboard(
     return DashboardResp(
         league=league,
         selected_year=year,
+        rating_scope=scope,
         selected_lens=lens,
         hero_stats=_intel_hero_stats(
             entry, ratings,

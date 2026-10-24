@@ -188,9 +188,9 @@ def test_dashboard_season_excludes_teams_from_other_seasons(year, expected):
     response = build_dashboard(e, year=year, lens="ktc")
 
     assert {row.user_id for row in response.standings} == expected
-    # Filtering membership must not turn career ratings into season ratings.
+    # Missing historical inputs cannot borrow a current career rating.
     for row in response.standings:
-        assert row.gm_rating == all_rows[row.user_id].gm_rating
+        assert row.gm_rating == (all_rows[row.user_id].gm_rating if year == "all" else None)
 
 
 def test_dashboard_season_retains_trade_participant_without_end_of_season_roster():
@@ -430,8 +430,9 @@ def test_rise_card_in_season_label():
     resp = build_dashboard(e, year=2026, lens="ktc", is_in_season=True, prev_ratings=prev)
     card = resp.hero_stats.biggest_weekly_rise
     assert card.label == "Biggest Weekly Rise"
-    assert card.owner == "Alice"  # alice climbed from rank 3 to rank 1 = +2
-    assert card.value == "▲2"
+    # Mutation: compare an unavailable historical rating against today's snapshot.
+    assert card.owner is None
+    assert card.value == "—"
 
 
 def test_standing_row_season_record_historical_year():

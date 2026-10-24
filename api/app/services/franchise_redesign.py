@@ -99,14 +99,16 @@ def build_v2_pillars(
 def live_ratings(entry: ChainCacheEntry, *, year: Year = "all") -> dict[str, dict]:
     """The live Franchise Rating under this league's v2 tree.
 
-    ``year`` is retained only for call-site compatibility with the leaderboard
-    and season-rating callers — v2's signals are all-time-only (no per-trade
-    skill signal left to scope to a season), so it is unused here.
+    Selected years require verified dated inputs. All keeps the current model.
 
     Returns ``{}`` when nobody qualifies. An owner absent from the result is
     unrated, and every surface renders that as an absence (a caption or an em
     dash), never as a letter.
     """
+    from app.services.season_ratings import scoped_rating_entry
+    entry = scoped_rating_entry(entry, year)
+    if entry is None:
+        return {}
     # Both pillars come from these two dicts, and the refresh stage that fills
     # them is wrapped in a try/except. Empty means the stage failed, not that
     # the league is flat: scoring it anyway puts every owner at exactly 1500

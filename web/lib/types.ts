@@ -204,7 +204,16 @@ export interface DraftReview {
   matched: number;
 }
 
+export interface RatingScope {
+  status: "ready" | "unavailable";
+  basis: "current" | "season_end";
+  label: string;
+  as_of?: string | null;
+  reason?: string | null;
+}
+
 export interface DashboardResp {
+  rating_scope?: RatingScope | null;
   league: LeagueSummary;
   selected_year: Year;
   selected_lens: Lens;
@@ -313,6 +322,7 @@ export interface GMRow {
 }
 
 export interface LeaderboardResp {
+  rating_scope?: RatingScope | null;
   league_id: string;
   /** "all" or the season as a string. */
   scope: string;
