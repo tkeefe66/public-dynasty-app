@@ -269,15 +269,126 @@ def test_usage_evidence_preserves_units_in_draft_repair_and_both_reviews(writer_
         assert "Audit ALL usage claims in the first review" in prompt
 
 
-def test_v1_rejected_receipts_remain_byte_exact_after_unit_prompt_upgrade(writer_factory):
-    # Mutation: append v2 guidance or typed usage evidence to an already-paid v1 request.
+@pytest.mark.parametrize("contract", ["legacy", "passage", "grounded_v1"])
+def test_saved_writer_receipts_remain_byte_exact_after_repair_entrypoint_added(writer_factory, contract):
+    # Mutation: change any existing write() request while adding the saved-draft entrypoint.
     from sleeper_dynasty.llm.recap_packet import ArchivedPacket
 
-    fixture = json.loads((Path(__file__).parents[1] / "api/tests/fixtures/synthetic_analyst_grounded_v1_receipts.json").read_text())
-    writer, requests = writer_factory(fixture["responses"], grounding_version="recap-owner-evidence-v1")
-    with pytest.raises(ValueError, match=fixture["expected_error"]):
-        writer.write(ArchivedPacket(fixture["payload"]["edition"]["facts"]))
+    fixture = json.loads((Path(__file__).parents[1] / f"api/tests/fixtures/synthetic_analyst_{contract}_receipts.json").read_text())
+    writer, requests = writer_factory(fixture["responses"], grounding_version="recap-owner-evidence-v1",
+        legacy_repair=contract == "legacy", grounded_review=contract == "grounded_v1")
+    facts = ArchivedPacket(fixture["payload"]["edition"]["facts"])
+    if fixture.get("expected_error"):
+        with pytest.raises(ValueError, match=fixture["expected_error"]):
+            writer.write(facts)
+    else:
+        assert writer.write(facts) == fixture["expected"]
     assert [{key: value for key, value in request.items() if key != "_timeout"} for request in requests] == fixture["requests"]
+
+
+@pytest.mark.parametrize("version", ["recap-owner-evidence-v1", "recap-owner-evidence-v2"])
+@pytest.mark.parametrize("legacy_repair", [True, False])
+def test_saved_repair_sends_only_passage_correction_then_independent_review(writer_factory, version, legacy_repair):
+    # Mutation: redraft the article, use the review model for stage one, or change untouched passages.
+    original = "# Week 9\n\nTeam A scored **185 points**.\n\nThe supported closing joke survives."
+    corrected = original.replace("185", "158")
+    findings = [{"quote": "185 points", "evidence": "high_scorer.points is 158"}]
+    writer, requests = writer_factory([
+        _message([_passage_edits([{"passage_id": "p2", "after": "Team A scored **158 points**."}])], stop_reason="tool_use"),
+        _message([_verdict()], stop_reason="tool_use"),
+    ], model="claude-haiku-4-5-20251001", review_model="claude-sonnet-4-6",
+       grounding_version=version, legacy_repair=legacy_repair)
+    outlook = OutlookFacts(10, [], [], [], [])
+    assert writer.repair_saved(_facts(), original, findings, lore="Team A is my brother.", outlook=outlook) == corrected
+    assert len(requests) == 2
+    assert [r["model"] for r in requests] == ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"]
+    assert [r["tool_choice"]["name"] for r in requests] == ["submit_recap_passage_edits", "submit_recap_review"]
+    assert all(r["system"][1]["text"].startswith(version + "\n") for r in requests)
+    repair = requests[0]
+    schema = repair["tools"][0]["input_schema"]["properties"]["edits"]["items"]["properties"]
+    assert schema["passage_id"]["enum"] == ["p1", "p2", "p3"]
+    repair_text = repair["messages"][-1]["content"]
+    assert json.loads(repair_text.split("DRAFT PASSAGES:\n")[1].split("\nEDITOR FINDINGS:")[0]) == [
+        {"passage_id": "p1", "text": "# Week 9"}, {"passage_id": "p2", "text": "Team A scored **185 points**."},
+        {"passage_id": "p3", "text": "The supported closing joke survives."},
+    ]
+    assert json.loads(repair_text.split("EDITOR FINDINGS:\n")[1]) == findings
+    review = json.loads(requests[1]["messages"][0]["content"])
+    assert review["draft"] == corrected
+    assert review["facts"] == _facts().to_dict()
+    assert review["outlook"] == outlook.to_dict()
+    assert review["lore"] == "Team A is my brother."
+    assert "EDITOR FINDINGS" not in requests[1]["messages"][0]["content"]
+
+
+@pytest.mark.parametrize("review", [
+    _message([_verdict({"approved": False, "checks": [{"quote": "158", "evidence": "Still unsupported", "status": "needs_correction"}]})], stop_reason="tool_use"),
+    _message([_verdict({"approved": True, "checks": [{"quote": "158", "evidence": "Contradiction", "status": "needs_correction"}]})], stop_reason="tool_use"),
+    _message([_text("Approved")]),
+])
+def test_saved_repair_rejected_or_malformed_review_never_gets_third_call(writer_factory, review):
+    # Mutation: ignore the final verdict or fall back to write() for another correction.
+    writer, requests = writer_factory([
+        _message([_passage_edits([{"passage_id": "p1", "after": "Team A scored 158."}])], stop_reason="tool_use"), review,
+    ])
+    with pytest.raises(ValueError, match="refusing publication"):
+        writer.repair_saved(_facts(), "Team A scored 185.", [{"quote": "185", "evidence": "Saved total is 158"}])
+    assert len(requests) == 2
+
+
+@pytest.mark.parametrize("draft,findings", [
+    ("", [{"quote": "a", "evidence": "b"}]), (None, [{"quote": "a", "evidence": "b"}]),
+    ("Saved draft", []), ("Saved draft", None), ("Saved draft", [{}]),
+    ("Saved draft", [{"quote": " ", "evidence": "b"}]),
+    ("Saved draft", [{"quote": "a", "evidence": None}]),
+    ("Saved draft", [{"quote": "a", "evidence": "b", "status": "needs_correction"}]),
+    ("Saved draft", [{"quote": "a", "evidence": "b"}] * 13),
+])
+def test_saved_repair_invalid_source_material_stops_before_provider(writer_factory, draft, findings):
+    # Mutation: send an empty draft or unchecked editor input to a paid repair.
+    writer, requests = writer_factory([])
+    with pytest.raises(ValueError, match="Saved recap repair requires"):
+        writer.repair_saved(_facts(), draft, findings)
+    assert requests == []
+
+
+@pytest.mark.parametrize("repair", [
+    _passage_edits([{"passage_id": "p9", "after": "Wrong target"}]),
+    _passage_edits([{"passage_id": "p1", "after": "a"}, {"passage_id": "p1", "after": "b"}]),
+    _passage_edits([{"passage_id": "p1", "after": ""}]),
+    _edits("Saved draft", "New draft"),
+])
+def test_saved_repair_invalid_edits_never_request_review(writer_factory, repair):
+    # Mutation: accept unknown/duplicate IDs, a removed whole article, or the old literal-edit contract.
+    writer, requests = writer_factory([_message([repair], stop_reason="tool_use")])
+    with pytest.raises(ValueError, match="refusing publication|review the saved response"):
+        writer.repair_saved(_facts(), "Saved draft", [{"quote": "Saved", "evidence": "Use supported facts"}])
+    assert len(requests) == 1
+
+
+def test_saved_repair_missing_matchup_stops_before_review(writer_factory):
+    # Mutation: publish a repaired article that still omits a required matchup.
+    from sleeper_dynasty.models.recap import MatchupRecap
+    facts = _facts()
+    facts.matchups = [MatchupRecap("Alice", "Bob", 25, 15, 10, False, False)]
+    writer, requests = writer_factory([_message([_passage_edits([])], stop_reason="tool_use")])
+    with pytest.raises(ValueError, match="missing recap matchup"):
+        writer.repair_saved(facts, "Saved draft", [{"quote": "Saved", "evidence": "Add missing matchup"}])
+    assert len(requests) == 1
+
+
+def test_saved_repair_scoring_guard_still_overrules_approving_review(writer_factory):
+    # Mutation: return a reviewed saved-draft repair without checking the canonical scoring contract.
+    from sleeper_dynasty.llm.recap_packet import ArchivedPacket
+    packet = _facts().to_dict()
+    packet["source_snapshot"] = {"scoring_settings": {"rec": "1"}}
+    writer, requests = writer_factory([
+        _message([_passage_edits([])], stop_reason="tool_use"),
+        _message([_verdict()], stop_reason="tool_use"),
+    ])
+    with pytest.raises(ValueError, match="scoring.*refusing publication"):
+        writer.repair_saved(ArchivedPacket(packet), "This half-PPR league.", [{"quote": "half-PPR", "evidence": "Saved scoring is full PPR"}])
+    assert len(requests) == 2
 
 
 def test_passage_correction_preserves_other_prose_and_reviews_complete_result(writer_factory):
