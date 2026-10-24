@@ -84,6 +84,14 @@ async def save_artifact(db, operation_id, generation, validated):
         raise Held("validation_checkpoints_missing")
     payload = validated.payload
     await require_actor(db, job)
+    from app.services.generation.analyst_saved_draft import (
+        is_repair,
+        require_execution,
+        require_publication,
+    )
+    if is_repair(job):
+        await require_execution(db, job)
+        require_publication(job, payload, attempts)
     if job.feature == "recap_video":
         from app.services.recap_video.contracts import require_approved_script, require_script_inputs
         saved = json.loads(job.payload_json)

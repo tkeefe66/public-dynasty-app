@@ -400,6 +400,15 @@ approval. Its semantic event receives a durable manual-approval audit gate:
 collection and automatic scheduling cannot start it while approval is pending.
 Unknown earlier outcomes or charges require investigation before replacement.
 
+For a weekly recap with a saved, explicitly rejected factual review, recovery
+can reuse that exact draft and its original evidence. The separate approval
+allows at most two new requests: one passage correction and one independent
+review of the complete corrected article. It does not pay for a fresh draft.
+The old requests and charges stay recorded. Changed source receipts, facts,
+permissions, or publication state stop the repair; another rejection remains
+unpublished and cannot automatically acquire another allowance. Preparing or
+inspecting a repair does not clear an open safety stop or send an AI request.
+
 **Automatic** handles new eligible events under each league's effective policy.
 Enabling or resuming it does not approve historical work accumulated before
 activation; the one-time catch-up preview selects eligible missing content for

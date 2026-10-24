@@ -63,6 +63,15 @@ class Gateway:
             if get_settings().generation_emergency_pause:
                 raise Held("emergency_pause")
             await require_actor(db, job)
+            from app.services.generation.analyst_saved_draft import (
+                is_repair,
+                require_execution,
+            )
+            if is_repair(job):
+                await require_execution(db, job)
+                expected_tool = "submit_recap_passage_edits" if stage == 1 else "submit_recap_review"
+                if stage > 2 or request.get("tool_choice") != {"type": "tool", "name": expected_tool}:
+                    raise Held("saved_repair_stage_changed")
             if job.feature == "recap_video":
                 from app.services.recap_video.workflow import require_script_preflight
                 await require_script_preflight(db, json.loads(job.payload_json))

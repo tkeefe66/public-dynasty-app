@@ -90,6 +90,7 @@ async def generate(job, gateway):
     legacy_repair = False
     grounded_review = True
     grounding_version = None
+    repair = saved.get("saved_draft_repair")
     if job.feature == "analyst":
         from sqlalchemy import select
 
@@ -111,6 +112,9 @@ async def generate(job, gateway):
                     isinstance(block, dict) and isinstance(block.get("text"), str)
                     and block["text"].startswith(version + "\n") for block in system)), None)
             grounded_review = grounding_version is not None
+        if repair:
+            grounding_version = repair["grounding_version"]
+            grounded_review = grounding_version is not None
 
     def run():
         if job.feature == "recap_video":
@@ -128,8 +132,11 @@ async def generate(job, gateway):
             edition = saved["edition"]
             writer = RecapWriter(**kwargs, review_model=policy["review_model"], legacy_repair=legacy_repair,
                                 grounded_review=grounded_review, grounding_version=grounding_version)
-            markdown = writer.write(ArchivedPacket(edition["facts"]), lore=edition.get("lore"),
-                outlook=ArchivedPacket(edition["outlook"]) if edition.get("outlook") else None)
+            arguments = {"lore": edition.get("lore"),
+                "outlook": ArchivedPacket(edition["outlook"]) if edition.get("outlook") else None}
+            markdown = (writer.repair_saved(ArchivedPacket(edition["facts"]), repair["draft"],
+                repair["findings"], **arguments) if repair
+                else writer.write(ArchivedPacket(edition["facts"]), **arguments))
             context = edition["facts"].get("player_context", {})
             return {**edition, "markdown": markdown, "edition_type": "roast",
                 "model": policy["model"], "generated_at": datetime.now(UTC).isoformat(),

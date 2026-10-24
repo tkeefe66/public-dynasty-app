@@ -130,6 +130,7 @@ async def control_action(db, body, actor):
 
 
 async def preview(db, candidates, actor, reason):
+    from app.services.generation.analyst_saved_draft import bind_preview, is_repair
     control = await lock_control(db)
     items = []
     rows = []
@@ -149,7 +150,7 @@ async def preview(db, candidates, actor, reason):
             "label": candidate_label(row),
             "digest": row.digest, "hold": row.hold, "head": head.artifact_id if head else "",
             "policy_revisions": policy["revisions"], "model": feature["model"],
-            "max_calls": feature["max_calls"], "max_tokens_per_call": feature["max_tokens"],
+            "max_calls": 2 if is_repair(row) else feature["max_calls"], "max_tokens_per_call": feature["max_tokens"],
             "blocked_by": policy["blocked_by"]})
     manifest = {"items": items, "control_revision": control.revision, "epoch": control.epoch,
         "expires_at": stamp() + 900, "max_calls": sum(i["max_calls"] for i in items)}
@@ -159,7 +160,8 @@ async def preview(db, candidates, actor, reason):
     db.add(GenerationAudit(id=ident, actor_id=actor, action="campaign_preview",
         target=ident, reason=reason, after_json=dump(manifest)))
     from app.services.recap_video.script_replacement import bind_campaign_replacement
-    return await bind_campaign_replacement(db,{"id": ident, "digest": digest(manifest), **manifest},rows)
+    result = await bind_campaign_replacement(db,{"id": ident, "digest": digest(manifest), **manifest},rows)
+    return await bind_preview(db, result, rows, actor)
 
 
 def candidate_label(row):
@@ -195,6 +197,8 @@ async def apply_campaign(db, preview_id, expected_digest, actor, reason):
         GenerationCandidate.key.in_([item["key"] for item in manifest["items"]])))).all()}
     from app.services.recap_video.script_replacement import verify_replacement_cost
     await verify_replacement_cost(db,manifest,candidates)
+    from app.services.generation.analyst_saved_draft import verify_campaign
+    await verify_campaign(db, manifest, candidates, actor)
     statuses = await classify_candidates(db, list(candidates.values()), actor_id=actor)
     jobs = []
     for item in manifest["items"]:

@@ -280,6 +280,12 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
     if head and head.hold:
         raise Held(head.hold)
     connection = await db.get(YahooConnection, actor_id) if ".l." in candidate.league_id else None
+    from app.services.generation.analyst_saved_draft import (
+        bind_authorization,
+        is_repair,
+    )
+    if is_repair(candidate):
+        await bind_authorization(db, candidate, actor_id, actor_kind, authorization_key, settings)
     row = GenerationOperation(kind="generation", league_id=candidate.league_id,
         series_id=candidate.series_id, feature=candidate.feature, subject=candidate.subject,
         authorization_key=authorization_key, active_key="generate:" + candidate.subject,

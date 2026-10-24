@@ -91,6 +91,17 @@ async def resolution(db, job):
                 "The script exhausted its request allowance and every previous charge is settled. Review a fresh script proposal using the current saved article and evidence. This preserves the old receipts.",
                 "Preparing the proposal sends no AI request. Separate approval starts new paid script writing; narration is not included in this preview.")
         return result("episode", "Recap needs attention", "Open the recap episode for its next action and spending limits.")
+    if job.feature == "analyst" and job.reason in ("execution_failed", "attempt_allowance_exhausted"):
+        from app.services.generation.analyst_saved_draft import describe
+        try:
+            await describe(db, job)
+        except Held:
+            pass
+        else:
+            return result("replacement", "Repair the saved draft with separate approval",
+                "The last complete factual review rejected a saved draft. Review one passage repair followed by one full factual review using the same saved evidence. The old requests and charges remain unchanged.",
+                "Preparing sends no AI request. Separate approval allows at most two new paid requests; publication requires factual approval.",
+                replacement_kind="analyst_saved_draft_repair_v1")
     if len(own_attempts) != job.calls or any(row.state in UNRESOLVED or row.cost_microusd is None for row in attempts):
         return result("support", "Previous AI request needs checking", "The app cannot confirm the outcome or cost of an earlier request for this content. Copy the issue details for investigation; starting again could pay for the same work twice.", "Earlier charges may still apply. No new request will be sent.")
     head = await db.get(ArtifactHead, job.subject) if job.subject else None
@@ -144,13 +155,17 @@ async def prepare_replacement(db, job_id, body, actor):
     guidance = await resolution(db, job)
     if guidance["action"] != "replacement":
         raise Held(guidance["explanation"])
+    saved_repair = guidance.get("replacement_kind") == "analyst_saved_draft_repair_v1"
     if job.feature == 'recap_video':
         from app.services.recap_video.script_replacement import require_failed_script
         await require_failed_script(db,job,prepared=job.state=='cancelled')
     if job.state!='cancelled':
         await administration.job_action(db, job_id, SimpleNamespace(action="cancel",
             expected_generation=job.generation, expected_state=job.state, reason=body.reason), actor)
-    if job.feature == 'recap_video':
+    if saved_repair:
+        from app.services.generation.analyst_saved_draft import prepare_candidate
+        candidate = await prepare_candidate(db, job, actor, body.reason)
+    elif job.feature == 'recap_video':
         from app.services.recap_video.script_replacement import prepare_candidate
         candidate = await prepare_candidate(db,job)
     else:
