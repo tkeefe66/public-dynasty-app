@@ -59,7 +59,7 @@ class AnalystStore:
         self.root = Path(cache_dir) / "analyst"
 
     def league_dir(self, league_id: str) -> Path:
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", league_id):
+        if not re.fullmatch(r"(?:[A-Za-z0-9_-]+|[0-9]+\.l\.[0-9]+)", league_id):
             raise ValueError("Invalid league identifier")
         return self.root / league_id
 

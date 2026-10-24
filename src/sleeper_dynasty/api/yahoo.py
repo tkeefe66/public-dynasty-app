@@ -15,7 +15,7 @@ from decimal import Decimal, InvalidOperation
 import httpx
 
 from sleeper_dynasty.api.yahoo_json import collection, merge_fragments, unwrap
-from sleeper_dynasty.models.league import League, Roster
+from sleeper_dynasty.models.league import League, MatchupResult, Roster
 from sleeper_dynasty.models.scoring import ThresholdBonus, threshold_bonus_key
 from sleeper_dynasty.util.name_match import normalize_player_name
 
@@ -732,21 +732,41 @@ class YahooAdapter:
         await self._ensure_ids()
         teams = await self._teams(league_id, f"/roster;week={week}/players")
         totals = await self._weekly_points(league_id, week, teams)
+        starter_slots = [
+            slot for slot in league.roster_positions if slot not in ("BN", "IR", "NA")
+        ]
         lineups = {}
         for team in teams:
-            players, starters, points = [], [], {}
+            players, points = [], {}
+            # Recap consumers pair starters with league slots. Yahoo groups
+            # players by roster resource, so use selected_position explicitly
+            # and preserve vacant slots with Sleeper's "0" sentinel.
+            starters = ["0"] * len(starter_slots)
             for raw in self._roster_players(team):
                 slot = merge_fragments(raw.get("selected_position")).get("position")
+                if not slot:
+                    raise YahooDataError(
+                        "Yahoo omitted a player's selected position; retry the import."
+                    )
+                slot = _POSITIONS.get(slot, slot)
                 pid = self._player_id(raw)
                 if not pid:
-                    if slot and slot not in ("BN", "IR", "IR+", "NA"):
+                    if slot not in ("BN", "IR", "NA"):
                         raise YahooDataError(
                             "A Yahoo starter could not be mapped; update player identities before grading."
                         )
                     continue
                 players.append(pid)
-                if slot and slot not in ("BN", "IR", "IR+", "NA"):
-                    starters.append(pid)
+                if slot not in ("BN", "IR", "NA"):
+                    index = next(
+                        (i for i, expected in enumerate(starter_slots)
+                         if expected == slot and starters[i] == "0"), None
+                    )
+                    if index is None:
+                        raise YahooDataError(
+                            "Yahoo returned an unexpected or overfilled starter slot; retry the import."
+                        )
+                    starters[index] = pid
                 points[pid] = totals[raw["player_key"]]
             lineups[team["team_key"]] = (players, starters, points)
         rows = []
@@ -776,6 +796,15 @@ class YahooAdapter:
                     }
                 )
         return rows
+
+    async def get_matchup_results(
+        self, league_id: str, week: int
+    ) -> list[MatchupResult]:
+        """Use authoritative Yahoo scores and normalized lineups for recaps."""
+        return [
+            MatchupResult(week=week, **row)
+            for row in await self.get_raw_matchups(league_id, week)
+        ]
 
     async def get_phase_map(self, league):
         return (await self._postseason(league))[0]
@@ -1051,8 +1080,8 @@ class YahooAdapter:
     async def get_stats(self, season, week):
         return normalize_yardage_stats(await self._sleeper().get_stats(season, week))
 
-    async def get_projections(self, season):
-        return await self._sleeper().get_projections(season)
+    async def get_projections(self, season, week=None):
+        return await self._sleeper().get_projections(season, week)
 
     async def get_nfl_state(self):
         return await self._sleeper().get_nfl_state()

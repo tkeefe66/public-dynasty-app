@@ -40,6 +40,8 @@ class Gateway:
 
     async def invoke(self, operation_id: str, generation: int, stage: int, request: dict) -> dict:
         request_hash = digest(request)
+        from app.services.generation.yahoo_authorization import renew_expired_grant
+        await renew_expired_grant(self.maker, operation_id, generation, stage=stage)
         async with self.maker.begin() as db:
             control = await lock_control(db)
             job = await require_owner(db, operation_id, generation)

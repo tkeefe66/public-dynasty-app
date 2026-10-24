@@ -209,28 +209,27 @@ Each league has an Analyst page at `/league/<id>/analyst`, linked from the
 homepage's weekly recap card. Editions have stable links using
 `?edition=<season>-<week>` and remain readable after the season ends.
 
-An independent Analyst scheduler checks member Sleeper leagues every 15 minutes,
+An independent Analyst scheduler checks member Sleeper and connected Yahoo leagues every 15 minutes,
 including overnight Monday/Tuesday, without waiting for a full trade/league
 refresh. Automatic/manual league refresh also checks for missing editions.
-Both paths generate completed regular-season editions for the current NFL season. Sleeper must have advanced
-to the next week, and every matchup must have scores and starter data. Existing
-roast editions are never regenerated, including on a forced refresh. Missed weeks are
-filled oldest first. If AI writing or review fails, a clearly labeled results
-edition is compiled directly from the computed facts and saved immediately.
-It covers every matchup, leading starters, legal bench scenarios, verified
-standings, recorded bets, and the next-week preview when available. Missing
-optional context is labeled unavailable. It makes no news-based explanations
-or inferred bet settlements. Missing API credentials, exhausted monthly LLM
-budget, `skip_llm`, or an existing AI retry cooldown also use this zero-AI path.
-Saved results editions remain write-once. Later checks retry the full roast
-within the same budget and persistent cooldown. An approved roast becomes a
-reader-visible revision with the original results still available. Retries use
-the saved facts, dated context, profiles, bets and forecast; they never rebuild
-an old edition from current league data. Explicit corrections still require approved AI output.
-Incomplete results or archive errors leave the edition unsaved for a later
-check. Paid generation attempts retain a persistent cooldown (30 minutes,
-one hour, three hours, then six hours) if publication cannot finish. The monthly
-LLM budget still applies, and `TRADE_GRADER_AUTO_REFRESH=false` disables both loops.
+Both paths collect completed regular-season weeks for the current NFL season.
+The provider must have advanced to the next week, and every matchup must have
+scores and starter data. Yahoo starters are mapped from their selected lineup
+slots; unrecognized or incomplete lineups block collection. Existing roast
+editions are never regenerated, including on a forced refresh. Missing weeks
+are collected oldest first as private facts and results artifacts. Collection
+does not authorize paid writing or publish an unreviewed recap.
+
+Managed generation requires an active series, an eligible completed week, and
+an applicable automatic policy or explicit approval. Historical weeks and
+exhausted or rejected attempts remain held for operator action. A successful
+review publishes a new revision while preserving the saved facts and earlier
+results. Replay uses the original saved request format and receipts, so a
+prompt upgrade cannot silently re-send an already paid stage. Incomplete
+results and archive errors fail the collection job explicitly. Yahoo rate
+limits use the durable free-refresh cooldown; paid attempts are not retried
+through that free-refresh path. `TRADE_GRADER_AUTO_REFRESH=false` disables
+the refresh loops.
 Factual review identifies claims that need correction; the correction stage
 makes exact text edits rather than rewriting the whole article,
 and must pass a fresh review before publication. Truncated or
@@ -253,11 +252,16 @@ receive the same focused brief: each team's leading starters and lowest scorer,
 awards, legal bench swaps and the dated context for those players. The archive
 retains the complete evidence. A structural check requires a separate heading
 for every completed matchup and available next-week preview. An
-actionable rejection gets up to two corrections using the original facts and reviewer
-feedback, each followed by a fresh review of the complete corrected draft. A third rejection,
-malformed verdict, provider error, or truncation discards the roast and publishes
-the results edition instead. Failed explicit corrections preserve the prior text.
-Each attempt makes at most six generation calls with five-minute request
+actionable rejection can receive a correction using the original facts and reviewer
+feedback, followed by a fresh review of the complete corrected draft. The managed
+Analyst policy defaults to four calls: draft, review, correction, and final review.
+A rejected or invalid final review, provider error, or truncation leaves the
+draft private and the job needing attention. Failed explicit corrections preserve
+the prior text. New requests include an evidence index tying bench swaps to the
+specific owner and players, distinguishing fantasy points from yards, and dating
+news against each player's NFL kickoff. Old saved requests retain their original
+prompt format for safe receipt replay.
+Requests use five-minute request
 timeouts and no automatic SDK retries. A timeout logs unknown provider usage;
 it is not treated as a free call. Usage is attributed to the actual model and
 stage (`recap`, `recap_repair`, `recap_review`).

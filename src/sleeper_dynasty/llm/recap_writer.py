@@ -11,6 +11,7 @@ import logging
 import re
 import unicodedata
 from copy import deepcopy
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from importlib import resources
 from itertools import pairwise
@@ -35,6 +36,7 @@ REQUEST_TIMEOUT_SECONDS = 300.0
 MAX_TOKENS = 8192
 REVIEW_MAX_TOKENS = 8192
 MAX_REPAIRS = 1
+REVIEW_GROUNDING_VERSION = "recap-owner-evidence-v1"
 REVIEW_TOOL: anthropic.types.ToolParam = {
     "name": "submit_recap_review",
     "description": (
@@ -125,6 +127,35 @@ LEGACY_REPAIR_INSTRUCTIONS = (
     "Do not edit supported claims, even if a finding calls them errors.\n"
     "EDITOR FINDINGS:\n"
 )
+
+
+def _claim_evidence(packet: dict) -> dict:
+    """Keep each saved swap and NFL report attached to its own source row."""
+    swaps = [
+        {**deepcopy(swap), "source_id": f"/facts/bench_regret/{i}/legal_swaps/{j}",
+         "owner": regret["owner"]}
+        for i, regret in enumerate(packet["bench_regret"])
+        for j, swap in enumerate(regret.get("legal_swaps", []))
+    ]
+    timing = []
+    for i, player in enumerate(packet["player_context"].get("players", [])):
+        kickoff = player.get("kickoff_at")
+        for j, report in enumerate(player.get("news", [])):
+            published = report.get("published_at")
+            relation = "unknown"
+            try:
+                start, publication = datetime.fromisoformat(kickoff), datetime.fromisoformat(published)
+                if start.utcoffset() is not None and publication.utcoffset() is not None:
+                    relation = "before" if publication < start else "after" if publication > start else "at"
+            except (TypeError, ValueError):
+                pass  # Missing, malformed, or timezone-free timestamps are not chronology evidence.
+            timing.append({
+                "source_id": f"/facts/player_context/players/{i}/news/{j}",
+                "player": player["player"], "player_kickoff_at": kickoff,
+                "published_at": published, "publication_relative_to_player_kickoff": relation,
+            })
+    return {"version": REVIEW_GROUNDING_VERSION, "single_swaps": swaps,
+            "player_news_timing": timing}
 
 
 def _passage_spans(text: str) -> dict[str, tuple[int, int]]:
@@ -277,6 +308,7 @@ class RecapWriter:
         review_model: str = DEFAULT_REVIEW_MODEL,
         client=None,
         legacy_repair: bool = False,
+        grounded_review: bool = True,
     ) -> None:
         self.model = model
         self.review_model = review_model
@@ -286,6 +318,12 @@ class RecapWriter:
         self._cost_store = cost_store
         self._league_id = league_id
         self._legacy_repair = legacy_repair
+        # Generation selects the saved first request's contract before replay.
+        # Keeping this off preserves both literal- and passage-repair receipts.
+        self._grounding_prompt = (
+            REVIEW_GROUNDING_VERSION + "\n" + resources.files(_PROMPTS).joinpath("analyst_grounding.md").read_text()
+            if grounded_review else None
+        )
 
     def build_request(
         self,
@@ -298,13 +336,16 @@ class RecapWriter:
         The user turn carries optional lore + the focused facts JSON.
         """
         system = [{"type": "text", "text": self.persona}]
+        if self._grounding_prompt:
+            system.append({"type": "text", "text": self._grounding_prompt})
 
         user_parts = []
+        packet = editorial_facts(facts)
         if lore:
             user_parts.append("LEAGUE LORE (weave these in where relevant):\n\n" + lore)
         user_parts.append(
             "FACTS PACKET (use ONLY these facts):\n\n```json\n"
-            + json.dumps(editorial_facts(facts), separators=(",", ":"))
+            + json.dumps(packet, separators=(",", ":"))
             + "\n```\n\nWrite this week's segment."
         )
         if outlook is not None:
@@ -314,6 +355,9 @@ class RecapWriter:
                 + json.dumps(outlook.to_dict(), separators=(",", ":"))
                 + "\n```"
             )
+        if self._grounding_prompt:
+            user_parts.append("CLAIM EVIDENCE INDEX:\n```json\n"
+                              + json.dumps(_claim_evidence(packet), separators=(",", ":")) + "\n```")
         messages = [
             {
                 "role": "user",
@@ -382,14 +426,19 @@ class RecapWriter:
         review_prompt = (
             resources.files(_PROMPTS).joinpath("analyst_review.md").read_text()
         )
+        packet = editorial_facts(facts)
         evidence = {
-            "facts": editorial_facts(facts),
+            "facts": packet,
             "outlook": outlook.to_dict() if outlook else None,
             "lore": lore,
             "draft": text,
         }
+        system = [{"type": "text", "text": review_prompt}]
+        if self._grounding_prompt:
+            system.append({"type": "text", "text": self._grounding_prompt})
+            evidence["claim_evidence"] = _claim_evidence(packet)
         review = self._request(
-            [{"type": "text", "text": review_prompt}],
+            system,
             [{"role": "user", "content": json.dumps(evidence)}],
             stage="recap_review",
         )

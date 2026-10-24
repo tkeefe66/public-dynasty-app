@@ -16,13 +16,14 @@ from tests.test_generation_gateway import FakeTransport, seed_job
 @pytest.mark.asyncio
 @pytest.mark.parametrize("changed_facts", [False, True])
 @pytest.mark.parametrize('correction_reason', ['', 'Correct reception scoring'])
+@pytest.mark.parametrize("contract", ["legacy", "passage"])
 async def test_legacy_recap_receipts_replay_without_spending_or_weakening_digest(
-    maker, changed_facts, correction_reason
+    maker, changed_facts, correction_reason, contract
 ):
     # Mutation: rebuild old repair requests with the new contract, or bypass request-digest checks to recover them.
     fixture = json.loads(
         (
-            Path(__file__).parent / "fixtures/synthetic_analyst_legacy_receipts.json"
+            Path(__file__).parent / f"fixtures/synthetic_analyst_{contract}_receipts.json"
         ).read_text()
     )
     await seed_job(maker)

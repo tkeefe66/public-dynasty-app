@@ -88,17 +88,27 @@ async def generate(job, gateway):
             + "\nPrevious content:\n" + json.dumps(saved["previous_content"]))
     kwargs = {"model": policy["model"], "client": managed}
     legacy_repair = False
+    grounded_review = True
     if job.feature == "analyst":
         from sqlalchemy import select
 
         from app.services.generation.models import ProviderAttempt
+        from sleeper_dynasty.llm.recap_writer import REVIEW_GROUNDING_VERSION
         # Choose the old contract only when a physical repair request already
         # exists. Gateway still checks every complete request digest on replay.
         async with gateway.maker() as db:
             requests = (await db.scalars(select(ProviderAttempt.request_json).where(
-                ProviderAttempt.operation_id == job.id))).all()
+                ProviderAttempt.operation_id == job.id).order_by(ProviderAttempt.stage))).all()
         legacy_repair = any(json.loads(request).get("tool_choice", {}).get("name") == "submit_recap_edits"
                             for request in requests)
+        if requests:
+            # Select the saved prompt version before replay, including jobs
+            # interrupted after drafting. Never relax the gateway digest fence.
+            system = json.loads(requests[0]).get("system", [])
+            grounded_review = isinstance(system, list) and any(
+                isinstance(block, dict) and isinstance(block.get("text"), str)
+                and block["text"].startswith(REVIEW_GROUNDING_VERSION + "\n")
+                for block in system)
 
     def run():
         if job.feature == "recap_video":
@@ -114,7 +124,8 @@ async def generate(job, gateway):
             from sleeper_dynasty.llm.recap_packet import ArchivedPacket
             from sleeper_dynasty.llm.recap_writer import RecapWriter
             edition = saved["edition"]
-            writer = RecapWriter(**kwargs, review_model=policy["review_model"], legacy_repair=legacy_repair)
+            writer = RecapWriter(**kwargs, review_model=policy["review_model"], legacy_repair=legacy_repair,
+                                grounded_review=grounded_review)
             markdown = writer.write(ArchivedPacket(edition["facts"]), lore=edition.get("lore"),
                 outlook=ArchivedPacket(edition["outlook"]) if edition.get("outlook") else None)
             context = edition["facts"].get("player_context", {})

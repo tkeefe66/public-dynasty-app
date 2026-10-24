@@ -209,6 +209,114 @@ async def test_captured_scoreboard_and_lineups_preserve_actual_points():
 
 
 @pytest.mark.asyncio
+async def test_captured_recap_results_preserve_scores_and_zero_point_starters():
+    # Mutation: omitting normalized results or filtering falsy player points loses recap facts.
+    a = Replay()
+    try:
+        results = await a.get_matchup_results(LK, 1)
+        assert len(results) == 10
+        assert {r.week for r in results} == {1}
+        assert [(r.roster_id, r.points) for r in results[:2]] == [(1, 142.96), (10, 141.9)]
+        assert results[0].matchup_id == results[1].matchup_id
+        third = next(r for r in results if r.roster_id == 3)
+        assert "900042" in third.starters
+        assert third.players_points["900042"] == 0.0
+        assert len(third.players) > len(third.starters)
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("vacant_qb", [False, True])
+async def test_weekly_starters_follow_selected_slots_with_vacancies(vacant_qb):
+    # Mutation: retaining provider order or compacting empty slots assigns swaps to wrong positions.
+    raw = fixture("roster_points_wk1")
+    roster = raw["fantasy_content"]["league"][1]["teams"]["0"]["team"][1]["roster"]["0"]["players"]
+    if vacant_qb:
+        roster["0"]["player"][1]["selected_position"][1]["position"] = "BN"
+    # Move a WR before the QB in an otherwise captured response.
+    roster["0"], roster["3"] = roster["3"], roster["0"]
+    a = Replay({f"/league/{LK}/teams/roster;week=1/players": raw})
+    try:
+        rows = await a.get_raw_matchups(LK, 1)
+        first = next(row for row in rows if row["roster_id"] == 1)
+        assert first["starters"] == [
+            "0" if vacant_qb else "900008", "900001", "900002", "900007", "900004",
+            "900009", "900003", "900011", "900017", "900189",
+        ]
+        assert first["players_points"]["900008"] == 15.26
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selected_slot", [None, "UNKNOWN", "QB"])
+async def test_ambiguous_weekly_starter_slots_refuse_lineup_analysis(selected_slot):
+    # Mutation: ignoring missing, unknown, or overfilled slots invents starter assignments.
+    raw = fixture("roster_points_wk1")
+    roster = raw["fantasy_content"]["league"][1]["teams"]["0"]["team"][1]["roster"]["0"]["players"]
+    roster["1"]["player"][1]["selected_position"][1]["position"] = selected_slot
+    a = Replay({f"/league/{LK}/teams/roster;week=1/players": raw})
+    try:
+        with pytest.raises(YahooDataError, match="slot|position"):
+            await a.get_raw_matchups(LK, 1)
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
+async def test_recap_results_do_not_invent_unfinished_matchup_scores():
+    # Mutation: normalizing scheduled teams as played results publishes an incomplete week.
+    raw = fixture("scoreboard_wk1")
+    raw["fantasy_content"]["league"][1]["scoreboard"]["0"]["matchups"]["0"]["matchup"]["status"] = "midevent"
+    a = Replay({f"/league/{LK}/scoreboard;week=1": raw})
+    try:
+        results = await a.get_matchup_results(LK, 1)
+        assert {r.roster_id for r in results} == {2, 3, 4, 5, 6, 7, 8, 9}
+        assert await a.get_matchup_results(LK, 18) == []
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
+async def test_recap_results_refuse_unmapped_starter():
+    # Mutation: bypassing raw lineup validation silently drops an unmapped starter.
+    a = Replay(id_map={})
+    try:
+        with pytest.raises(YahooDataError, match="starter"):
+            await a.get_matchup_results(LK, 1)
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("week", [None, 1, 2])
+async def test_recap_projections_use_requested_week(week):
+    # Mutation: ignoring week returns season totals and mislabels weekly player busts.
+    import httpx
+
+    from sleeper_dynasty.api.sleeper import SleeperClient
+
+    def respond(request):
+        values = {"2026": 400, "2026/1": 10, "2026/2": 20}
+        period = request.url.path.split("/regular/", 1)[1]
+        return httpx.Response(200, json={"qb": {"pass_yd": values[period]}})
+
+    a = Replay()
+    a._sleeper_client = SleeperClient()
+    await a._sleeper_client._client.aclose()
+    a._sleeper_client._client = httpx.AsyncClient(
+        base_url="https://api.sleeper.app/v1", transport=httpx.MockTransport(respond)
+    )
+    try:
+        expected = {None: 400, 1: 10, 2: 20}[week]
+        actual = await a.get_projections(2026) if week is None else await a.get_projections(2026, week)
+        assert actual == {"qb": {"pass_yd": expected}}
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
 async def test_future_weeks_do_not_create_zero_score_games_or_fetch_rosters():
     # Mutation: fetching all 18 weeks treats future schedules as played data.
     a = Replay()

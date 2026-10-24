@@ -124,6 +124,93 @@ def _passage_edits(edits):
             "input": {"edits": edits}}
 
 
+@pytest.mark.parametrize("approved", [True, False])
+def test_grounded_swap_evidence_keeps_each_owner_and_player_pair_together(writer_factory, approved):
+    # Mutation: index swaps by slot alone and apply another owner's margin, or bypass a final rejection.
+    # Reduced production capture: only owner names have been replaced; these two
+    # distinct QB swaps were conflated by the final factual reviewer.
+    from sleeper_dynasty.llm.recap_packet import ArchivedPacket
+
+    packet = _facts().to_dict()
+    packet["bench_regret"] = [
+        {"owner": "Owner A", "points_left_on_bench": 44.7, "legal_swaps": [{
+            "benched_player": {"owner": "Owner A", "player": "Aaron Rodgers (QB, PIT)", "points": 21.02, "position": "QB"},
+            "started_player": {"owner": "Owner A", "player": "Jacoby Brissett (QB, ARI)", "points": 7.92, "position": "QB"},
+            "slot": "QB", "points_gained": 13.1,
+            "matchup_effect": {"margin": 11.42, "opponent_points": 129.9, "result": "win", "team_points": 141.32},
+        }]},
+        {"owner": "Owner B", "points_left_on_bench": 31.2, "legal_swaps": [{
+            "benched_player": {"owner": "Owner B", "player": "C.J. Stroud (QB, HOU)", "points": 29.98, "position": "QB"},
+            "started_player": {"owner": "Owner B", "player": "Patrick Mahomes (QB, KC)", "points": 11.48, "position": "QB"},
+            "slot": "QB", "points_gained": 18.5,
+            "matchup_effect": {"margin": 28.96, "opponent_points": 108.22, "result": "win", "team_points": 137.18},
+        }]},
+    ]
+    original = "Owner B starting Stroud instead of Mahomes would have made it an 18-point win."
+    corrected = original.replace("an 18-point", "a 29-point")
+    verdict = {"approved": approved, "checks": [] if approved else [{
+        "status": "needs_correction", "quote": "29-point win", "evidence": "Incorrect reviewer selected Owner A's 11.42 margin"}]}
+    writer, requests = writer_factory([
+        _message([_text(original)]),
+        _message([_verdict({"approved": False, "checks": [{
+            "status": "needs_correction", "quote": "18-point win", "evidence": "Owner B's Stroud/Mahomes swap margin is 28.96"}]})], stop_reason="tool_use"),
+        _message([_passage_edits([{"passage_id": "p1", "after": corrected}])], stop_reason="tool_use"),
+        _message([_verdict(verdict)], stop_reason="tool_use"),
+    ])
+    if approved:
+        assert writer.write(ArchivedPacket(packet)) == corrected
+    else:
+        with pytest.raises(ValueError, match="after one correction"):
+            writer.write(ArchivedPacket(packet))
+    review_index = json.loads(requests[1]["messages"][0]["content"])["claim_evidence"]
+    assert [(row["source_id"], row["owner"], row["benched_player"]["player"],
+             row["started_player"]["player"], row["matchup_effect"]["margin"])
+            for row in review_index["single_swaps"]] == [
+        ("/facts/bench_regret/0/legal_swaps/0", "Owner A", "Aaron Rodgers (QB, PIT)", "Jacoby Brissett (QB, ARI)", 11.42),
+        ("/facts/bench_regret/1/legal_swaps/0", "Owner B", "C.J. Stroud (QB, HOU)", "Patrick Mahomes (QB, KC)", 28.96),
+    ]
+    draft_index = json.loads(requests[0]["messages"][0]["content"][0]["text"].split("CLAIM EVIDENCE INDEX:\n```json\n")[1].split("\n```")[0])
+    assert draft_index == review_index == json.loads(requests[3]["messages"][0]["content"])["claim_evidence"]
+    assert requests[2]["messages"][0] == requests[0]["messages"][0]
+    assert len(requests) == 4
+
+
+@pytest.mark.parametrize("kickoff,published,relation", [
+    ("2026-10-09T00:15:00+00:00", "2026-10-09T13:35:58.591000+00:00", "after"),
+    ("2026-10-09T00:15:00+00:00", "2026-10-08T23:15:00+00:00", "before"),
+    ("2026-10-09T00:15:00+00:00", "2026-10-08T18:15:00-06:00", "at"),
+    (None, "2026-10-09T13:35:58.591000+00:00", "unknown"),
+    ("2026-10-09T00:15:00", "2026-10-09T13:35:58+00:00", "unknown"),
+    ("2026-10-09T00:15:00", "2026-10-09T13:35:58", "unknown"),
+    ("2026-10-09T00:15:00+00:00", "unknown", "unknown"),
+])
+def test_grounded_news_timing_uses_player_kickoff_without_inventing_missing_times(writer_factory, kickoff, published, relation):
+    # Mutation: compare reporting with the Sunday fantasy matchup, or treat unknown/naive times as known.
+    # Reduced production capture: an in-game Thursday injury was reported Friday;
+    # the reviewer incorrectly used the later Sunday fantasy matchup kickoff.
+    from sleeper_dynasty.llm.recap_packet import ArchivedPacket
+
+    packet = _facts().to_dict()
+    packet["source_snapshot"] = {"kickoff_at": "2026-10-11T17:00:00+00:00"}
+    packet["lineups"] = [{"owner": "Owner A", "starters": [{"player": "CeeDee Lamb (WR, DAL)", "points": 10}]}]
+    packet["player_context"] = {"players": [{
+        "player": "CeeDee Lamb", "position": "WR", "started": True, "kickoff_at": kickoff,
+        "usage": {"limited_opportunity": False, "offense_share": 0.57, "offense_snaps": 34},
+        "news": [{"published_at": published, "observed_at": "2026-10-09T14:15:22.040400+00:00",
+                  "publisher": "FantasyPros", "text": "CeeDee Lamb injured his quad during Thursday night loss...",
+                  "title": "CeeDee Lamb sustains quad injury Thursday night"}],
+    }]}
+    writer, requests = writer_factory([
+        _message([_text("Lamb contributed 10 fantasy points.")]),
+        _message([_verdict()], stop_reason="tool_use"),
+    ])
+    writer.write(ArchivedPacket(packet))
+    timing = json.loads(requests[1]["messages"][0]["content"])["claim_evidence"]["player_news_timing"]
+    assert timing == [{"source_id": "/facts/player_context/players/0/news/0", "player": "CeeDee Lamb",
+                       "player_kickoff_at": kickoff, "published_at": published,
+                       "publication_relative_to_player_kickoff": relation}]
+
+
 def test_passage_correction_preserves_other_prose_and_reviews_complete_result(writer_factory):
     # Mutation: require the model to reproduce source text, or skip review after an indexed repair.
     draft = "# Week 9\n\nHe ran **39 snaps**, and this is what he does with them.\n\nAn unchanged joke."

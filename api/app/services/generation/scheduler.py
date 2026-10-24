@@ -14,7 +14,7 @@ async def enqueue_members(*, kind="refresh", maker=None):
             LeagueMembership.league_id, LeagueMembership.added_at))).all())
     selected = set()
     for member in members:
-        if member.league_id in selected or (kind == "analyst_refresh" and ".l." in member.league_id):
+        if member.league_id in selected:
             continue
         async with maker.begin() as db:
             if ".l." in member.league_id:

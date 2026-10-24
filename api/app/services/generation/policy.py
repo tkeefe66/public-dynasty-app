@@ -74,7 +74,7 @@ def paid_capabilities(raw: dict | None) -> dict | None:
 def supports_feature(capabilities, provider, feature):
     if not capabilities or provider not in ("sleeper", "yahoo") or feature not in FEATURES:
         return False
-    if feature in ("analyst", "recap_video"):
+    if feature == "recap_video":
         return provider == "sleeper"
     if feature == "franchise_blurb":
         return capabilities["roster_continuity"]

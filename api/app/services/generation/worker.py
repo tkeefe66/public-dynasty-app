@@ -37,44 +37,63 @@ from app.services.generation.transport import AnthropicTransport
 log = logging.getLogger(__name__)
 
 
-async def admit_automatic(maker):
-    from app.config import get_settings
-    from app.db.models import LeagueMembership
-    async with maker.begin() as db:
-        await lock_control(db)
-        candidates = (await db.scalars(select(GenerationCandidate).where(
+async def automatic_candidates(db, *, rotate=False):
+    """Share eligibility between free authorization preflight and locked admission."""
+    candidates = (await db.scalars(select(GenerationCandidate).where(
             GenerationCandidate.hold == "", GenerationCandidate.eligible_at > 0,
             GenerationCandidate.eligible_at <= stamp()
         ).order_by(GenerationCandidate.eligible_at, GenerationCandidate.key).limit(100))).all()
-        completed = await completed_candidate_keys(db, candidates)
-        for candidate in candidates:
-            # Manual catch-up and legacy imports can complete the same event
-            # without an automatic authorization key. Never buy that event again.
-            if candidate.key in completed:
+    completed = await completed_candidate_keys(db, candidates)
+    eligible = []
+    for candidate in candidates:
+        # Manual catch-up and legacy imports can complete the same event
+        # without an automatic authorization key. Never buy that event again.
+        if candidate.key in completed:
+            if rotate:
                 candidate.eligible_at = 0
-                continue
-            # Rotate bounded scans so paused/manual subjects cannot starve later leagues.
+            continue
+        # Rotate bounded scans so paused/manual subjects cannot starve later leagues.
+        if rotate:
             candidate.eligible_at = stamp() + 60
-            policy = await resolve_policy(db, candidate.series_id)
-            feature = policy["policy"]["features"][candidate.feature]
-            if policy["blocked_by"] or feature["paused"] or feature["mode"] != "automatic":
-                continue
-            from app.services.generation.planner import automatic_eligibility
-            season = await db.get(LeagueSeason, candidate.league_id)
-            import json
-            if not season or await automatic_eligibility(db, season, candidate.feature,
-                    json.loads(candidate.payload_json), stamp()):
-                continue
-            # A paid narrative is generated once per semantic event. Refreshes,
-            # model changes and prompt edits never create a new authorization.
-            key = "automatic:" + digest([candidate.subject, candidate.event])
-            if await db.scalar(select(GenerationOperation.id).where(GenerationOperation.authorization_key == key)):
+        policy = await resolve_policy(db, candidate.series_id)
+        feature = policy["policy"]["features"][candidate.feature]
+        if policy["blocked_by"] or feature["paused"] or feature["mode"] != "automatic":
+            continue
+        from app.services.generation.planner import automatic_eligibility
+        season = await db.get(LeagueSeason, candidate.league_id)
+        import json
+        if not season or await automatic_eligibility(db, season, candidate.feature,
+                json.loads(candidate.payload_json), stamp()):
+            continue
+        # A paid narrative is generated once per semantic event. Refreshes,
+        # model changes and prompt edits never create a new authorization.
+        key = "automatic:" + digest([candidate.subject, candidate.event])
+        if await db.scalar(select(GenerationOperation.id).where(GenerationOperation.authorization_key == key)):
+            if rotate:
                 candidate.eligible_at = 0
-                continue
-            head = await db.get(ArtifactHead, candidate.subject)
-            if head and candidate.feature == "trade_story":
+            continue
+        head = await db.get(ArtifactHead, candidate.subject)
+        if head and candidate.feature == "trade_story":
+            if rotate:
                 candidate.eligible_at = 0
-                continue
+            continue
+        eligible.append((candidate, key))
+    return eligible
+
+
+async def admit_automatic(maker):
+    from app.config import get_settings
+    from app.db.models import LeagueMembership, YahooConnection
+    from app.services.generation.yahoo_authorization import (
+        renew_automatic_grants,
+    )
+
+    async with maker() as db:
+        candidates = await automatic_candidates(db)
+    renewed = await renew_automatic_grants(maker, candidates)
+    async with maker.begin() as db:
+        await lock_control(db)
+        for candidate, key in await automatic_candidates(db, rotate=True):
             # Automatic generation runs as an explicit current owner principal.
             owners = (await db.scalars(select(User).where(User.is_admin.is_(True),
                 User.email.in_(get_settings().admin_email_list)))).all()
@@ -83,6 +102,11 @@ async def admit_automatic(maker):
                         LeagueMembership.id).where(LeagueMembership.user_id == owner.id,
                             LeagueMembership.league_id == candidate.league_id)):
                     continue
+                if ".l." in candidate.league_id:
+                    connection = await db.get(YahooConnection, owner.id)
+                    if (not connection or renewed.get((candidate.key, candidate.digest, owner.id))
+                            != connection.generation):
+                        continue
                 try:
                     await authorize_candidate(db, candidate.key, actor_id=owner.id, actor_kind="scheduler",
                         reason="Automatic generation for a new eligible event", authorization_key=key)
@@ -166,6 +190,10 @@ class Worker:
                 from app.services.generation.features import generate
                 result = await generate(job, self.gateway)
                 publishing = True
+                from app.services.generation.yahoo_authorization import (
+                    renew_expired_grant,
+                )
+                await renew_expired_grant(self.maker, job.id, job.generation)
                 async with self.maker.begin() as db:
                     await save_artifact(db, job.id, job.generation, result)
         except OwnershipLost:

@@ -12,21 +12,22 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.services.analyst_bets import load_bets_snapshot
+from app.services.analyst_outlook import upcoming_outlook
 from app.services.analyst_store import AnalystStore
 from app.services.name_override_store import NameOverrideStore
-from app.services.profile_store import ProfileStore
-from app.services.analyst_outlook import upcoming_outlook
-from app.services.analyst_bets import load_bets_snapshot
 from app.services.player_context import load_player_context
-from sleeper_dynasty.engine.recap_race import build_race_context
-from sleeper_dynasty.engine.recap import build_recap_facts
-from sleeper_dynasty.engine.recap_results import render_results_recap
+from app.services.profile_store import ProfileStore
 from sleeper_dynasty.api.projections import normalize_projection
-from sleeper_dynasty.models.scoring import has_threshold_bonuses
+from sleeper_dynasty.api.yahoo import YahooRateLimitError
+from sleeper_dynasty.engine.recap import build_recap_facts
+from sleeper_dynasty.engine.recap_race import build_race_context
+from sleeper_dynasty.engine.recap_results import render_results_recap
 from sleeper_dynasty.llm.cost_store import LlmCostStore
 from sleeper_dynasty.llm.recap_packet import ArchivedPacket
 from sleeper_dynasty.llm.recap_writer import RecapWriter
 from sleeper_dynasty.models.player import build_players
+from sleeper_dynasty.models.scoring import has_threshold_bonuses
 
 log = logging.getLogger(__name__)
 
@@ -78,9 +79,6 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
     # Production refreshes prepare private facts for managed AI generation.
     # Explicitly injected writers remain usable for pure tests.
     skip_llm = skip_llm or writer is None
-    # Analyst archives currently support Sleeper leagues only.
-    if ".l." in league_id:
-        return
     from app.services.recap_video.collector import collect_recap
     # Enabled workflow has its own complete scoring-period collector. Its
     # failures must reach the free job, not the legacy best-effort logger.
@@ -154,7 +152,7 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
             for week in range(1, last_week + 1):
                 results = await client.get_matchup_results(league_id, week)
                 if not complete_results(results, rosters, week):
-                    raise ValueError(f"Week {week} results are incomplete; retry after Sleeper scores every matchup")
+                    raise ValueError(f"Week {week} results are incomplete; retry after the provider scores every matchup")
                 before = rosters
                 rosters = advance_standings(rosters, results)
                 if correction_week is not None and week != correction_week:
@@ -215,6 +213,8 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                     if week < league.playoff_week_start - 1:
                         upcoming = await client.get_matchup_results(league_id, week + 1)
                         upcoming = [r for r in upcoming if r.week == week + 1]
+                except YahooRateLimitError:
+                    raise
                 except Exception:
                     log.warning("Analyst next-week pairings unavailable; omitting matchup stakes", exc_info=True)
                 # Compare the latest complete reconstruction with Sleeper's
@@ -275,3 +275,8 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
                          league_id, league.season, week, edition_type)
     except Exception:
         log.exception("Analyst generation failed for %s; saved editions preserved; retry on next refresh", league_id)
+        if publication_fence is not None:
+            # A durable job must retain the actual failure. In particular,
+            # Yahoo throttling needs the worker's same-job backoff, not a
+            # successful empty collection that silently loses the recap.
+            raise
