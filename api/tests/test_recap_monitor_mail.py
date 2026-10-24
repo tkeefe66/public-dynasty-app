@@ -4,6 +4,19 @@ import httpx
 import pytest
 
 
+def test_email_layout_escapes_details_and_keeps_readable_text_fallback():
+    from app.services.recap_monitor.mail import message
+    payload = message(dict(reason='calls_exhausted', action='Review <draft> & approve',
+                           league_name='<script>league</script>', settled_microusd=1250000),
+                      'owner@example.test', 'recaps@example.test')
+    assert '<script>' not in payload['html']
+    assert '&lt;script&gt;league&lt;/script&gt;' in payload['html']
+    assert 'Review &lt;draft&gt; &amp; approve' in payload['html']
+    assert 'href="https://dynasty.tomkeefe.ai/admin"' in payload['html']
+    assert '\n\nWHAT HAPPENED\ncalls exhausted\n\nWHAT TO DO\n' in payload['text']
+    assert 'Settled spending: $1.25' in payload['text']
+
+
 @pytest.mark.asyncio
 async def test_routine_run_never_sends_and_help_deduplicates(maker):
     # Mutation: send routine completion or resend a previously accepted help email.

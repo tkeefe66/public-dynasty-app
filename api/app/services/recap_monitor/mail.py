@@ -1,6 +1,9 @@
 """Help-only durable delivery. Resend idempotency expires after 24 hours."""
 import json
 import logging
+from datetime import datetime
+from html import escape
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select, update
@@ -17,12 +20,45 @@ def message(item, recipient, sender):
     fields = ('league_name', 'season', 'week', 'reason', 'action', 'job_id',
               'last_progress_at', 'settled_microusd', 'unknown_cost_count',
               'calls_used', 'max_calls', 'remaining_calls', 'recovery_attempts')
-    lines = ['The weekly recap monitor needs help.']
-    lines.extend(f'{key}: {item[key]}' for key in fields if key in item)
-    lines.append('Review: https://dynasty.tomkeefe.ai/admin')
-    lines.append('This email grants no new AI calls or spending authority.')
+    reason = str(item.get('reason', 'Review required')).replace('_', ' ')
+    action = str(item.get('action', 'Review the recap monitor in the admin dashboard.'))
+    labels = {'league_name': 'League', 'season': 'Season', 'week': 'Week',
+              'job_id': 'Job ID', 'last_progress_at': 'Last progress',
+              'settled_microusd': 'Settled spending', 'unknown_cost_count': 'Unpriced requests',
+              'calls_used': 'Calls used', 'max_calls': 'Call limit',
+              'remaining_calls': 'Calls remaining', 'recovery_attempts': 'Recovery attempts'}
+    details = [(labels[key], f"${item[key] / 1_000_000:.2f}" if key == 'settled_microusd'
+                else datetime.fromtimestamp(item[key], ZoneInfo('America/Denver')).strftime('%b %d, %I:%M %p %Z')
+                if key == 'last_progress_at' and item[key]
+                else str(item[key])) for key in fields if key in labels and key in item]
+    lines = ['Your weekly recap needs attention', '', 'WHAT HAPPENED', reason,
+             '', 'WHAT TO DO', action]
+    if details:
+        lines.extend(['', 'DETAILS', *(f'{label}: {value}' for label, value in details)])
+    lines.extend(['', 'Open recap admin: https://dynasty.tomkeefe.ai/admin', '',
+                  'No new AI calls or spending are authorized by this email.'])
+    rows = ''.join(f'<tr><th scope="row" style="padding:6px 16px 6px 0;text-align:left;'
+                   f'font-weight:normal;color:#59616d;vertical-align:top">{escape(label)}</th>'
+                   f'<td style="padding:6px 0;overflow-wrap:anywhere">{escape(value)}</td></tr>'
+                   for label, value in details)
+    html = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;background:#f5f6f8;color:#202630;font-family:Arial,Helvetica,sans-serif">
+<main style="max-width:560px;margin:0 auto;padding:32px 24px;background:#ffffff">
+<h1 style="font-size:26px;line-height:1.25;margin:0 0 28px">Your weekly recap needs attention</h1>
+<h2 style="font-size:16px;margin:0 0 8px">What happened</h2>
+<p style="font-size:16px;line-height:1.6;margin:0 0 24px">{escape(reason)}</p>
+<h2 style="font-size:16px;margin:0 0 8px">What to do</h2>
+<p style="font-size:16px;line-height:1.6;margin:0 0 24px;white-space:pre-line">{escape(action)}</p>
+{'<h2 style="font-size:16px;margin:0 0 8px">Details</h2><table style="font-size:14px;line-height:1.5;border-collapse:collapse;margin:0 0 24px">' + rows + '</table>' if rows else ''}
+<p style="margin:0 0 28px"><a href="https://dynasty.tomkeefe.ai/admin" style="display:inline-block;
+background:#163a32;color:#ffffff;padding:14px 20px;border-radius:6px;font-size:16px;
+font-weight:bold;text-decoration:none">Open recap admin</a></p>
+<p style="border-top:1px solid #e1e4e8;padding-top:20px;margin:0;color:#59616d;font-size:13px;line-height:1.6">
+No new AI calls or spending are authorized by this email.<br>Public Dynasty · Recap monitor</p>
+</main></body></html>'''
     return {'from': sender, 'to': [recipient],
-            'subject': 'Public Dynasty recap monitor needs help', 'text': '\n'.join(lines)}
+            'subject': 'Public Dynasty recap monitor needs help', 'text': '\n'.join(lines), 'html': html}
 
 
 async def resend(key, payload, api_key):
