@@ -17,10 +17,13 @@ export function GenerationSettings({ leagues, busy, run, version }: ActionProps 
   const [loading, setLoading] = useState(true);
   const [leagueAction, setLeagueAction] = useState("");
   const [profile, setProfile] = useState("dynasty");
+  const [confirmedFormat, setConfirmedFormat] = useState("");
   const selectedLeague = leagues.find(l => scope === "series:" + l.id);
+  const currentSeason = selectedLeague?.seasons.reduce<(GenerationSeries["seasons"][number]) | undefined>(
+    (latest, season) => !latest || season.season > latest.season ? season : latest, undefined);
   useEffect(() => {
     let current = true;
-    setLoading(true); setError(""); setPolicy(null); setLeagueAction("");
+    setLoading(true); setError(""); setPolicy(null); setLeagueAction(""); setConfirmedFormat("");
     generationRequest<PolicyView>(`/policy/${encodeURIComponent(scope)}`).then(value => {
       if (current) { setPolicy(value); setDraft(value.value); setReason(""); }
     }).catch(err => { if (current) setError(err.message || "Settings could not load. Try reloading."); })
@@ -115,14 +118,32 @@ export function GenerationSettings({ leagues, busy, run, version }: ActionProps 
     </form>}
     {selectedLeague && <details className="mt-4 border-t border-rule pt-3"><summary className="min-h-tap cursor-pointer py-2 text-prose text-dim">League setup and activation</summary>
       <p className="text-prose">{readable(selectedLeague.lifecycle)} · {selectedLeague.members} memberships · {selectedLeague.profile} defaults</p>
-      <p className="text-prose text-dim">{selectedLeague.seasons.map(s => `${s.season}: ${s.verified_at ? "verified" : "needs verification"}`).join("; ")}</p>
+      <p className="text-prose text-dim">{selectedLeague.seasons.map(s => `${s.season}: ${s.verified_at ? s.format_verification_source === "owner" ? "format confirmed by owner" : "verified" : "needs verification"}`).join("; ")}</p>
+      {currentSeason?.format_confirmation_available && <div className="mt-3 border-l-2 border-rule-strong pl-4">
+        <p className="text-prose">Yahoo did not supply the league format for {currentSeason.season}. Confirm whether this season uses keepers to complete verification.</p>
+        <button className={secondary + " mt-2"} disabled={blocked} onClick={() => { setConfirmedFormat(""); setLeagueAction("format"); }}>Review league format</button>
+        {leagueAction === "format" && <>
+          <label className="mt-3 block text-prose">Confirmed season format
+            <select className={controlClass} value={confirmedFormat} disabled={blocked} onChange={e => setConfirmedFormat(e.target.value)}>
+              <option value="">Choose this season’s format</option>
+              <option value="redraft">Redraft — no keepers</option>
+              <option value="keeper">Keeper league</option>
+            </select>
+          </label>
+          <ActionForm title={`Confirm ${currentSeason.season} league format`} description="Records your confirmation for this season. Activating automatic writing and approving older recaps remain separate actions."
+            submitLabel="Confirm season format" busy={blocked || !confirmedFormat} onCancel={() => setLeagueAction("")}
+            onSubmit={reason => run(() => generationRequest(`/leagues/${selectedLeague.id}/format-confirmation`, {
+              expected_revision: selectedLeague.revision, league_id: currentSeason.league_id, format: confirmedFormat, reason,
+            }), "Season format confirmed. Review league activation and writing settings next.")} />
+        </>}
+      </div>}
       <div className="mt-3 flex flex-wrap gap-2">
         <button className={secondary} disabled={blocked} onClick={() => setLeagueAction("activate")}>Activate future events</button>
         <button className={secondary} disabled={blocked || selectedLeague.lifecycle === "retired"} onClick={() => setLeagueAction("retire")}>Retire league</button>
         <button className={secondary} disabled={blocked} onClick={() => { setProfile(selectedLeague.profile); setLeagueAction("profile"); }}>Change league type</button>
       </div>
       {leagueAction === "profile" && <label className="mt-3 block text-prose">League type<select className={controlClass} value={profile} onChange={e => setProfile(e.target.value)}>{["dynasty", "keeper", "redraft"].map(p => <option key={p}>{p}</option>)}</select></label>}
-      {leagueAction && <ActionForm key={leagueAction} title="Update league setup" description="This changes which future work is eligible. Older content still needs separate approval." submitLabel="Confirm league change" busy={blocked} onCancel={() => setLeagueAction("")} onSubmit={reason => run(() => generationRequest(`/leagues/${selectedLeague.id}`, {
+      {leagueAction && leagueAction !== "format" && <ActionForm key={leagueAction} title="Update league setup" description="This changes which future work is eligible. Older content still needs separate approval." submitLabel="Confirm league change" busy={blocked} onCancel={() => setLeagueAction("")} onSubmit={reason => run(() => generationRequest(`/leagues/${selectedLeague.id}`, {
         expected_revision: selectedLeague.revision, lifecycle: leagueAction === "retire" ? "retired" : leagueAction === "activate" ? "active" : selectedLeague.lifecycle,
         profile: leagueAction === "profile" ? profile : selectedLeague.profile, reason, activate: leagueAction === "activate",
       }, "PUT"), "League setup updated.")} />}

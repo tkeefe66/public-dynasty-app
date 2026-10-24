@@ -230,6 +230,16 @@ results and archive errors fail the collection job explicitly. Yahoo rate
 limits use the durable free-refresh cooldown; paid attempts are not retried
 through that free-refresh path. `TRADE_GRADER_AUTO_REFRESH=false` disables
 the refresh loops.
+
+If Yahoo omits its keeper/redraft flags, an admin who belongs to the league can
+record the current season's format under **Writing rules → League setup and
+activation → Review league format**. This supplements verified Yahoo identity
+with an audited owner confirmation for generation eligibility; it does not
+activate writing or approve historical recaps. The confirmation survives
+refreshes for that same season, never carries into a new season, and is held
+if explicit provider evidence conflicts. The UI identifies owner confirmation
+separately from provider verification.
+
 Factual review identifies claims that need correction; the correction stage
 makes exact text edits rather than rewriting the whole article,
 and must pass a fresh review before publication. Truncated or

@@ -3,9 +3,58 @@ import json
 
 from sqlalchemy import select
 
-from app.services.generation.models import LeagueSeason, LeagueSeries, stamp
+from app.services.generation.models import (
+    GenerationOperation,
+    LeagueSeason,
+    LeagueSeries,
+    stamp,
+)
 from app.services.generation.policy import paid_capabilities
-from app.services.generation.store import audit, dump, lock_control
+from app.services.generation.store import Conflict, audit, dump, lock_control
+
+
+def _owner_confirmation(row, evidence):
+    value = evidence.get("owner_format_confirmation")
+    if (isinstance(value, dict) and value.get("league_id") == row.league_id
+            and value.get("provider_key") == row.provider_key and value.get("season") == row.season
+            and value.get("format") in ("keeper", "redraft") and value.get("actor_id")
+            and value.get("status") in ("confirmed", "conflict")
+            and type(value.get("confirmed_at")) is int and value["confirmed_at"] > 0):
+        return value
+    return None
+
+
+def _yahoo_identity_evidence(row, evidence):
+    chain = evidence.get("chain")
+    return (row.provider == "yahoo" and ".l." in row.league_id
+            and row.provider_key == row.league_id and row.season > 0
+            and evidence.get("source") == "provider_history"
+            and not evidence.get("identity_conflict")
+            and isinstance(chain, list) and row.league_id in chain
+            and all(isinstance(key, str) and ".l." in key for key in chain))
+
+
+def format_evidence_view(row, *, current, series_hold):
+    """Expose truthful UI labels without turning owner statements into provider evidence."""
+    evidence = json.loads(row.evidence_json)
+    caps = paid_capabilities(json.loads(row.capabilities_json))
+    owner = _owner_confirmation(row, evidence)
+    source = None
+    if row.verified_at and caps and evidence.get("source") == "provider_history":
+        if evidence.get("format_verified") is True:
+            source = "provider"
+        elif _yahoo_identity_evidence(row, evidence) and owner and owner.get("status") == "confirmed":
+            source = "owner"
+    available = (current and _yahoo_identity_evidence(row, evidence) and bool(caps)
+        and evidence.get("format_verified") is False
+        and series_hold not in ("identity_conflict", "format_conflict")
+        and not (owner and (owner.get("status") == "conflict" or row.verified_at)))
+    return {"format_confirmation_available": bool(available), "format_verification_source": source}
+
+
+def _confirmed_capabilities(caps, format):
+    # Only format and its derived continuity change. Observed picks/history remain provider facts.
+    return {**caps, "format": format, "roster_continuity": format == "keeper"}
 
 
 async def register_entry(db, entry, *, verified: bool = False) -> LeagueSeason:
@@ -46,12 +95,45 @@ async def register_entry(db, entry, *, verified: bool = False) -> LeagueSeason:
                                series_id=series.id, season=int(raw.get("season") or 0))
             db.add(row)
         if lid == entry.league_id:
+            previous_evidence = json.loads(row.evidence_json or "{}")
+            confirmation = _owner_confirmation(row, previous_evidence)
             row.capabilities_json = dump(caps or {})
             # A normalized default format is insufficient evidence.
             evidence = verified and bool(raw.get("format_verified", False)) and bool(caps)
             row.verified_at = stamp() if evidence else 0
-            row.evidence_json = dump({"source": "provider_history" if verified else "legacy_cache",
-                                      "chain": ids, "format_verified": bool(evidence)})
+            details = {"source": "provider_history" if verified else "legacy_cache",
+                       "chain": ids, "format_verified": bool(evidence)}
+            if previous_evidence.get("identity_conflict"):
+                details["identity_conflict"] = previous_evidence["identity_conflict"]
+            if provider == "yahoo" and verified and int(raw.get("season") or 0) != row.season:
+                details["identity_conflict"] = "provider_season_changed"
+                if series.hold in ("", "activation_required"):
+                    series.hold = "identity_conflict"
+                if not previous_evidence.get("identity_conflict"):
+                    series.revision += 1
+                    audit(db, "provider", "season_identity_conflicted", lid,
+                        "Yahoo returned a different season for the same provider key",
+                        after={"stored_season": row.season, "provider_season": raw.get("season")})
+            if confirmation:
+                if evidence and caps["format"] != confirmation["format"]:
+                    if confirmation.get("status") != "conflict":
+                        confirmation = {**confirmation, "status": "conflict",
+                            "provider_format": caps["format"], "detected_at": stamp()}
+                        series.revision += 1
+                        audit(db, "provider", "season_format_conflicted", lid,
+                            "Yahoo format conflicts with this season's owner confirmation",
+                            after={"owner_format_confirmation": confirmation})
+                    if series.hold in ("", "activation_required"):
+                        series.hold = "format_conflict"
+                if confirmation.get("status") == "conflict":
+                    row.verified_at = 0
+                elif verified and caps and not evidence and _yahoo_identity_evidence(row, details):
+                    row.capabilities_json = dump(_confirmed_capabilities(caps, confirmation["format"]))
+                    row.verified_at = stamp()
+                details["owner_format_confirmation"] = confirmation
+            if details.get("identity_conflict"):
+                row.verified_at = 0
+            row.evidence_json = dump(details)
             period = getattr(entry, "generation_period", {}) or {}
             row.latest_week = int(period.get("week") or 0) if period.get("season") == row.season else 0
             current = row
@@ -59,6 +141,45 @@ async def register_entry(db, entry, *, verified: bool = False) -> LeagueSeason:
     if current is None:
         raise ValueError("Current season missing from provider history")
     return current
+
+
+async def confirm_season_format(db, series_id, *, expected_revision, league_id, format, actor, reason):
+    """Record season-local owner evidence; activation and policy remain separate commands."""
+    from app.db.models import YahooConnection
+    from app.services.generation.commands import require_actor
+
+    await lock_control(db)
+    series = await db.get(LeagueSeries, series_id)
+    if not series or series.revision != expected_revision:
+        raise Conflict("League configuration changed; reload before confirming the format")
+    if format not in ("keeper", "redraft") or not reason.strip():
+        raise ValueError("Choose redraft or keeper and explain the owner confirmation")
+    seasons = (await db.scalars(select(LeagueSeason).where(LeagueSeason.series_id == series_id))).all()
+    latest = max((row.season for row in seasons), default=0)
+    current = [row for row in seasons if row.season == latest]
+    if len(current) != 1 or current[0].league_id != league_id:
+        raise Conflict("The current league season changed; reload before confirming its format")
+    row = current[0]
+    if not format_evidence_view(row, current=True, series_hold=series.hold)["format_confirmation_available"]:
+        raise ValueError("Owner confirmation requires current Yahoo provider history, valid capabilities, "
+                         "and missing format evidence without a conflict; refresh or review the league")
+    connection = await db.get(YahooConnection, actor)
+    await require_actor(db, GenerationOperation(kind="generation", actor_id=actor, league_id=league_id,
+        connection_generation=connection.generation if connection else ""))
+    before = json.loads(row.evidence_json)
+    confirmation = {"format": format, "actor_id": actor, "confirmed_at": stamp(),
+        "league_id": league_id, "provider_key": row.provider_key, "season": row.season,
+        "status": "confirmed"}
+    after = {**before, "owner_format_confirmation": confirmation}
+    row.evidence_json = dump(after)
+    row.capabilities_json = dump(_confirmed_capabilities(json.loads(row.capabilities_json), format))
+    # This timestamp means usable combined evidence. format_verified remains the
+    # provider-only flag, and owner provenance is retained explicitly above.
+    row.verified_at = stamp()
+    series.revision += 1
+    audit(db, actor, "season_format_confirmed", league_id, reason, before, after)
+    await db.flush()
+    return series
 
 
 async def set_series(db, series_id, *, expected_revision, lifecycle, profile,

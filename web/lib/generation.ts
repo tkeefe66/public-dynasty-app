@@ -51,7 +51,8 @@ export interface GenerationOverview {
 export interface GenerationSeries {
   id: string; name: string; profile: string; lifecycle: string; revision: number; hold: string;
   members: number;
-  seasons: { league_id: string; season: number; verified_at: number; capabilities_json: string }[];
+  seasons: { league_id: string; season: number; verified_at: number; capabilities_json: string;
+    format_confirmation_available?: boolean; format_verification_source?: "provider" | "owner" | null }[];
   effective: EffectivePolicy;
 }
 export interface GenerationRecord {

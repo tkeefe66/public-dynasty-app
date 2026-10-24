@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from app.auth.deps import require_admin
 from app.config import get_settings
-from app.db.models import LeagueMembership
+from app.db.models import LeagueMembership, User
 from app.db.session import get_db
 from app.services.generation import administration as commands
 from app.services.generation.candidate_status import classify_candidates
@@ -25,7 +25,11 @@ from app.services.generation.models import (
     ProviderAttempt,
 )
 from app.services.generation.policy import StrictModel
-from app.services.generation.registry import set_series
+from app.services.generation.registry import (
+    confirm_season_format,
+    format_evidence_view,
+    set_series,
+)
 from app.services.generation.store import Conflict, Held, data, resolve_policy
 
 router = APIRouter(prefix="/api/admin/generation", dependencies=[Depends(require_admin)])
@@ -54,6 +58,12 @@ class SeriesChange(Reason):
     lifecycle: Literal["active", "retired", "pending_verification"]
     profile: Literal["dynasty", "keeper", "redraft"]
     activate: bool = False
+
+
+class FormatConfirmation(Reason):
+    expected_revision: int = Field(ge=1)
+    league_id: str = Field(min_length=1)
+    format: Literal["redraft", "keeper"]
 
 
 class Preview(Reason):
@@ -139,7 +149,10 @@ async def leagues(db: DB, offset: int = Query(0, ge=0), limit: int = Query(50, g
             .order_by(LeagueSeason.season.desc()))).all()
         members = await db.scalar(select(func.count()).select_from(LeagueMembership).where(
             LeagueMembership.league_id.in_([s.league_id for s in seasons])))
-        result.append({**data(row), "seasons": [data(s) for s in seasons], "members": members,
+        latest = [s for s in seasons if s.season == seasons[0].season] if seasons else []
+        result.append({**data(row), "seasons": [{**data(s), **format_evidence_view(s,
+            current=len(latest) == 1 and s.league_id == latest[0].league_id,
+            series_hold=row.hold)} for s in seasons], "members": members,
             "effective": await resolve_policy(db, row.id)})
     return {"records": result, "next_offset": offset + limit if len(rows) > limit else None}
 
@@ -163,6 +176,14 @@ async def control(body: ControlChange, db: DB, owner: Owner):
 async def series(series_id: str, body: SeriesChange, db: DB, owner: Owner):
     row = await execute(set_series(db, series_id, expected_revision=body.expected_revision,
         lifecycle=body.lifecycle, profile=body.profile, actor=owner.id, reason=body.reason, activate=body.activate))
+    return data(row)
+
+
+@router.post("/leagues/{series_id}/format-confirmation")
+async def confirm_format(series_id: str, body: FormatConfirmation, db: DB,
+                         owner: Annotated[User, Depends(require_admin)]):
+    row = await execute(confirm_season_format(db, series_id, expected_revision=body.expected_revision,
+        league_id=body.league_id, format=body.format, actor=owner.id, reason=body.reason))
     return data(row)
 
 
