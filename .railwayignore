@@ -8,6 +8,7 @@
 **/.pytest_cache
 .DS_Store
 .superpowers
+.historical-backfill
 docs
 # Never bake local secrets into the image (railway up uploads the working tree).
 # .env.example is kept (doesn't match these patterns).

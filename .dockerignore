@@ -1,5 +1,6 @@
 .git
 .superpowers
+.historical-backfill
 .venv
 **/__pycache__
 **/.pytest_cache

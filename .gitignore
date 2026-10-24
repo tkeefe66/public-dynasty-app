@@ -8,6 +8,7 @@ build/
 .DS_Store
 .superpowers/
 .recap-pilot/
+.historical-backfill/
 web/next-env.d.ts
 
 # Tool scratch (Claude worktrees, impeccable design skill)

@@ -401,6 +401,13 @@ event. Revisions to saved prose use an explicit correction from **Saved content*
 
 ### Franchise Rating + the Franchise Ratings leaderboard
 
+Selected historical seasons require verified season-end assets and results.
+The [historical backfill runbook](docs/historical-backfill.md) describes the
+receipt-backed Stats Guy Fantasy preparation CLI, unranked-player and K/DEF
+policy, exhaustive sensitivity checks, private preview, and separate import.
+Historical estimates disclose their valuation source beside the ratings; current
+career ratings keep their existing source and calculation.
+
 The **Franchise Ratings** tab (`/league/{id}/gm`) ranks every owner by a single league-relative grade — a transparent **two-pillar** composite (`0.60·Results + 0.40·Assets`, model `"v2_dynasty"`/`"v2_keeper"`; redraft scores **Results only**, model `"v2_redraft"`). This is v2 of the rating — the original three-pillar model had a **Skill** pillar (trade efficiency, draft skill, lineup skill) that measured noise: none of it persisted year to year (draft skill correlated ~+0.10 season to season, lineup skill ~+0.04, and both trade signals were *negatively* self-correlated). v2 drops Skill entirely and measures it through its consequences instead — winning, and what the roster holds:
 
 - **Results** (60%) — **expected wins** (all-play win rate: your record if you'd played every team every week, which removes schedule luck), **playoff success** (a berth counts half a round win, plus rounds actually won, plus a championship bonus), and **luck** (actual wins minus expected wins, orthogonal to expected wins by construction).

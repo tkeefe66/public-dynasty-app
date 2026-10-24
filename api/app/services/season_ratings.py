@@ -14,6 +14,12 @@ from app.services.chain_cache import ChainCacheEntry
 INPUT_VERSION = 1
 
 
+def historical_results_digest(snapshot):
+    from app.services.historical_backfill import digest
+    return digest({"outcome_signals": snapshot["outcome_signals"],
+                   "season_records": snapshot["season_records"]})
+
+
 def _complete_signals(owners, outcomes, assets, fmt):
     def valid(signals, keys):
         return all(isinstance(signals.get(key), (int, float)) and
@@ -69,6 +75,9 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
         reason = snapshot.get("reason") or (
             "Verified season inputs are missing. Refresh league data; historical assets require a verified backfill.")
     basis = "current" if year == "all" else snapshot.get("basis", "season_end")
+    source = snapshot.get("asset_source") or {}
+    policy = source.get("valuation_policy") or {}
+    stats_guy = ready and year != "all" and policy.get("version") == "stats-guy-v1"
     return {
         "status": "ready" if ready else "unavailable", "basis": basis,
         "as_of": entry.cached_at if year == "all" else snapshot.get("as_of"),
@@ -77,6 +86,12 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
                   f"Franchise rating at end of {year}") if ready else
                  "Historical data unavailable" if year != "all" else "Rating unavailable",
         "reason": reason,
+        "valuation_source": "stats_guy" if stats_guy else None,
+        "prices_as_of": source.get("prices_as_of") if stats_guy else None,
+        "valuation_note": (f"{policy['priced']}/{policy['eligible']} offensive players priced. "
+                           "Unranked players use a zero replacement floor; kickers and defenses are excluded "
+                           "from assets. Generic round values price future picks. Historical estimates use "
+                           "a different valuation source from current ratings.") if stats_guy else None,
     }
 
 
@@ -165,6 +180,10 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
                     cutoff_date=(supporting.get("season_end_dates") or {}).get(lids[0]))
                 if assets is None:
                     snapshot["reason"] = reason
+                    continue
+                if (assets.validation is not None and assets.validation.result_inputs_sha256
+                        != historical_results_digest(snapshot)):
+                    snapshot["reason"] = "Historical results changed since validation. Rerun the historical backfill preview."
                     continue
                 signals, ranks = assets.signals()
                 snapshot.update(outlook_signals=signals, roster_ranks=ranks,

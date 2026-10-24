@@ -27,6 +27,27 @@ class HistoricalPlayer(BaseModel):
     owner_id: str = Field(min_length=1)
     value: float = Field(ge=0)
     birth_date: date
+    position: Literal["QB", "RB", "WR", "TE"] | None = None
+    pricing: Literal["provider", "unranked_floor"] | None = None
+
+
+class HistoricalValuationPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    version: Literal["stats-guy-v1"]
+    source_url: Literal["https://statsguyfantasy.com"]
+    excluded: list[dict]
+    unranked_upper_bounds: dict[str, float]
+    priced: int
+    eligible: int
+    evidence_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class HistoricalValidation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    result_inputs_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    stable: Literal[True]
+    scenarios: int = Field(ge=1, le=256)
 
 
 class HistoricalPick(BaseModel):
@@ -60,6 +81,8 @@ class HistoricalRatingAssets(BaseModel):
     pick_horizon: int = Field(ge=1, le=3)
     players: list[HistoricalPlayer] = Field(min_length=1)
     picks: list[HistoricalPick]
+    valuation_policy: HistoricalValuationPolicy | None = None
+    validation: HistoricalValidation | None = None
 
     @model_validator(mode="after")
     def complete_at_cutoff(self):
@@ -85,6 +108,34 @@ class HistoricalRatingAssets(BaseModel):
             raise ValueError("Historical future-pick inventory is incomplete, duplicated, or has unknown owners.")
         if sum(p.value for p in self.players) <= 0:
             raise ValueError("Historical roster prices cannot all be zero.")
+        if self.valuation_policy is not None:
+            from app.services.historical_backfill import digest
+            policy = self.valuation_policy
+            missing = {p.player_id for p in self.players if p.pricing == "unranked_floor"}
+            if (self.format != "dynasty" or self.prices_as_of >= self.as_of
+                    or policy.eligible != len(self.players)
+                    or policy.priced != len(self.players) - len(missing)
+                    or set(policy.unranked_upper_bounds) != missing
+                    or any(v <= 0 for v in policy.unranked_upper_bounds.values())
+                    or any(p.position is None or p.pricing is None for p in self.players)
+                    or any(p.value != 0 for p in self.players if p.player_id in missing)):
+                raise ValueError("Historical valuation policy does not match the roster.")
+            for uid in owners:
+                roster = [p for p in self.players if p.owner_id == uid]
+                count = sum(p.player_id in missing for p in roster)
+                if count > 2 or count / len(roster) > .10:
+                    raise ValueError("Owner offensive coverage below policy threshold.")
+            excluded = policy.excluded
+            if (len(missing) / len(self.players) > .02 or len(missing) > 8
+                    or len({p.get('player_id') for p in excluded}) != len(excluded)
+                    or any(p.get('position') not in {'K', 'DEF'} or p.get('owner_id') not in owners
+                           or p.get('player_id') in {r.player_id for r in self.players} for p in excluded)):
+                raise ValueError("Invalid excluded assets or league coverage.")
+            if (self.validation is None or self.validation.scenarios != 2 ** len(missing)
+                    or self.validation.manifest_sha256 != digest(self.model_dump(mode="json", exclude={"validation"}))):
+                raise ValueError("Manifest differs from validated preview. Rerun backfill validation.")
+        elif self.validation is not None:
+            raise ValueError("Validation requires a versioned valuation policy.")
         return self
 
     def signals(self) -> tuple[dict, dict]:

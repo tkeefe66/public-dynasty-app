@@ -180,7 +180,20 @@ function Verdict() {
         Past seasons use results through that season and verified season-end rosters, player ages,
         pick ownership, and asset prices. The current season uses the latest refresh until it is complete.
         Missing historical evidence displays Historical data unavailable; it is never replaced with
-        today&rsquo;s assets or an estimate.
+        today&rsquo;s assets.
+      </p>
+      <p className="mb-4 max-w-[68ch] text-prose leading-relaxed text-body">
+        Imported dynasty seasons use dated estimates from{" "}
+        <a href="https://statsguyfantasy.com" className="underline" target="_blank" rel="noreferrer">Stats Guy Fantasy</a>,
+        with the source date shown beside the ratings. Unranked offensive players receive an explicit
+        zero replacement-value floor. At least 98% of offensive players leaguewide and 90% on every
+        roster must have prices, with at most two unranked players per team. Publication requires
+        unchanged ranks and grades when all combinations of those missing values are raised to the
+        lowest positive price at their position. Kickers and defenses remain in game results but are
+        excluded from asset value and youth. Future picks use the same source&rsquo;s generic year and
+        round prices, without hindsight about eventual draft slots. These provider-dated estimates
+        are not independently verified contemporaneous snapshots and use a different valuation source
+        from current ratings, so changes across those sources are not pure measures of franchise progress.
       </p>
 
       {/* The three things v2 makes true that the old page didn't say, or said
