@@ -16,7 +16,11 @@ from decimal import Decimal
 from pathlib import Path
 
 from sleeper_dynasty.api.owner_identity import source_client
-from sleeper_dynasty.api.platform import ScoringPointsProvider, platform_for_league_id
+from sleeper_dynasty.api.platform import (
+    ScoringPlayerPoolProvider,
+    ScoringPointsProvider,
+    platform_for_league_id,
+)
 from sleeper_dynasty.cache import FileCache
 from sleeper_dynasty.engine.lineup import BENCH_SLOTS, SLOT_ELIGIBILITY
 from sleeper_dynasty.engine.scoring_leaders import (
@@ -46,7 +50,7 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
     identity_version = getattr(getattr(client, "identity", None), "version", "")
     scope = f"{source_namespace}_{league_id}_{identity_version}"
     # Catalog/state are identical through both adapters. Normalized stats are not.
-    result_key = f"board_v3_{scope}.json"
+    result_key = f"board_v4_{scope}.json"
     saved = cache.read(result_key, max_age_seconds=300)
     if saved is not None:
         return saved
@@ -115,6 +119,7 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
     scoring_version = hashlib.sha256(json.dumps(
         [league["scoring_settings"], league.get("scoring_bonuses", [])], sort_keys=True,
     ).encode()).hexdigest()[:20]
+    excluded_ids = set()
 
     def validation_key(week):
         return f"validation_v3_{source_namespace}_{league_id}_{week}_{scoring_version}.json"
@@ -129,7 +134,8 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
         # Verify every ranked Yahoo player, not a roster-only sample. Keep
         # currently owned inactive players in validation as well.
         candidates = roster_ids | {pid for pid, stats in raw.items() if stats.get("gp")
-                                  and (players.get(pid) or {}).get("position") in eligible}
+                                  and (players.get(pid) or {}).get("position") in eligible
+                                  and pid not in excluded_ids}
         points = await read_source(validation_key(week), 3600,
             lambda: client.get_scoring_points(league_id, week, sorted(candidates)),
             lambda d: isinstance(d, dict) and set(d) == candidates)
@@ -166,6 +172,19 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
                 cache.invalidate("players.json")
                 raise ValueError(f"{provider}'s player details are incomplete. Try again shortly.")
 
+        if isinstance(source_client(client), ScoringPlayerPoolProvider):
+            candidates = roster_ids | {pid for pid in played_ids if players[pid]["position"] in eligible}
+            availability = await client.get_scoring_availability(league_id, sorted(candidates))
+            if (not isinstance(availability, dict) or set(availability) != candidates
+                    or any(type(value) is not bool for value in availability.values())):
+                raise ValueError(f"{provider}'s scoring player availability is incomplete. Try again shortly.")
+            excluded_ids = {pid for pid, available in availability.items() if not available}
+            if excluded_ids & roster_ids:
+                raise ValueError(f"{provider}'s rostered players are missing from its player catalog. "
+                                 "Player identities need reconciliation before rankings can be shown.")
+            if excluded_ids:
+                log.info("Scoring pool exclusions league=%s players=%s", league_id, sorted(excluded_ids))
+
         # Reconcile every rostered player, not just starters, before claiming
         # that the same scoring rules are correct for unrostered players.
         for week, raw, matchups in bundles:
@@ -185,7 +204,10 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
                         cache.invalidate(validation_key(week))
                         raise ValueError(f"Week {week}: Calculated points do not match {provider}'s league scores. "
                                          "A scoring rule or stat correction needs reconciliation; try again shortly.")
-        all_rows = build_scoring_rows(weeks, players, league["scoring_settings"], cutoff,
+        # Filter only the derived board, preserving shared NFL source payloads.
+        ranked_weeks = {week: {pid: stats for pid, stats in raw.items() if pid not in excluded_ids}
+                        for week, raw in weeks.items()}
+        all_rows = build_scoring_rows(ranked_weeks, players, league["scoring_settings"], cutoff,
                                       bonuses=bonuses)
         ranks = Counter((row["position"], row["rank"]) for row in all_rows)
         for row in all_rows:
@@ -224,6 +246,8 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
         "league_id": league_id, "league_name": league["name"], "season": season,
         "through_week": cutoff, "updated_at": datetime.now(UTC).isoformat(),
         "players": rows, "franchises": franchises,
+        "excluded_players": [{"player_id": pid, "name": players[pid].get("full_name") or pid,
+                              "position": players[pid]["position"]} for pid in sorted(excluded_ids)],
     }
     cache.write(result_key, result)
     log.info("Scoring leaders ready league=%s season=%s through_week=%s players=%s",

@@ -105,6 +105,12 @@ export function ScoringLeaders({ data }: { data: ScoringResp }) {
         options={[{ key: "positions", label: "Positions" }, { key: "franchises", label: "Franchises" }]}
         className="mb-2 [&_button]:font-sans [&_button]:text-prose [&_button]:normal-case [&_button]:tracking-normal" />
     </div>
+    {!!data.excluded_players?.length && <Panel role="note" aria-label="Yahoo player coverage" className="mb-6 px-4 py-4">
+      <p className="text-prose font-semibold text-ink">Yahoo player coverage</p>
+      <p className="mt-1 break-words text-prose text-dim">
+        Rankings include players listed in Yahoo, including free agents. These NFL players are not listed in Yahoo’s player pool and are excluded because their Yahoo points cannot be verified: {data.excluded_players.map(p => `${p.name} (${p.position})`).join(", ")}.
+      </p>
+    </Panel>}
     <div className="mb-6 flex flex-col gap-5 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between">
       <SegmentControl aria-label="Player position" value={position} onChange={setPosition}
         options={[{ key: "all", label: "All" }, ...positions.map(key => ({ key, label: key }))]} className="my-2" />

@@ -24,6 +24,18 @@ const data: ScoringResp = {
   ],
 };
 
+it("discloses Yahoo pool exclusions in both views without giving them points", () => {
+  // Mutation: silently hide excluded players or put unverified totals in rankings.
+  render(<ScoringLeaders data={{ ...data, excluded_players: [
+    { player_id: "absent", name: "Absent Runner", position: "RB" },
+  ] }} />);
+  const note = screen.getByRole("note", { name: "Yahoo player coverage" });
+  expect(note).toHaveTextContent("Absent Runner (RB)");
+  expect(note).toHaveTextContent("not listed in Yahoo");
+  fireEvent.click(screen.getByRole("button", { name: "Franchises" }));
+  expect(note).toBeVisible();
+});
+
 it("opens a position board with five leaders per card and expands the complete rankings", () => {
   // Mutation: default to WR only, rank by PPG, or leave lower-ranked players inaccessible.
   render(<ScoringLeaders data={data} />);

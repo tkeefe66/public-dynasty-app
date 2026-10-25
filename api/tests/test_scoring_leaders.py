@@ -51,6 +51,46 @@ class Source:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("absent", ["free", "rostered"])
+async def test_yahoo_absent_free_agent_is_disclosed_but_absent_roster_blocks(tmp_path, absent):
+    # Mutation: silently exclude players, rank excluded data, or permit missing rostered players.
+    from app.services.scoring_leaders import load_scoring_leaders
+    from sleeper_dynasty.api.owner_identity import OwnerIdentity, OwnerIdentityClient
+    from sleeper_dynasty.cache import FileCache
+
+    class YahooPool(Source):
+        async def get_scoring_availability(self, league_id, player_ids):
+            assert set(player_ids) == {"rostered", "inactive", "free"}
+            return {pid: pid != absent for pid in player_ids}
+        async def get_scoring_points(self, league_id, week, player_ids):
+            expected = {"rostered": 12, "inactive": 0}
+            if not absent:
+                expected["free"] = 16
+            assert set(player_ids) == set(expected)
+            return expected
+
+    source = OwnerIdentityClient(YahooPool(), OwnerIdentity({"owner": "canonical"}, {"canonical": "Manager"}))
+    if absent == "rostered":
+        with pytest.raises(ValueError, match="rostered"):
+            await load_scoring_leaders("999.l.123", tmp_path, source)
+        assert not list((tmp_path / "scoring").glob("board_*.json"))
+        return
+    result = await load_scoring_leaders("999.l.123", tmp_path, source)
+    assert [(p["player_id"], p["rank"], p["points"]) for p in result["players"]] == [("rostered", 1, 24)]
+    assert result["excluded_players"] == [{"player_id": "free", "name": "Free Agent", "position": "WR"}]
+    assert result["franchises"][0]["owner_id"] == "canonical"
+    assert "free" in FileCache(tmp_path / "scoring").read("stats_yahoo_2026_1.json")
+    # Yahoo adding the player must revalidate the expanded set and restore its rank.
+    absent = ""
+    cache = FileCache(tmp_path / "scoring")
+    for board in (tmp_path / "scoring").glob("board_v4_*.json"):
+        cache.invalidate(board.name)
+    refreshed = await load_scoring_leaders("999.l.123", tmp_path, source)
+    assert refreshed["excluded_players"] == []
+    assert [(p["player_id"], p["rank"]) for p in refreshed["players"]] == [("free", 1), ("rostered", 2)]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("league_format", ["redraft", "keeper", "dynasty"])
 async def test_yahoo_reconciles_free_agents_bonuses_and_ownership(tmp_path, league_format):
     # Mutation: use matchup-only verification, omit free agents or gate on dynasty.
@@ -213,7 +253,7 @@ async def test_bonuses_reconcile_matchups_and_survive_cached_league_settings(tmp
     first = await load_scoring_leaders("123", tmp_path, source)
     assert [(r["player_id"], r["points"]) for r in first["players"]] == expected
     cache = FileCache(tmp_path / "scoring")
-    cache.invalidate("board_v3_sleeper_123_.json")
+    cache.invalidate("board_v4_sleeper_123_.json")
     if rule_format == "legacy":
         saved = cache.read("league_v3_sleeper_123.json")
         saved.pop("scoring_bonuses")
@@ -308,7 +348,7 @@ async def test_roster_changes_refresh_without_recalculating_player_ranks(tmp_pat
     source = Source()
     await load_scoring_leaders("123", tmp_path, source)
     cache = FileCache(tmp_path / "scoring")
-    cache.invalidate("board_v3_sleeper_123_.json")
+    cache.invalidate("board_v4_sleeper_123_.json")
     cache.invalidate("rosters_v3_sleeper_123_.json")
 
     async def transferred(league_id):
@@ -408,12 +448,14 @@ def test_yahoo_route_uses_requesting_members_connection(client, monkeypatch):
         return SimpleNamespace(close=close)
     async def load(league_id, *args):
         return {"league_id": league_id, "league_name": "Yahoo", "season": 2026,
-                "through_week": 2, "updated_at": "2026-10-01T00:00:00Z", "players": [], "franchises": []}
+                "through_week": 2, "updated_at": "2026-10-01T00:00:00Z", "players": [], "franchises": [],
+                "excluded_players": [{"player_id": "absent", "name": "Absent Player", "position": "RB"}]}
     monkeypatch.setattr(scoring, "connected_client", connected, raising=False)
     monkeypatch.setattr(scoring, "load_scoring_leaders", load)
     response = client.get("/api/league/999.l.123/scoring")
     assert response.status_code == 200
     assert response.headers["cache-control"] == "private, no-store"
+    assert response.json()["excluded_players"][0]["name"] == "Absent Player"
     assert closed == [True]
 
 

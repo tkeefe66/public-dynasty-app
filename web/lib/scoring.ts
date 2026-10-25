@@ -18,6 +18,7 @@ export interface ScoringResp {
   updated_at: string;
   players: ScoringPlayer[];
   franchises: ScoringFranchise[];
+  excluded_players?: { player_id: string; name: string; position: string }[];
 }
 
 export type ScoringRosterPlayer = Omit<ScoringPlayer, "rank" | "points" | "points_per_game"> & {

@@ -15,4 +15,9 @@
 
 Review focus: free-agent mapping, kicker/defense scoring, nonfinite actuals, stale cached validation with changed player sets, owner mapping revisions, Yahoo throttle during client creation, and historical weeks after fantasy playoffs.
 
-Live acceptance remains blocked on Yahoo player identity coverage; see docs/yahoo-scoring.md for the 2,777 reconciled comparisons and precise remaining limitation. No complete Dads board was published.
+Initial live acceptance was blocked on Yahoo player identity coverage. In the follow-up,
+the user approved Yahoo-listed rankings with a visible coverage note. The implementation
+now proves absence using the complete catalog plus surname search, preserves strict
+mapping and scoring failures, and passes local Dads verification: 614 players, 10
+franchises, 2,937 reconciled player-weeks through Week 6, with DJ Herman disclosed as
+the sole excluded player. See docs/yahoo-scoring.md. No deployment was made.

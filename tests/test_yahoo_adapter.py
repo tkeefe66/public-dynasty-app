@@ -25,6 +25,7 @@ def test_multi_position_name_mapping_requires_one_canonical_identity():
 
 @pytest.mark.parametrize("alias,canonical,position", [
     ("Bam Knight", "Zonovan Knight", "RB"), ("Juice Wells Jr.", "Antwane Wells Jr.", "WR"),
+    ("Hollywood Brown", "Marquise Brown", "WR"),
 ])
 def test_verified_aliases_preserve_position_and_ambiguity_checks(alias, canonical, position):
     # Mutation: omit the documented alias or match it regardless of position.
@@ -77,6 +78,69 @@ def catalog_response(mapping):
 class ScoringTestClient(YahooAdapter):
     async def get_players(self):
         return {pid: {"full_name": pid, "position": "WR"} for pid in self._id_map.values()}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("search_result", [[], {"count": 0}, {"count": 1}, "ambiguous"])
+async def test_scoring_availability_requires_complete_catalog_and_empty_search(search_result):
+    # Mutation: classify unresolved identities or malformed search data as absent.
+    import httpx
+    paths = []
+    def respond(request):
+        paths.append(request.url.path)
+        if "/players;start=" in request.url.path:
+            return catalog_response({"1": "listed"})
+        assert "players;search=Absent" in request.url.path
+        if search_result == "ambiguous":
+            return catalog_response({"2": "Different Absent"})
+        return httpx.Response(200, json={"fantasy_content": {"league": [{"players": search_result}]}})
+    client = ScoringTestClient("synthetic", id_map={"1": "listed", "2": "Absent"},
+                               transport=httpx.MockTransport(respond))
+    try:
+        if search_result in ([], {"count": 0}):
+            assert await client.get_scoring_availability("999.l.123", ["listed", "Absent"]) == {
+                "listed": True, "Absent": False,
+            }
+            assert len(paths) == 2
+        else:
+            with pytest.raises(YahooDataError):
+                await client.get_scoring_availability("999.l.123", ["listed", "Absent"])
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_scoring_availability_rejects_truncated_catalog():
+    # Mutation: treat a short response with a contradictory count as a complete catalog.
+    import httpx
+    def respond(request):
+        assert "/players;start=" in request.url.path
+        return httpx.Response(200, json={"fantasy_content": {"league": [{"players": {"count": 25}}]}})
+    client = ScoringTestClient("synthetic", id_map={"2": "Absent"}, transport=httpx.MockTransport(respond))
+    try:
+        with pytest.raises(YahooDataError, match="incomplete"):
+            await client.get_scoring_availability("999.l.123", ["Absent"])
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["name", "display_position", "editorial_team_abbr"])
+async def test_scoring_availability_rejects_missing_catalog_identity(missing):
+    # Mutation: accept an identity-free record as proof the requested player is absent.
+    import httpx
+    record = {"player_key": "999.p.1", "name": {"full": "Example"},
+              "display_position": "DEF", "editorial_team_abbr": "SEA"}
+    record.pop(missing)
+    def respond(request):
+        players = {"0": {"player": [record]}, "count": 1} if ";start=" in request.url.path else []
+        return httpx.Response(200, json={"fantasy_content": {"league": [{"players": players}]}})
+    client = ScoringTestClient("synthetic", id_map={"1": "Absent"}, transport=httpx.MockTransport(respond))
+    try:
+        with pytest.raises(YahooDataError, match="incomplete"):
+            await client.get_scoring_availability("999.l.123", ["Absent"])
+    finally:
+        await client.close()
 
 
 @pytest.mark.asyncio

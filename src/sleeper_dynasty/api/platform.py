@@ -59,6 +59,16 @@ def platform_for_league_id(league_id: str) -> str:
 
 
 @runtime_checkable
+class ScoringPlayerPoolProvider(Protocol):
+    """Optional provider-specific fantasy player availability, not NFL activity."""
+
+    async def get_scoring_availability(self, league_id: str,
+                                       player_ids: list[str]) -> dict[str, bool]:
+        """False requires confirmed absence; incomplete/ambiguous evidence raises."""
+        ...
+
+
+@runtime_checkable
 class ScoringPointsProvider(Protocol):
     """Optional league-context verification beyond the fantasy matchup schedule."""
 

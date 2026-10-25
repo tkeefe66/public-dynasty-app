@@ -302,7 +302,7 @@ points, including free agents, independently of the fantasy playoff schedule.
 No roster-retention format gate is applied.
 
 The shared canonical player catalog and NFL state remain shared. Normalized
-weekly stats retain provider namespaces. Version 3 boards, league metadata,
+weekly stats retain provider namespaces. Version 4 boards and version 3 league metadata,
 rosters and users cannot consume old scoring payloads; owner-derived caches
 also include the owner-mapping version. Yahoo validation caches include the
 league's scoring fingerprint and require the exact candidate set on reuse.
@@ -322,14 +322,27 @@ crosswalk. Unique name/position evidence now handles comma-separated Yahoo
 positions and corrects conflicting crosswalk entries in the request-local
 adapter. Scoring verification requires actual league-catalog player keys.
 
-**Dads is not yet verified end to end:** DJ Herman lacked a matching Yahoo
-catalog record. That candidate is not silently omitted and his points are
-not guessed. Explicit position-bound aliases for Bam/Zonovan Knight and
-Juice/Antwane Wells are now verified against the [Cardinals profile](https://www.azcardinals.com/team/players-roster/bam-knight/)
-and [Falcons profile](https://www.atlantafalcons.com/team/players-roster/antwane-wells-jr/career). The production path refuses the board pending
-identity reconciliation. The 2,777 comparisons were diagnostics, not a
-published or complete leaderboard. Raw private responses remain outside the
-repository in an isolated local verification directory. No deployment was made.
+**Dads now passes local verification with the approved Yahoo-listed player scope:**
+614 ranked players across six positions and 10 franchises, through Week 6.
+The final adapter reconciles 2,937 player-week totals (including current roster
+players on inactive weeks) against authenticated Yahoo responses. DJ Herman is
+the sole exclusion, explicitly named in the coverage note in both board views.
+A fresh authenticated surname search corroborated his absence from the complete
+Yahoo league catalog. His NFL stats remain in the shared source cache; no Yahoo
+identity or points are invented.
+
+Exclusion requires a complete catalog with valid record counts and identity
+fields, plus an empty surname search. Ambiguous matches, incomplete responses,
+missing rostered players and scoring discrepancies still fail explicitly.
+Availability is checked again when the board's five-minute cache expires; a
+newly listed player expands the verification set and rejoins the rankings.
+
+Explicit position-bound aliases for Bam/Zonovan Knight, Juice/Antwane Wells and
+Hollywood/Marquise Brown are verified against the [Cardinals profile](https://www.azcardinals.com/team/players-roster/bam-knight/),
+[Falcons profile](https://www.atlantafalcons.com/team/players-roster/antwane-wells-jr/career)
+and [Chiefs announcement](https://www.chiefs.com/news/five-things-to-know-about-new-chiefs-wr-marquise-hollywood-brown-).
+Raw private responses and verification boards remain outside the repository in
+isolated local directories. No deployment was made.
 
 Unsupported settings return HTTP 422 without a retry action. Connection
 failures offer reconnection; throttles preserve Yahoo's Retry-After value.

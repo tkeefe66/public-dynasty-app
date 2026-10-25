@@ -11,6 +11,7 @@ import logging
 import re
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from urllib.parse import quote
 
 import httpx
 
@@ -419,6 +420,7 @@ class YahooAdapter:
         self._postseason_cache = {}
         self._history_unavailable = False
         self._scoring_keys = {}
+        self._scoring_catalog_complete = set()
 
     @property
     def warnings(self):
@@ -738,25 +740,35 @@ class YahooAdapter:
             )
         return totals
 
-    async def get_scoring_points(self, league_id, week, player_ids):
-        """Verify all leaderboard candidates, including free agents and bye teams.
+    @staticmethod
+    def _scoring_catalog_records(payload):
+        node = merge_fragments(unwrap(payload, "fantasy_content", "league"))
+        players = child(node, "players")
+        records = collection(players)
+        if (not isinstance(players, (dict, list))
+                or (isinstance(players, dict) and players.get("count") != len(records))
+                or any(not isinstance(item, dict) or not merge_fragments(item.get("player")) for item in records)):
+            raise YahooDataError("Yahoo player catalog is incomplete; retry later.")
+        for item in records:
+            player = merge_fragments(item["player"])
+            if (not merge_fragments(player.get("name")).get("full")
+                    or not player.get("display_position")
+                    or (player.get("display_position") == "DEF" and not player.get("editorial_team_abbr"))):
+                raise YahooDataError("Yahoo player catalog identity details are incomplete; retry later.")
+        return records
 
-        No scoreboard dependency: completed NFL weeks can extend past a fantasy
-        league's playoffs. Canonical NFL data stays separate from these totals.
-        """
+    async def _confirm_scoring_keys(self, league_id, player_ids, *, complete=False):
         await self._ensure_ids()
-        confirmed = self._scoring_keys.setdefault(league_id, {})
-        if set(player_ids) - confirmed.keys():
+        confirmed = dict(self._scoring_keys.get(league_id, {}))
+        if (set(player_ids) - confirmed.keys()
+                or (complete and league_id not in self._scoring_catalog_complete)):
             # The external crosswalk can contain retired or reassigned Yahoo
             # IDs. Require a league-catalog record, not merely a reverse CSV hit.
             self._name_index = player_name_index(await self.get_players())
             seen = set()
             for start in range(0, 12500, 25):
                 payload = await self._get(f"/league/{league_id}/players;start={start};count=25")
-                node = merge_fragments(unwrap(payload, "fantasy_content", "league"))
-                if child(node, "players") is None:
-                    raise YahooDataError("Yahoo omitted its player catalog; retry later.")
-                records = collection(child(node, "players"))
+                records = self._scoring_catalog_records(payload)
                 for item in records:
                     player = merge_fragments(item["player"])
                     key = player.get("player_key")
@@ -773,17 +785,51 @@ class YahooAdapter:
                         if pid in confirmed and confirmed[pid] != yid:
                             raise YahooDataError("Yahoo scoring player identities are ambiguous.")
                         confirmed[pid] = yid
-                if not (set(player_ids) - confirmed.keys()) or len(records) < 25:
+                if len(records) < 25:
+                    self._scoring_catalog_complete.add(league_id)
                     break
-            missing = set(player_ids) - confirmed.keys()
-            if missing:
-                log.warning("Yahoo scoring identities missing league=%s week=%s players=%s",
-                            league_id, week, sorted(missing))
+                if not complete and not (set(player_ids) - confirmed.keys()):
+                    break
+            else:
+                raise YahooDataError("Yahoo player catalog exceeded its pagination limit; retry later.")
+            self._scoring_keys[league_id] = confirmed
+        return confirmed
+
+    async def get_scoring_availability(self, league_id, player_ids):
+        """Exclude only proven nonmembers of Yahoo's fantasy player pool.
+
+        Exhaust the catalog, then corroborate each absent identity with a
+        surname search. A matching but unresolved record remains an error.
+        """
+        confirmed = await self._confirm_scoring_keys(league_id, player_ids, complete=True)
+        players = await self.get_players()
+        availability = {pid: pid in confirmed for pid in player_ids}
+        for pid in sorted(set(player_ids) - confirmed.keys()):
+            player = players.get(pid) or {}
+            surname = player.get("last_name") or str(player.get("full_name") or "").rsplit(" ", 1)[-1]
+            if not surname or player.get("position") == "DEF":
+                raise YahooDataError("Yahoo scoring player identity needs reconciliation.")
+            payload = await self._get(f"/league/{league_id}/players;search={quote(surname, safe='')}")
+            if self._scoring_catalog_records(payload):
                 raise YahooDataError(
-                    f"{len(missing)} scoring players could not be mapped to Yahoo. "
-                    "Player identities need reconciliation before rankings can be shown."
+                    "Yahoo lists a possible match for an unmapped scoring player. "
+                    "Player identity needs reconciliation before rankings can be shown."
                 )
-        reverse = confirmed
+            log.info("Yahoo scoring player absent from complete catalog and search league=%s player=%s",
+                     league_id, pid)
+        return availability
+
+    async def get_scoring_points(self, league_id, week, player_ids):
+        """League-context actuals for every requested player, including free agents."""
+        reverse = await self._confirm_scoring_keys(league_id, player_ids)
+        missing = set(player_ids) - reverse.keys()
+        if missing:
+            log.warning("Yahoo scoring identities missing league=%s week=%s players=%s",
+                        league_id, week, sorted(missing))
+            raise YahooDataError(
+                f"{len(missing)} scoring players could not be mapped to Yahoo. "
+                "Player identities need reconciliation before rankings can be shown."
+            )
         game = league_id.split(".l.", 1)[0]
         keys = {f"{game}.p.{reverse[pid]}": pid for pid in player_ids}
         if len(keys) != len(player_ids):

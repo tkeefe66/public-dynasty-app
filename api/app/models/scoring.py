@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ScoringRosterPlayer(BaseModel):
@@ -27,6 +27,12 @@ class ScoringFranchise(BaseModel):
     players: list[ScoringRosterPlayer]
 
 
+class ScoringExcludedPlayer(BaseModel):
+    player_id: str
+    name: str
+    position: str
+
+
 class ScoringResp(BaseModel):
     league_id: str
     league_name: str
@@ -35,3 +41,4 @@ class ScoringResp(BaseModel):
     updated_at: str
     players: list[ScoringPlayer]
     franchises: list[ScoringFranchise]
+    excluded_players: list[ScoringExcludedPlayer] = Field(default_factory=list)

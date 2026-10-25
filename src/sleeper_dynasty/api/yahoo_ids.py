@@ -24,9 +24,11 @@ _CACHE_TTL = 7 * 24 * 3600  # ids change only when players enter the league
 # Explicit name/position aliases, never guessed from surnames. Team sources:
 # https://www.azcardinals.com/team/players-roster/bam-knight/
 # https://www.atlantafalcons.com/team/players-roster/antwane-wells-jr/career
+# https://www.chiefs.com/news/five-things-to-know-about-new-chiefs-wr-marquise-hollywood-brown-
 VERIFIED_NAME_ALIASES = {
     ("bam knight", "RB"): "zonovan knight",
     ("juice wells", "WR"): "antwane wells",
+    ("hollywood brown", "WR"): "marquise brown",
 }
 
 
