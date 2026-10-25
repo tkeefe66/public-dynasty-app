@@ -6,7 +6,6 @@ import { DashboardResp, DashboardYear, Lens, ProfilesMap } from "@/lib/types";
 import { ProgressModal } from "./ProgressModal";
 import { DashboardSkeleton } from "./DashboardSkeleton";
 import { LeagueHeader } from "./LeagueHeader";
-import { LeagueNotes } from "./LeagueNotes";
 import { YearTabs } from "./YearTabs";
 import { DashboardTabs } from "./DashboardTabs";
 import { HeadlineMoves } from "./HeadlineMoves";
@@ -229,10 +228,6 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
         className={loading ? "opacity-60 transition-opacity duration-150" : "transition-opacity duration-150"}
       >
         <LeagueHeader league={data.league} totalTrades={isNaN(activityCount) ? 0 : activityCount} />
-        {/* What the numbers on this page can't see (e.g. a redraft league's
-            unvalued draft picks). Renders nothing when there is nothing to
-            disclose — absence, not an empty state. */}
-        <LeagueNotes notes={data.warnings} />
 
         <DashboardTabs leagueId={leagueId} active={initialTab} year={String(initialYear)} lens={initialLens} />
         {/* The GM board carries its own all-time/per-season toggle. Franchises
