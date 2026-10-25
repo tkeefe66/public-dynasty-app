@@ -165,6 +165,12 @@ async def test_generation_rows_roundtrip_without_receipt_or_artifact_changes(mak
             asset_json='{"stage_id":"previous-stage","digest":"prior-byte-hash"}'))
         db.add(RecapRestoreReport(epoch='synthetic-prior-restore',digest='report-hash',
             report_json='{"reconciled":false,"current_authority_verified":false}',created_at=123))
+        from app.services.recap_monitor.models import RecapMonitorState, RecapMonitorAlert
+        db.add(RecapMonitorState(id="synthetic-monitor", scope_digest="synthetic-scope",
+            next_check_at=456, state_json='{"last_decision":"waiting"}', heartbeat_at=123))
+        db.add(RecapMonitorAlert(id="synthetic-alert", scope_digest="synthetic-scope",
+            recipient_digest="synthetic-recipient", state="sent", payload_json='{"status":"complete"}',
+            provider_id="synthetic-receipt", first_attempt_at=123))
     async with maker() as db:
         blob, counts = await dump_database(db)
     assert all(counts[t.name] for t in Base.metadata.sorted_tables if t.name not in
