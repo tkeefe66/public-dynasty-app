@@ -6,18 +6,23 @@ generates prose. Finite TTLs allow completed-week stat corrections to propagate.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections import Counter
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from sleeper_dynasty.api.owner_identity import source_client
+from sleeper_dynasty.api.platform import ScoringPointsProvider, platform_for_league_id
 from sleeper_dynasty.cache import FileCache
-from sleeper_dynasty.api.platform import platform_for_league_id
 from sleeper_dynasty.engine.lineup import BENCH_SLOTS, SLOT_ELIGIBILITY
 from sleeper_dynasty.engine.scoring_leaders import (
-    build_scoring_rows, completed_week, score_player_week,
+    build_scoring_rows,
+    completed_week,
+    score_player_week,
 )
 from sleeper_dynasty.models.scoring import ThresholdBonus
 
@@ -35,8 +40,13 @@ async def _gather(*calls):
 
 async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
     cache = FileCache(cache_dir / "scoring")
-    # Result keys are league-scoped; raw NFL data is shared across leagues.
-    result_key = f"board_v2_{league_id}.json"
+    source_namespace = platform_for_league_id(league_id)
+    provider = "Yahoo" if source_namespace == "yahoo" else "Sleeper"
+    player_verification = isinstance(source_client(client), ScoringPointsProvider)
+    identity_version = getattr(getattr(client, "identity", None), "version", "")
+    scope = f"{source_namespace}_{league_id}_{identity_version}"
+    # Catalog/state are identical through both adapters. Normalized stats are not.
+    result_key = f"board_v3_{scope}.json"
     saved = cache.read(result_key, max_age_seconds=300)
     if saved is not None:
         return saved
@@ -50,7 +60,7 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
             log.info("Fetching scoring source %s", key)
             data = await fetch()
         if not valid(data):
-            raise ValueError("Sleeper returned incomplete scoring data. Try again shortly.")
+            raise ValueError(f"{provider} returned incomplete scoring data. Try again shortly.")
         cache.write(key, data)
         return data
 
@@ -59,31 +69,32 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
         return asdict(league)
 
     league, state = await _gather(
-        read_source(f"league_{league_id}.json", 300, league_data,
+        read_source(f"league_v3_{source_namespace}_{league_id}.json", 300, league_data,
                     lambda d: isinstance(d, dict) and bool(d.get("scoring_settings"))),
         read_source("nfl_state.json", 60, client.get_nfl_state,
                     lambda d: isinstance(d, dict) and bool(d.get("season"))),
     )
     season = int(league["season"])
-    source_namespace = platform_for_league_id(league_id)
     bonuses = [ThresholdBonus(**bonus) for bonus in league.get("scoring_bonuses", ())]
     cutoff = completed_week(season, state)
 
     async def roster_data():
         rosters = [asdict(roster) for roster in await client.get_rosters(league_id)]
+        if getattr(client, "unmapped_players", set()):
+            raise ValueError("Yahoo roster players could not be mapped. Player identities need reconciliation.")
         if (len(rosters) != league["total_rosters"]
                 or len({r["roster_id"] for r in rosters}) != len(rosters)):
-            raise ValueError("Sleeper's roster data is incomplete. Try again shortly.")
+            raise ValueError(f"{provider}'s roster data is incomplete. Try again shortly.")
         return rosters
 
     players, rosters, users = await _gather(
         read_source("players.json", 86400, client.get_players,
                     lambda d: isinstance(d, dict) and bool(d)
                     and all(isinstance(p, dict) for p in d.values())),
-        read_source(f"rosters_{league_id}.json", 300, roster_data,
+        read_source(f"rosters_v3_{scope}.json", 300, roster_data,
                     lambda d: isinstance(d, list) and len(d) == league["total_rosters"]
                     and all(isinstance(r, dict) and isinstance(r.get("players"), list) for r in d)),
-        read_source(f"users_{league_id}.json", 300, lambda: client.get_users(league_id),
+        read_source(f"users_v3_{scope}.json", 300, lambda: client.get_users(league_id),
                     lambda d: isinstance(d, dict) and all(isinstance(u, dict) for u in d.values())),
     )
     roster_ids = {pid for roster in rosters for pid in roster["players"]}
@@ -94,25 +105,47 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
                                     and all(isinstance(p, dict) for p in d.values()))
         if any(not (players.get(pid) or {}).get("position") for pid in roster_ids):
             cache.invalidate("players.json")
-            raise ValueError("Sleeper's roster player details are incomplete. Try again shortly.")
+            raise ValueError(f"{provider}'s roster player details are incomplete. Try again shortly.")
+    defensive_slots = {
+        "DL": {"DL", "DE", "DT"}, "DB": {"DB", "CB", "S", "SS", "FS"},
+        "IDP_FLEX": {"DL", "DE", "DT", "LB", "DB", "CB", "S", "SS", "FS"},
+    }
+    eligible = set().union(*(SLOT_ELIGIBILITY.get(slot, defensive_slots.get(slot, {slot}))
+                             for slot in league["roster_positions"] if slot not in BENCH_SLOTS))
+    scoring_version = hashlib.sha256(json.dumps(
+        [league["scoring_settings"], league.get("scoring_bonuses", [])], sort_keys=True,
+    ).encode()).hexdigest()[:20]
+
+    def validation_key(week):
+        return f"validation_v3_{source_namespace}_{league_id}_{week}_{scoring_version}.json"
+
+    async def validation_data(week, raw):
+        if not player_verification:
+            return await read_source(f"matchups_{league_id}_{week}.json", 3600,
+                lambda: client.get_raw_matchups(league_id, week),
+                lambda d: isinstance(d, list) and len(d) == league["total_rosters"]
+                and all(isinstance(m, dict) and isinstance(m.get("players_points"), dict)
+                        and m["players_points"] for m in d))
+        # Verify every ranked Yahoo player, not a roster-only sample. Keep
+        # currently owned inactive players in validation as well.
+        candidates = roster_ids | {pid for pid, stats in raw.items() if stats.get("gp")
+                                  and (players.get(pid) or {}).get("position") in eligible}
+        points = await read_source(validation_key(week), 3600,
+            lambda: client.get_scoring_points(league_id, week, sorted(candidates)),
+            lambda d: isinstance(d, dict) and set(d) == candidates)
+        return [{"players_points": points}]
     rows = []
     all_rows = []
     if cutoff:
 
         async def week_data(week):
             try:
-                raw, matchups = await _gather(
-                    read_source(f"stats_{source_namespace}_{season}_{week}.json", 3600,
+                raw = await read_source(f"stats_{source_namespace}_{season}_{week}.json", 3600,
                                 lambda: client.get_stats(season, week),
                                 lambda d: isinstance(d, dict) and all(isinstance(s, dict) for s in d.values()) and any(
                                     isinstance(s, dict) and s.get("gp")
-                                    for s in d.values())),
-                    read_source(f"matchups_{league_id}_{week}.json", 3600,
-                                lambda: client.get_raw_matchups(league_id, week),
-                                lambda d: isinstance(d, list) and len(d) == league["total_rosters"]
-                                and all(isinstance(m, dict) and isinstance(m.get("players_points"), dict)
-                                        and m["players_points"] for m in d)),
-                )
+                                    for s in d.values()))
+                matchups = await validation_data(week, raw) if not player_verification else None
                 return week, raw, matchups
             except ValueError as exc:
                 raise ValueError(f"Week {week}: {exc}") from exc
@@ -131,29 +164,27 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
                                         and all(isinstance(p, dict) for p in d.values()))
             if any(not (players.get(pid) or {}).get("position") for pid in played_ids):
                 cache.invalidate("players.json")
-                raise ValueError("Sleeper's player details are incomplete. Try again shortly.")
+                raise ValueError(f"{provider}'s player details are incomplete. Try again shortly.")
 
         # Reconcile every rostered player, not just starters, before claiming
         # that the same scoring rules are correct for unrostered players.
         for week, raw, matchups in bundles:
+            if matchups is None:
+                matchups = await validation_data(week, raw)
             for matchup in matchups:
                 for pid, actual in matchup["players_points"].items():
                     calculated = score_player_week(raw.get(pid) or {}, league["scoring_settings"],
                                                    (players.get(pid) or {}).get("position", ""),
                                                    bonuses=bonuses)
-                    if abs(calculated - Decimal(str(actual))) > Decimal(".02"):
+                    actual = Decimal(str(actual))
+                    if not actual.is_finite() or abs(calculated - actual) > Decimal(".02"):
                         log.warning("Scoring mismatch league=%s week=%s player=%s calculated=%s actual=%s",
                                     league_id, week, pid, calculated, actual)
                         cache.invalidate(f"stats_{source_namespace}_{season}_{week}.json")
                         cache.invalidate(f"matchups_{league_id}_{week}.json")
-                        raise ValueError(f"Week {week}: Calculated points do not match Sleeper's league scores. "
+                        cache.invalidate(validation_key(week))
+                        raise ValueError(f"Week {week}: Calculated points do not match {provider}'s league scores. "
                                          "A scoring rule or stat correction needs reconciliation; try again shortly.")
-        defensive_slots = {
-            "DL": {"DL", "DE", "DT"}, "DB": {"DB", "CB", "S", "SS", "FS"},
-            "IDP_FLEX": {"DL", "DE", "DT", "LB", "DB", "CB", "S", "SS", "FS"},
-        }
-        eligible = set().union(*(SLOT_ELIGIBILITY.get(slot, defensive_slots.get(slot, {slot}))
-                                 for slot in league["roster_positions"] if slot not in BENCH_SLOTS))
         all_rows = build_scoring_rows(weeks, players, league["scoring_settings"], cutoff,
                                       bonuses=bonuses)
         ranks = Counter((row["position"], row["rank"]) for row in all_rows)
@@ -161,7 +192,7 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
             row["tied"] = ranks[row["position"], row["rank"]] > 1
         rows = [row for row in all_rows if row["position"] in eligible]
         if not rows:
-            raise ValueError("Sleeper's player scores are incomplete. Try again shortly.")
+            raise ValueError(f"{provider}'s player scores are incomplete. Try again shortly.")
     # Ownership is current; points and ranks retain the whole completed season.
     # Reuse the scorer's rows so transferring/filtering never changes WR2 to WR1.
     ranked = {row["player_id"]: row for row in all_rows}
@@ -191,7 +222,7 @@ async def load_scoring_leaders(league_id: str, cache_dir: Path, client) -> dict:
         })
     result = {
         "league_id": league_id, "league_name": league["name"], "season": season,
-        "through_week": cutoff, "updated_at": datetime.now(timezone.utc).isoformat(),
+        "through_week": cutoff, "updated_at": datetime.now(UTC).isoformat(),
         "players": rows, "franchises": franchises,
     }
     cache.write(result_key, result)

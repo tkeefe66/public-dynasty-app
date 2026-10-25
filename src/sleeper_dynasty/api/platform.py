@@ -59,6 +59,19 @@ def platform_for_league_id(league_id: str) -> str:
 
 
 @runtime_checkable
+class ScoringPointsProvider(Protocol):
+    """Optional league-context verification beyond the fantasy matchup schedule."""
+
+    async def get_scoring_points(self, league_id: str, week: int,
+                                 player_ids: list[str]) -> dict[str, float]:
+        """Authoritative totals for every requested canonical ID, free agents included.
+
+        Missing/ambiguous identities or totals must fail, never become zero.
+        """
+        ...
+
+
+@runtime_checkable
 class PostseasonResultsProvider(Protocol):
     """Optional normalized outcomes when a provider has no native brackets."""
 

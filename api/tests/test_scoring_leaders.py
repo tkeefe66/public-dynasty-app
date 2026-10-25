@@ -51,6 +51,106 @@ class Source:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("league_format", ["redraft", "keeper", "dynasty"])
+async def test_yahoo_reconciles_free_agents_bonuses_and_ownership(tmp_path, league_format):
+    # Mutation: use matchup-only verification, omit free agents or gate on dynasty.
+    from app.services.scoring_leaders import load_scoring_leaders
+
+    class YahooSource(Source):
+        async def get_league(self, league_id):
+            league, prior = await super().get_league(league_id)
+            league.format = league_format
+            league.scoring_bonuses = [ThresholdBonus(("rec",), 8, 5)]
+            return league, prior
+
+        async def get_raw_matchups(self, *args):
+            raise AssertionError("Yahoo validation must not depend on playoff matchups")
+
+        async def get_scoring_points(self, league_id, week, player_ids):
+            assert set(player_ids) == {"rostered", "free", "inactive"}
+            return {"rostered": 12, "free": self.free_points, "inactive": 0}
+
+    source = YahooSource()
+    source.free_points = 99
+    with pytest.raises(ValueError, match="match Yahoo"):
+        await load_scoring_leaders("999.l.123", tmp_path, source)
+    source.free_points = 21
+    result = await load_scoring_leaders("999.l.123", tmp_path, source)
+    assert [(p["player_id"], p["points"]) for p in result["players"]] == [("free", 42), ("rostered", 24)]
+    assert result["through_week"] == 2
+    assert result["franchises"][0]["players"][0]["rank"] == 2
+
+
+@pytest.mark.asyncio
+async def test_yahoo_cache_isolates_normalization_scoring_and_owner_mapping(tmp_path):
+    # Mutation: share normalized stats/results across platforms, leagues or owner-map versions.
+    from app.services.scoring_leaders import load_scoring_leaders
+    from sleeper_dynasty.api.owner_identity import OwnerIdentity, OwnerIdentityClient
+    from sleeper_dynasty.cache import FileCache
+
+    class YahooSource(Source):
+        rate = 3
+        async def get_league(self, league_id):
+            league, previous = await super().get_league(league_id)
+            league.scoring_settings = {"rec": self.rate}
+            return league, previous
+        async def get_players(self):
+            raise AssertionError("Identical canonical player catalog should be shared")
+        async def get_stats(self, season, week):
+            self.stats_calls.append(week)
+            return {"rostered": {"gp": 1, "rec": 7}, "free": {"gp": 1, "rec": 9}}
+        async def get_scoring_points(self, league_id, week, player_ids):
+            return {"rostered": 7 * self.rate, "free": 9 * self.rate, "inactive": 0}
+
+    await load_scoring_leaders("123", tmp_path, Source())
+    source = YahooSource()
+    first = await load_scoring_leaders("999.l.123", tmp_path, source)
+    assert first["players"][0]["points"] == 54
+    assert sorted(source.stats_calls) == [1, 2]
+    source.rate = 4
+    second = await load_scoring_leaders("999.l.456", tmp_path, source)
+    assert second["players"][0]["points"] == 72
+    assert sorted(source.stats_calls) == [1, 2]
+    # Mapping changes invalidate derived ownership without rewriting original data.
+    identity = OwnerIdentity({"owner": "canonical"}, {"canonical": "Corrected"})
+    mapped = await load_scoring_leaders("999.l.456", tmp_path, OwnerIdentityClient(source, identity))
+    assert mapped["franchises"][0]["owner_id"] == "canonical"
+    assert mapped["franchises"][0]["owner_name"] == "Corrected"
+    assert FileCache(tmp_path / "scoring").read("rosters_v3_yahoo_999.l.456_.json")[0]["owner_id"] == "owner"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_position", [None, "K", "DEF"])
+async def test_yahoo_kicker_defense_actuals_and_missing_stats(tmp_path, bad_position):
+    # Mutation: skip kicker/defense reconciliation or replace missing stats with zero.
+    from app.services.scoring_leaders import load_scoring_leaders
+
+    class YahooSource(Source):
+        async def get_league(self, league_id):
+            league, prior = await super().get_league(league_id)
+            league.roster_positions = ["K", "DEF"]
+            league.scoring_settings = {"fgm_50p": 5, "pts_allow_0": 10}
+            league.scoring_bonuses = [ThresholdBonus(("fgm_50p",), 2, 3)]
+            return league, prior
+        async def get_players(self):
+            return {"k": {"position": "K"}, "d": {"position": "DEF"}}
+        async def get_rosters(self, league_id):
+            return [roster(1, "owner", ["k"]), roster(2, "", [])]
+        async def get_stats(self, season, week):
+            return {"k": {"gp": 1, "fgm_50p": 2}, "d": {"gp": 1, "pts_allow": 0, "pts_allow_0": 1}}
+        async def get_scoring_points(self, league_id, week, player_ids):
+            return {"k": 14 if bad_position == "K" else 13,
+                    "d": 11 if bad_position == "DEF" else 10}
+
+    if bad_position:
+        with pytest.raises(ValueError, match="match Yahoo"):
+            await load_scoring_leaders("999.l.123", tmp_path, YahooSource())
+    else:
+        result = await load_scoring_leaders("999.l.123", tmp_path, YahooSource())
+        assert {p["position"]: p["points"] for p in result["players"]} == {"K": 26, "DEF": 20}
+
+
+@pytest.mark.asyncio
 async def test_free_agents_rank_above_rostered_players_and_raw_cache_is_reused(tmp_path):
     # Mutation: use matchup-only totals, omit week 2, or refetch fresh cached stats.
     from app.services.scoring_leaders import load_scoring_leaders
@@ -113,11 +213,11 @@ async def test_bonuses_reconcile_matchups_and_survive_cached_league_settings(tmp
     first = await load_scoring_leaders("123", tmp_path, source)
     assert [(r["player_id"], r["points"]) for r in first["players"]] == expected
     cache = FileCache(tmp_path / "scoring")
-    cache.invalidate("board_v2_123.json")
+    cache.invalidate("board_v3_sleeper_123_.json")
     if rule_format == "legacy":
-        saved = cache.read("league_123.json")
+        saved = cache.read("league_v3_sleeper_123.json")
         saved.pop("scoring_bonuses")
-        cache.write("league_123.json", saved)
+        cache.write("league_v3_sleeper_123.json", saved)
     second = await load_scoring_leaders("123", tmp_path, source)
     assert [(r["player_id"], r["points"]) for r in second["players"]] == expected
     assert sorted(source.stats_calls) == [1, 2]
@@ -208,8 +308,8 @@ async def test_roster_changes_refresh_without_recalculating_player_ranks(tmp_pat
     source = Source()
     await load_scoring_leaders("123", tmp_path, source)
     cache = FileCache(tmp_path / "scoring")
-    cache.invalidate("board_v2_123.json")
-    cache.invalidate("rosters_123.json")
+    cache.invalidate("board_v3_sleeper_123_.json")
+    cache.invalidate("rosters_v3_sleeper_123_.json")
 
     async def transferred(league_id):
         return [roster(1, "owner", []), roster(2, "", ["rostered"])]
@@ -256,7 +356,9 @@ def test_route_reports_source_rate_limit_and_closes_client(client, monkeypatch):
     async def close():
         closed.append(True)
 
-    monkeypatch.setattr(scoring, "SleeperClient", lambda: SimpleNamespace(close=close))
+    async def connected(*args, **kwargs):
+        return SimpleNamespace(close=close)
+    monkeypatch.setattr(scoring, "connected_client", connected)
     monkeypatch.setattr(scoring, "load_scoring_leaders", fail)
     response = client.get("/api/league/123/scoring")
     assert response.status_code == 503
@@ -282,7 +384,9 @@ def test_route_returns_ranked_payload(client, monkeypatch):
                              "team": None, "rank": 1, "points": 42, "games": 2,
                              "points_per_game": 21}]}
 
-    monkeypatch.setattr(scoring, "SleeperClient", lambda: SimpleNamespace(close=close))
+    async def connected(*args, **kwargs):
+        return SimpleNamespace(close=close)
+    monkeypatch.setattr(scoring, "connected_client", connected)
     monkeypatch.setattr(scoring, "load_scoring_leaders", load)
     monkeypatch.setattr(scoring, "NameOverrideStore", lambda path: SimpleNamespace(read=lambda league: {"owner": "Saved name"}))
     response = client.get("/api/league/123/scoring")
@@ -291,3 +395,42 @@ def test_route_returns_ranked_payload(client, monkeypatch):
     assert response.json()["through_week"] == 2
     assert response.json()["franchises"][0]["owner_name"] == "Saved name"
     assert response.json()["franchises"][0]["players"][0]["points"] is None
+
+
+def test_yahoo_route_uses_requesting_members_connection(client, monkeypatch):
+    # Mutation: retain numeric-only guard or select another member's credentials.
+    from app.routes import scoring
+    closed = []
+    async def close():
+        closed.append(True)
+    async def connected(league_id, *, db, user_id):
+        assert league_id == "999.l.123" and user_id == "test-user" and db is not None
+        return SimpleNamespace(close=close)
+    async def load(league_id, *args):
+        return {"league_id": league_id, "league_name": "Yahoo", "season": 2026,
+                "through_week": 2, "updated_at": "2026-10-01T00:00:00Z", "players": [], "franchises": []}
+    monkeypatch.setattr(scoring, "connected_client", connected, raising=False)
+    monkeypatch.setattr(scoring, "load_scoring_leaders", load)
+    response = client.get("/api/league/999.l.123/scoring")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert closed == [True]
+
+
+@pytest.mark.parametrize("kind,status", [("auth", 409), ("limit", 503), ("data", 503), ("unsupported", 422)])
+def test_yahoo_route_handles_client_creation_failures(client, monkeypatch, kind, status):
+    # Mutation: only catch errors after creation, losing typed OAuth and throttle failures.
+    from app.routes import scoring
+    from sleeper_dynasty.api.yahoo import YahooAuthenticationError, YahooRateLimitError, YahooDataError, YahooUnsupportedScoringError
+    errors = {"auth": YahooAuthenticationError("Reconnect Yahoo"),
+              "limit": YahooRateLimitError("Yahoo rate limit", retry_after=900),
+              "data": YahooDataError("Yahoo request timed out; retry later."),
+              "unsupported": YahooUnsupportedScoringError("Unsupported Yahoo scoring category")}
+    async def connected(*args, **kwargs):
+        raise errors[kind]
+    monkeypatch.setattr(scoring, "connected_client", connected, raising=False)
+    response = client.get("/api/league/999.l.123/scoring")
+    assert response.status_code == status
+    assert response.json()["detail"] == str(errors[kind])
+    if kind == "limit":
+        assert response.headers["retry-after"] == "900"

@@ -27,6 +27,10 @@ class YahooDataError(RuntimeError):
     """Yahoo data cannot be normalized without inventing or losing information."""
 
 
+class YahooUnsupportedScoringError(YahooDataError):
+    """A setting needs implementation support, not another identical request."""
+
+
 class YahooAuthenticationError(RuntimeError):
     """The account needs to reconnect, or lacks permission to this resource."""
 
@@ -119,10 +123,14 @@ def player_name_index(players):
 
 
 def resolve_named_player(player, index):
+    from sleeper_dynasty.api.yahoo_ids import VERIFIED_NAME_ALIASES
+
     name = merge_fragments(player.get("name")).get("full")
-    candidates = index.get(
-        (normalize_player_name(name), player.get("display_position")), []
-    )
+    candidates = list({candidate
+                       for position in str(player.get("display_position") or "").split(",")
+                       for canonical in {normalize_player_name(name), VERIFIED_NAME_ALIASES.get(
+                           (normalize_player_name(name), position.strip()), normalize_player_name(name))}
+                       for candidate in index.get((canonical, position.strip()), [])})
     if len(candidates) > 1 and player.get("editorial_team_abbr"):
         team = _team_abbr(player["editorial_team_abbr"])
         candidates = [c for c in candidates if c[1] == team]
@@ -148,7 +156,7 @@ _SCORING = {
     12: ("rec_yd",),
     13: ("rec_td",),
     14: ("kr_yd", "pr_yd"),
-    15: ("kr_td", "pr_td"),
+    15: ("st_td",),
     16: ("pass_2pt", "rush_2pt", "rec_2pt"),
     17: ("fum",),
     18: ("fum_lost",),
@@ -167,7 +175,7 @@ _SCORING = {
     31: ("pts_allow",),
     32: ("sack",),
     33: ("int",),
-    34: ("fum_rec",),
+    34: ("fum_rec", "def_st_fum_rec"),
     35: ("def_td",),
     36: ("safe",),
     37: ("blk_kick",),
@@ -234,13 +242,13 @@ def _scoring_number(value, description: str) -> float:
     """Validate source numbers before they enter a persisted scoring model."""
     try:
         if isinstance(value, bool) or not isinstance(value, (str, int, float)):
-            raise ValueError
+            raise TypeError
         number = Decimal(str(value))
         converted = float(number)
         if not number.is_finite() or not Decimal(str(converted)).is_finite():
             raise ValueError
         return converted
-    except (InvalidOperation, ValueError, OverflowError):
+    except (InvalidOperation, TypeError, ValueError, OverflowError):
         raise YahooDataError(f"Yahoo returned an invalid {description}.") from None
 
 
@@ -324,7 +332,7 @@ def scoring_rules(settings: dict) -> tuple[dict[str, float], list[ThresholdBonus
             if target < 0:
                 raise YahooDataError(f"Yahoo scoring stat {stat_id} has a negative bonus target.")
             if target == 0 and points:
-                raise YahooDataError(
+                raise YahooUnsupportedScoringError(
                     f"Yahoo scoring stat {stat_id} has an unsupported zero bonus target; "
                     "player eligibility at a zero threshold requires explicit evidence."
                 )
@@ -337,7 +345,7 @@ def scoring_rules(settings: dict) -> tuple[dict[str, float], list[ThresholdBonus
         if not keys and (value or raw_bonuses):
             name = re.sub(r"\s+", " ", str(names.get(str(stat_id)) or "")).strip()[:80]
             label = f" ({name})" if name else ""
-            raise YahooDataError(
+            raise YahooUnsupportedScoringError(
                 f"Yahoo scoring stat {stat_id}{label} has no verified mapping "
                 f"(base value {value:g}, {len(raw_bonuses)} active bonuses). "
                 "No scoring rules were discarded."
@@ -410,6 +418,7 @@ class YahooAdapter:
         self._season_owner_fallback = False
         self._postseason_cache = {}
         self._history_unavailable = False
+        self._scoring_keys = {}
 
     @property
     def warnings(self):
@@ -519,7 +528,12 @@ class YahooAdapter:
             player.get("player_id")
             or str(player.get("player_key", "")).rsplit(".p.", 1)[-1]
         )
+        named = resolve_named_player(player, self._name_index)
         mapped = self.to_sleeper_id(yahoo_id)
+        if named and mapped and named != mapped:
+            log.warning("Yahoo player crosswalk corrected by catalog identity yahoo=%s old=%s canonical=%s",
+                        yahoo_id, mapped, named)
+        mapped = named or mapped
         if not mapped and player.get("display_position") == "DEF":
             team = _team_abbr(player.get("editorial_team_abbr"))
             if team:
@@ -544,14 +558,14 @@ class YahooAdapter:
             )
         settings = merge_fragments(meta.get("settings"))
         if _truth(settings.get("has_multiweek_championship")):
-            raise YahooDataError(
+            raise YahooUnsupportedScoringError(
                 "Yahoo multi-week championships are not supported yet; no grades were generated."
             )
         if settings.get("scoring_type", meta.get("scoring_type")) not in (
             "head",
             "headone",
         ):
-            raise YahooDataError(
+            raise YahooUnsupportedScoringError(
                 "Only Yahoo head-to-head points football leagues are supported."
             )
         slots = []
@@ -696,6 +710,10 @@ class YahooAdapter:
                 p["player_key"] for t in teams for p in self._roster_players(t)
             )
         )
+        return await self._player_points(league_id, week, keys)
+
+    async def _player_points(self, league_id, week, keys):
+        """League-context points, including bonuses; never substitute zero."""
         totals = {}
         for start in range(0, len(keys), 25):
             batch = ",".join(keys[start : start + 25])
@@ -710,12 +728,68 @@ class YahooAdapter:
                     raise YahooDataError(
                         "Yahoo omitted weekly player points; retry the import."
                     )
-                totals[player["player_key"]] = float(points["total"])
-        if set(keys) - totals.keys():
+                key = player.get("player_key")
+                if key not in keys or key in totals:
+                    raise YahooDataError("Yahoo returned unexpected or duplicate player points.")
+                totals[key] = _scoring_number(points["total"], "weekly player points")
+        if set(keys) != totals.keys():
             raise YahooDataError(
                 "Yahoo omitted players from weekly scoring; retry the import."
             )
         return totals
+
+    async def get_scoring_points(self, league_id, week, player_ids):
+        """Verify all leaderboard candidates, including free agents and bye teams.
+
+        No scoreboard dependency: completed NFL weeks can extend past a fantasy
+        league's playoffs. Canonical NFL data stays separate from these totals.
+        """
+        await self._ensure_ids()
+        confirmed = self._scoring_keys.setdefault(league_id, {})
+        if set(player_ids) - confirmed.keys():
+            # The external crosswalk can contain retired or reassigned Yahoo
+            # IDs. Require a league-catalog record, not merely a reverse CSV hit.
+            self._name_index = player_name_index(await self.get_players())
+            seen = set()
+            for start in range(0, 12500, 25):
+                payload = await self._get(f"/league/{league_id}/players;start={start};count=25")
+                node = merge_fragments(unwrap(payload, "fantasy_content", "league"))
+                if child(node, "players") is None:
+                    raise YahooDataError("Yahoo omitted its player catalog; retry later.")
+                records = collection(child(node, "players"))
+                for item in records:
+                    player = merge_fragments(item["player"])
+                    key = player.get("player_key")
+                    if not key or key in seen:
+                        raise YahooDataError("Yahoo player catalog pagination is incomplete.")
+                    seen.add(key)
+                    # Catalog presence is not identity evidence if a stale CSV
+                    # key now belongs to somebody else. Resolve independently.
+                    pid = resolve_named_player(player, self._name_index)
+                    if player.get("display_position") == "DEF":
+                        pid = _team_abbr(player.get("editorial_team_abbr")) or None
+                    if pid:
+                        yid = key.rsplit(".p.", 1)[-1]
+                        if pid in confirmed and confirmed[pid] != yid:
+                            raise YahooDataError("Yahoo scoring player identities are ambiguous.")
+                        confirmed[pid] = yid
+                if not (set(player_ids) - confirmed.keys()) or len(records) < 25:
+                    break
+            missing = set(player_ids) - confirmed.keys()
+            if missing:
+                log.warning("Yahoo scoring identities missing league=%s week=%s players=%s",
+                            league_id, week, sorted(missing))
+                raise YahooDataError(
+                    f"{len(missing)} scoring players could not be mapped to Yahoo. "
+                    "Player identities need reconciliation before rankings can be shown."
+                )
+        reverse = confirmed
+        game = league_id.split(".l.", 1)[0]
+        keys = {f"{game}.p.{reverse[pid]}": pid for pid in player_ids}
+        if len(keys) != len(player_ids):
+            raise YahooDataError("Yahoo scoring player identities are ambiguous.")
+        totals = await self._player_points(league_id, week, list(keys))
+        return {keys[key]: value for key, value in totals.items()}
 
     async def get_raw_matchups(self, league_id, week):
         league, _ = await self.get_league(league_id)

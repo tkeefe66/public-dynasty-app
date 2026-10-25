@@ -12,6 +12,190 @@ FIXTURES = Path(__file__).parent / "fixtures/yahoo"
 LK = "470.l.100000001"
 
 
+def test_multi_position_name_mapping_requires_one_canonical_identity():
+    # Mutation: use the literal WR,TE as one position, or choose first ambiguous match.
+    from sleeper_dynasty.api.yahoo import player_name_index, resolve_named_player
+    index = player_name_index({"a": {"full_name": "Example Player", "position": "TE", "team": "DET"}})
+    player = {"name": {"full": "Example Player"}, "display_position": "WR,TE", "editorial_team_abbr": "Det"}
+    assert resolve_named_player(player, index) == "a"
+    index = player_name_index({"a": {"full_name": "Example Player", "position": "TE", "team": "DET"},
+                               "b": {"full_name": "Example Player", "position": "WR", "team": "DET"}})
+    assert resolve_named_player(player, index) is None
+
+
+@pytest.mark.parametrize("alias,canonical,position", [
+    ("Bam Knight", "Zonovan Knight", "RB"), ("Juice Wells Jr.", "Antwane Wells Jr.", "WR"),
+])
+def test_verified_aliases_preserve_position_and_ambiguity_checks(alias, canonical, position):
+    # Mutation: omit the documented alias or match it regardless of position.
+    from sleeper_dynasty.api.yahoo import player_name_index, resolve_named_player
+    index = player_name_index({"p": {"full_name": canonical, "position": position}})
+    player = {"name": {"full": alias}, "display_position": position}
+    assert resolve_named_player(player, index) == "p"
+    assert resolve_named_player({**player, "display_position": "QB"}, index) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("catalog_name", ["Example Player", "Unrelated Player"])
+async def test_scoring_catalog_corrects_stale_cross_provider_ids(catalog_name):
+    # Mutation: trust stale CSV IDs even when Yahoo names prove a different canonical player.
+    import httpx
+    class Client(YahooAdapter):
+        async def get_players(self):
+            return {"correct": {"full_name": "Example Player", "position": "TE"}}
+    def respond(request):
+        if "/players;start=" in request.url.path:
+            return httpx.Response(200, json={"fantasy_content": {"league": [{"players": {
+                "0": {"player": [{"player_key": "999.p.2", "player_id": "2",
+                                  "name": {"full": catalog_name}, "display_position": "TE"}]}, "count": 1,
+            }}]}})
+        assert "player_keys=999.p.2/" in request.url.path
+        return httpx.Response(200, json={"fantasy_content": {"league": [{"players": {
+            "0": {"player": [{"player_key": "999.p.2"}, {"player_points": {"total": "8"}}]}, "count": 1,
+        }}]}})
+    crosswalk = {"1": "correct", "2": "wrong"} if catalog_name == "Example Player" else {"2": "correct"}
+    client = Client("synthetic", id_map=crosswalk, transport=httpx.MockTransport(respond))
+    try:
+        if catalog_name == "Example Player":
+            assert await client.get_scoring_points("999.l.123", 1, ["correct"]) == {"correct": 8}
+        else:
+            with pytest.raises(YahooDataError, match="could not be mapped"):
+                await client.get_scoring_points("999.l.123", 1, ["correct"])
+    finally:
+        await client.close()
+
+
+def catalog_response(mapping):
+    import httpx
+    return httpx.Response(200, json={"fantasy_content": {"league": [{"players": {
+        **{str(i): {"player": [{"player_key": f"999.p.{yid}", "player_id": yid,
+                               "name": {"full": pid}, "display_position": "WR"}]}
+           for i,(yid,pid) in enumerate(mapping.items())}, "count": len(mapping),
+    }}]}})
+
+
+class ScoringTestClient(YahooAdapter):
+    async def get_players(self):
+        return {pid: {"full_name": pid, "position": "WR"} for pid in self._id_map.values()}
+
+
+@pytest.mark.asyncio
+async def test_scoring_points_use_league_context_without_scoreboard():
+    # Mutation: use game-scoped points, drop free agents, or require playoff matches.
+    import httpx
+
+    paths = []
+    def respond(request):
+        paths.append(request.url.path)
+        if "/players;start=" in request.url.path:
+            return catalog_response({"1": "owned", "2": "free"})
+        if "/players;start=" not in request.url.path:
+            assert "/league/999.l.123/players;player_keys=999.p.1,999.p.2/stats;type=week;week=18" in request.url.path
+        return httpx.Response(200, json={"fantasy_content": {"league": [{"players": {
+            "0": {"player": [{"player_key": "999.p.1"}, {"player_points": {"total": "12.5"}}]},
+            "1": {"player": [{"player_key": "999.p.2"}, {"player_points": {"total": "21"}}]},
+            "count": 2,
+        }}]}})
+
+    client = ScoringTestClient("synthetic", id_map={"1": "owned", "2": "free"},
+                          transport=httpx.MockTransport(respond))
+    try:
+        assert await client.get_scoring_points("999.l.123", 18, ["owned", "free"]) == {"owned": 12.5, "free": 21}
+        assert len(paths) == 2
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_scoring_points_reject_missing_or_nonfinite_actuals():
+    # Mutation: default absent Yahoo points to zero or accept NaN as reconciled.
+    import httpx
+    for total in (None, "NaN", "Infinity"):
+        def respond(request):
+            if "/players;start=" in request.url.path:
+                return catalog_response({"1": "owned"})
+            points = {} if total is None else {"total": total}
+            return httpx.Response(200, json={"fantasy_content": {"league": [{"players": {
+                "0": {"player": [{"player_key": "999.p.1"}, {"player_points": points}]}, "count": 1,
+            }}]}})
+        client = ScoringTestClient("synthetic", id_map={"1": "owned"}, transport=httpx.MockTransport(respond))
+        try:
+            with pytest.raises(YahooDataError):
+                await client.get_scoring_points("999.l.123", 1, ["owned"])
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mapped", [True, False])
+async def test_scoring_catalog_fallback_and_unmapped_failure(mapped):
+    # Mutation: silently drop an unknown free agent or fail a uniquely matched multi-position rookie.
+    import httpx
+    def respond(request):
+        if "/players;start=" in request.url.path:
+            return httpx.Response(200, json={"fantasy_content": {"league": [{"players": {
+                "0": {"player": [{"player_key": "999.p.2", "player_id": "2",
+                                  "name": {"full": "Example Rookie" if mapped else "Someone Else"},
+                                  "display_position": "WR,TE", "editorial_team_abbr": "Det"}]}, "count": 1,
+            }}]}})
+        assert "player_keys=999.p.2" in request.url.path
+        return httpx.Response(200, json={"fantasy_content": {"league": [{"players": {
+            "0": {"player": [{"player_key": "999.p.2"}, {"player_points": {"total": "8"}}]}, "count": 1,
+        }}]}})
+    class Client(YahooAdapter):
+        async def get_players(self):
+            return {"rookie": {"full_name": "Example Rookie", "position": "TE", "team": "DET"}}
+    client = Client("synthetic", id_map={}, transport=httpx.MockTransport(respond))
+    try:
+        if mapped:
+            assert await client.get_scoring_points("999.l.123", 1, ["rookie"]) == {"rookie": 8}
+        else:
+            with pytest.raises(YahooDataError, match="could not be mapped"):
+                await client.get_scoring_points("999.l.123", 1, ["rookie"])
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_scoring_points_replay_recorded_weekly_payload():
+    # Mutation: change Yahoo envelope/point parsing and lose actual recorded totals.
+    class ScoringReplay(Replay):
+        async def get_players(self):
+            teams = await self._teams(LK, "/roster;week=1/players")
+            return {self._id_map[str(p["player_id"])]: {
+                "full_name": merge_fragments(p["name"]).get("full") or str(p["player_id"]),
+                "fantasy_positions": p["display_position"].split(","),
+            } for t in teams for p in self._roster_players(t)}
+        async def _get(self, path, **params):
+            if "/players;start=" in path:
+                teams = await self._teams(LK, "/roster;week=1/players")
+                players = [p for t in teams for p in self._roster_players(t)]
+                start = int(path.split("start=")[1].split(";")[0])
+                page = players[start:start + 25]
+                page = [{**p, "name": {"full": merge_fragments(p["name"]).get("full") or str(p["player_id"])}}
+                        for p in page]
+                return {"fantasy_content": {"league": [{"players": {
+                    **{str(i): {"player": [p]} for i,p in enumerate(page)}, "count": len(page),
+                }}]}}
+            return await super()._get(path, **params)
+    client = ScoringReplay()
+    try:
+        teams = await client._teams(LK, "/roster;week=1/players")
+        from sleeper_dynasty.api.yahoo import _team_abbr
+        for team in teams:
+            for player in client._roster_players(team):
+                if player["display_position"] == "DEF":
+                    client._id_map[str(player["player_id"])] = _team_abbr(player["editorial_team_abbr"])
+        expected = await client._weekly_points(LK, 1, teams)
+        canonical = {client._player_id(p): p["player_key"] for t in teams for p in client._roster_players(t)}
+        assert None not in canonical
+        actual = await client.get_scoring_points(LK, 1, list(canonical))
+        assert actual == {pid: expected[key] for pid, key in canonical.items()}
+        assert actual and any(value != 0 for value in actual.values())
+    finally:
+        await client.close()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status,blocked_current", [(403, False), (401, False), (403, True)])
 async def test_history_permission_boundary_preserves_accessible_seasons(status, blocked_current):

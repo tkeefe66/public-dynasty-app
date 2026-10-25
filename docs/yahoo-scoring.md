@@ -86,7 +86,7 @@ The complete ID/name catalog comes from the maintained `yahoofantasy` library's 
 | 12 | Receiving Yards | `rec_yd` | — |
 | 13 | Receiving Touchdowns | `rec_td` | — |
 | 14 | Return Yards | `kr_yd` + `pr_yd` | — |
-| 15 | Return Touchdowns | `kr_td` + `pr_td` | — |
+| 15 | Return Touchdowns | `st_td` | — |
 | 16 | 2-Point Conversions | `pass_2pt` + `rush_2pt` + `rec_2pt` | — |
 | 17 | Fumbles | `fum` | — |
 | 18 | Fumbles Lost | `fum_lost` | — |
@@ -134,7 +134,7 @@ Total field-goal yards, ID 84, use `fgm_yds`. They are separate from made-field-
 | 31 | Points Allowed | `pts_allow` | Yes |
 | 32 | Sack | `sack` | — |
 | 33 | Interception | `int` | — |
-| 34 | Fumble Recovery | `fum_rec` | — |
+| 34 | Fumble Recovery | `fum_rec` + `def_st_fum_rec` | — |
 | 35 | Touchdown | `def_td` | — |
 | 36 | Safety | `safe` | — |
 | 37 | Block Kick | `blk_kick` | — |
@@ -292,6 +292,48 @@ A free refresh has no AI request allowance to renew. Recovery requires `calls ==
 Paid generation keeps its existing authorization, allowance, budget, unresolved-provider-outcome, and receipt-reconciliation guards. The new recovery path cannot reclassify a paid operation as free or authorize an additional paid attempt. [Recovery tests](../api/tests/test_generation_refresh_recovery.py) exercise a failed refresh, explicit same-job retry, successful worker completion without a paid send, stale action rejection, removed membership, changed Yahoo connection generation, and rejection of existing provider activity.
 
 ## Evidence and verification
+
+### Scoring Leaders (October 25, 2026 implementation)
+
+The scoring route selects the requesting member's connected platform client.
+Yahoo redraft, keeper and dynasty leagues use the same completed-NFL-week
+leaderboard engine as Sleeper. Yahoo verification uses league-context player
+points, including free agents, independently of the fantasy playoff schedule.
+No roster-retention format gate is applied.
+
+The shared canonical player catalog and NFL state remain shared. Normalized
+weekly stats retain provider namespaces. Version 3 boards, league metadata,
+rosters and users cannot consume old scoring payloads; owner-derived caches
+also include the owner-mapping version. Yahoo validation caches include the
+league's scoring fingerprint and require the exact candidate set on reuse.
+No existing league registry, owner mappings or historical chain files are rewritten.
+
+Live authenticated diagnostics against Dads compared **2,777 mapped
+player-weeks over completed weeks 1–6**. All compared totals reconciled within
+the existing 0.02 tolerance after correcting two source mappings: individual
+return touchdowns use `st_td`, and team-defense fumble recoveries include
+`def_st_fum_rec`. This is specific evidence for these team-defense components;
+it does not establish a general rule for adding individual-defense and
+special-teams counters. Threshold bonuses on the corrected categories are
+covered by synthetic regression tests.
+
+The same verification found multi-position names and a stale external player
+crosswalk. Unique name/position evidence now handles comma-separated Yahoo
+positions and corrects conflicting crosswalk entries in the request-local
+adapter. Scoring verification requires actual league-catalog player keys.
+
+**Dads is not yet verified end to end:** DJ Herman lacked a matching Yahoo
+catalog record. That candidate is not silently omitted and his points are
+not guessed. Explicit position-bound aliases for Bam/Zonovan Knight and
+Juice/Antwane Wells are now verified against the [Cardinals profile](https://www.azcardinals.com/team/players-roster/bam-knight/)
+and [Falcons profile](https://www.atlantafalcons.com/team/players-roster/antwane-wells-jr/career). The production path refuses the board pending
+identity reconciliation. The 2,777 comparisons were diagnostics, not a
+published or complete leaderboard. Raw private responses remain outside the
+repository in an isolated local verification directory. No deployment was made.
+
+Unsupported settings return HTTP 422 without a retry action. Connection
+failures offer reconnection; throttles preserve Yahoo's Retry-After value.
+Incomplete identities, totals and numerical mismatches prevent board caching.
 
 The [provenance fixture](../tests/fixtures/yahoo/scoring_category_evidence.json) contains 87 observed Yahoo ID/name entries, 35 selected nonzero Sleeper counter observations, and eight cross-provider solo-tackle comparisons. Public NFL player/team IDs identify the source records. Mapping decisions are stored separately from observations, and the fixture explicitly records unsupported cases and overlap limitations. It contains no private account or league payload.
 

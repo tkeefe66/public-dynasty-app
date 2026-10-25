@@ -16,10 +16,18 @@ import logging
 
 log = logging.getLogger(__name__)
 
-from sleeper_dynasty.api.player_ids import IDS_URL, build_id_map  # noqa: F401
+from sleeper_dynasty.api.player_ids import IDS_URL, build_id_map
 
 _CACHE_KEY = "yahoo_to_sleeper_ids.json"
 _CACHE_TTL = 7 * 24 * 3600  # ids change only when players enter the league
+
+# Explicit name/position aliases, never guessed from surnames. Team sources:
+# https://www.azcardinals.com/team/players-roster/bam-knight/
+# https://www.atlantafalcons.com/team/players-roster/antwane-wells-jr/career
+VERIFIED_NAME_ALIASES = {
+    ("bam knight", "RB"): "zonovan knight",
+    ("juice wells", "WR"): "antwane wells",
+}
 
 
 def build_yahoo_to_sleeper(rows: list[dict]) -> dict[str, str]:

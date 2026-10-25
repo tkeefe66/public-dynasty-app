@@ -20,6 +20,15 @@ def stat(stat_id=4, value="0.04", bonuses=None):
     return {"stat_id": stat_id, "value": value, "bonuses": bonuses}
 
 
+def test_live_observed_special_teams_categories_include_all_components():
+    # Mutation: omit special-teams recoveries or use absent kr_td/pr_td instead of st_td.
+    # Minimal counters from the live verification; player and league IDs omitted.
+    defense, bonuses = scoring_rules(settings(stat(34, "2", {"bonus": {"target": 3, "points": 5}})))
+    assert score_week_stats({"gp": 1, "fum_rec": 1, "def_st_fum_rec": 2}, defense, bonuses=bonuses) == 11
+    returns, _ = scoring_rules(settings(stat(15, "6")))
+    assert score_week_stats({"gp": 1, "st_td": 1}, returns) == 6
+
+
 @pytest.mark.parametrize("envelope", [
     [{"bonus": {"target": "300", "points": "3"}}],
     {"bonus": {"target": "300", "points": "3"}},
