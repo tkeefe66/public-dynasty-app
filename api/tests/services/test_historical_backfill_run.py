@@ -195,7 +195,12 @@ def test_incomplete_provider_board_cannot_create_publishable_manifest(
         httpx.Client(transport=httpx.MockTransport(handler)) as http,
         pytest.raises(ValueError, match="Incomplete"),
     ):
-        prepare(entry, EvidenceClient(tmp_path / "receipts", http=http), 2024, tmp_path / "output")
+        prepare(
+            entry,
+            EvidenceClient(tmp_path / "receipts", http=http),
+            2024,
+            tmp_path / "output",
+        )
     assert not (tmp_path / "output/manifest.json").exists()
 
 
@@ -249,7 +254,12 @@ def test_truncated_championship_blocks_publication(tmp_path, season_source):
         httpx.Client(transport=httpx.MockTransport(truncated)) as http,
         pytest.raises(ValueError, match="bracket"),
     ):
-        prepare(entry, EvidenceClient(tmp_path / "receipts", http=http), 2024, tmp_path / "output")
+        prepare(
+            entry,
+            EvidenceClient(tmp_path / "receipts", http=http),
+            2024,
+            tmp_path / "output",
+        )
     assert not (tmp_path / "output/manifest.json").exists()
 
 
@@ -303,7 +313,9 @@ def test_toilet_bowl_advances_low_score_but_title_bracket_does_not():
 
 
 @pytest.mark.parametrize("mutation", ["owner", "regular_points", "pick_date"])
-def test_inconsistent_source_evidence_blocks_manifest(tmp_path, season_source, mutation):
+def test_inconsistent_source_evidence_blocks_manifest(
+    tmp_path, season_source, mutation
+):
     # Mutation: accept identity drift, inconsistent season totals, or undated picks.
     entry, handler, _ = season_source
 
@@ -322,5 +334,269 @@ def test_inconsistent_source_evidence_blocks_manifest(tmp_path, season_source, m
         httpx.Client(transport=httpx.MockTransport(altered)) as http,
         pytest.raises(ValueError),
     ):
-        prepare(entry, EvidenceClient(tmp_path / "receipts", http=http), 2024, tmp_path / "output")
+        prepare(
+            entry,
+            EvidenceClient(tmp_path / "receipts", http=http),
+            2024,
+            tmp_path / "output",
+        )
     assert not (tmp_path / "output/manifest.json").exists()
+
+
+@pytest.mark.parametrize("round_type", [1, 2])
+def test_multiweek_brackets_use_every_leg_and_aggregate_winner(round_type):
+    # Mutation: validate only the first leg, or silently accept a missing second leg.
+    from app.services.historical_backfill_run import validate_brackets
+
+    winners = [{"m": 1, "r": 1, "p": 1, "w": 1, "l": 2}]
+    losers = [{"m": 1, "r": 1, "p": 1, "w": 3, "l": 4}]
+    matchups = {
+        ("fixture", week, rid): {"opponent_roster_id": opponent, "team_points": score}
+        for week, scores in [(16, [80, 100, 100, 80]), (17, [130, 100, 60, 100])]
+        for rid, opponent, score in zip([1, 2, 3, 4], [2, 1, 4, 3], scores)
+    }
+    kwargs = {
+        "matchups": matchups,
+        "league_id": "fixture",
+        "playoff_start": 16,
+        "final_week": 17,
+        "playoff_round_type": round_type,
+        "toilet_bowl": True,
+    }
+    validate_brackets(winners, losers, [1, 2, 3, 4], 2, **kwargs)
+    matchups.pop(("fixture", 17, 1))
+    with pytest.raises(ValueError, match="disagrees"):
+        validate_brackets(winners, losers, [1, 2, 3, 4], 2, **kwargs)
+
+
+def test_median_standings_count_extra_game_without_doubling_points():
+    # Mutation: omit median games, count median ties as wins, or add median points to PF/PA.
+    from app.services.historical_backfill_run import historical_standings
+
+    matchups = {
+        ("fixture", 1, rid): {"team_points": score, "opponent_points": opposing}
+        for rid, score, opposing in [
+            (1, 120, 110),
+            (2, 110, 120),
+            (3, 100, 90),
+            (4, 90, 100),
+        ]
+    }
+    mapping = {i: str(i) for i in range(1, 5)}
+    rows = historical_standings(
+        matchups,
+        league_id="fixture",
+        playoff_start=2,
+        roster_to_user=mapping,
+        median_game=True,
+    )
+    actual = {
+        r.roster_id: (r.wins, r.losses, r.ties, r.points_for, r.points_against)
+        for r in rows
+    }
+    assert actual == {
+        1: (2, 0, 0, 120, 110),
+        2: (1, 1, 0, 110, 120),
+        3: (1, 1, 0, 100, 90),
+        4: (0, 2, 0, 90, 100),
+    }
+    matchups[("fixture", 1, 2)].update(team_points=100)
+    rows = historical_standings(
+        matchups,
+        league_id="fixture",
+        playoff_start=2,
+        roster_to_user=mapping,
+        median_game=True,
+    )
+    assert {r.roster_id: r.ties for r in rows} == {1: 0, 2: 1, 3: 1, 4: 0}
+    matchups.pop(("fixture", 1, 4))
+    with pytest.raises(ValueError, match="incomplete"):
+        historical_standings(
+            matchups,
+            league_id="fixture",
+            playoff_start=2,
+            roster_to_user=mapping,
+            median_game=True,
+        )
+
+
+def test_collect_accepts_verified_keeper_median_settings(tmp_path, season_source):
+    # Mutation: reject keeper/median formats wholesale instead of reconciling their records.
+    entry, handler, _ = season_source
+    entry.chain[0]["format"] = "keeper"
+
+    def adjusted(request):
+        data = handler(request).json()
+        if request.url.path.endswith("/league/league"):
+            data["settings"].update(type=1, league_average_match=1)
+        if request.url.path.endswith("/rosters"):
+            for row in data:
+                row["settings"]["wins"] *= 2
+                row["settings"]["losses"] *= 2
+        return httpx.Response(200, json=data)
+
+    with httpx.Client(transport=httpx.MockTransport(adjusted)) as http:
+        from app.services.historical_backfill_run import collect
+
+        _, _, supporting = collect(
+            entry=entry,
+            client=EvidenceClient(tmp_path / "receipts", http=http),
+            season=2024,
+            results_only=True,
+        )
+    assert supporting["roster_records_by_league"]["league"][1]["wins"] == 34
+    # The same verified Results must not authorize dynasty rookie-pick pricing.
+    with pytest.raises(ValueError, match="Keeper/redraft assets require"):
+        collect(
+            entry=entry,
+            client=EvidenceClient(tmp_path / "receipts", offline=True),
+            season=2024,
+        )
+
+
+@pytest.mark.parametrize("opponent_points", [None, float("nan"), float("inf")])
+def test_median_cannot_hide_missing_head_to_head_evidence(opponent_points):
+    # Mutation: validate only team scores, then silently skip an incomplete H2H game.
+    from app.services.historical_backfill_run import historical_standings
+
+    matchups = {
+        ("fixture", 1, 1): {"team_points": 120, "opponent_points": opponent_points},
+        ("fixture", 1, 2): {"team_points": 100, "opponent_points": 120},
+    }
+    with pytest.raises(ValueError, match="incomplete or invalid"):
+        historical_standings(
+            matchups,
+            league_id="fixture",
+            playoff_start=2,
+            roster_to_user={1: "a", 2: "b"},
+            median_game=True,
+        )
+
+
+def test_captured_median_season_reconciles_all_provider_records():
+    # Mutation: count only H2H or add median totals to points against.
+    # Sanitized full 2025 Sleeper archive: ten teams, thirteen regular-season weeks.
+    from app.services.grader_io import _assemble_played_matchups
+    from app.services.historical_backfill_run import historical_standings
+
+    data = json.loads(
+        (
+            Path(__file__).parents[1] / "fixtures/historical_median_season.json"
+        ).read_text()
+    )
+    matchups = _assemble_played_matchups(
+        {int(w): rows for w, rows in data["weekly"].items()}, "fixture"
+    )
+    mapping = {int(r): str(r) for r in data["records"]}
+    rows = historical_standings(
+        matchups,
+        league_id="fixture",
+        playoff_start=data["playoff_start"],
+        roster_to_user=mapping,
+        median_game=True,
+    )
+    for row in rows:
+        expected = data["records"][str(row.roster_id)]
+        assert (row.wins, row.losses, row.ties) == tuple(
+            expected[k] for k in ("wins", "losses", "ties")
+        )
+        assert row.points_for == pytest.approx(
+            expected["fpts"] + expected["fpts_decimal"] / 100
+        )
+        assert row.points_against == pytest.approx(
+            expected["fpts_against"] + expected["fpts_against_decimal"] / 100
+        )
+
+
+def test_short_toilet_bracket_requires_proven_idle_middle_seeds():
+    # Mutation: accept any missing participants, or require every non-playoff team to play.
+    from app.services.historical_backfill_run import verified_idle_rosters
+
+    from sleeper_dynasty.engine.standings import StandingRow
+
+    rows = [StandingRow(str(i), i, 11 - i, i, 0, 1000 - i, 1000) for i in range(1, 11)]
+    winners = [{"w": 1, "l": 2}, {"w": 3, "l": 4}]
+    losers = [{"w": 7, "l": 8}, {"w": 9, "l": 10}]
+    weekly = {
+        w: [
+            {"roster_id": i, "matchup_id": None if i in (5, 6) else i // 2}
+            for i in range(1, 11)
+        ]
+        for w in range(14, 18)
+    }
+    settings = {"playoff_teams": 4, "playoff_type": 0, "playoff_round_type": 2}
+    assert verified_idle_rosters(weekly, rows, winners, losers, settings, 14, 17) == {
+        5,
+        6,
+    }
+    weekly[15][4]["matchup_id"] = 99
+    with pytest.raises(ValueError, match="inactive"):
+        verified_idle_rosters(weekly, rows, winners, losers, settings, 14, 17)
+    weekly[15][4]["matchup_id"] = None
+    losers[0]["w"] = 5
+    with pytest.raises(ValueError, match="inactive"):
+        verified_idle_rosters(weekly, rows, winners, losers, settings, 14, 17)
+
+
+@pytest.mark.parametrize("index", range(4))
+def test_captured_multiweek_brackets_and_idle_teams(index):
+    # Mutation: validate weekly winners rather than aggregate rounds, or infer missing participants.
+    from app.services.grader_io import _assemble_played_matchups
+    from app.services.historical_backfill_run import (
+        validate_brackets,
+        verified_idle_rosters,
+    )
+
+    from sleeper_dynasty.engine.standings import StandingRow
+
+    fixture = json.loads(
+        (
+            Path(__file__).parents[1] / "fixtures/historical_multiweek_brackets.json"
+        ).read_text()
+    )[index]
+    settings = fixture["settings"]
+    weekly = {int(w): rows for w, rows in fixture["weekly"].items()}
+    rows = [
+        StandingRow(
+            str(r["roster_id"]),
+            r["roster_id"],
+            r["settings"]["wins"],
+            r["settings"]["losses"],
+            r["settings"]["ties"],
+            r["settings"]["fpts"] + r["settings"].get("fpts_decimal", 0) / 100,
+            0,
+        )
+        for r in fixture["rosters"]
+    ]
+    start, end = settings["playoff_week_start"], settings["last_scored_leg"]
+    inactive = verified_idle_rosters(
+        weekly, rows, fixture["winners"], fixture["losers"], settings, start, end
+    )
+    assert len(inactive) == (2 if index >= 2 else 0)
+    matchups = _assemble_played_matchups(weekly, "fixture")
+    kwargs = {
+        "matchups": matchups,
+        "league_id": "fixture",
+        "playoff_start": start,
+        "final_week": end,
+        "playoff_round_type": settings["playoff_round_type"],
+        "toilet_bowl": settings["playoff_type"] == 0,
+        "inactive_rosters": inactive,
+    }
+    validate_brackets(
+        fixture["winners"],
+        fixture["losers"],
+        [r.roster_id for r in rows],
+        settings["playoff_teams"],
+        **kwargs,
+    )
+    title = next(g for g in fixture["winners"] if g.get("p") == 1)
+    matchups.pop(("fixture", end, title["w"]))
+    with pytest.raises(ValueError, match="disagrees"):
+        validate_brackets(
+            fixture["winners"],
+            fixture["losers"],
+            [r.roster_id for r in rows],
+            settings["playoff_teams"],
+            **kwargs,
+        )

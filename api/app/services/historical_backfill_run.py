@@ -9,10 +9,12 @@ import argparse
 import itertools
 import json
 import logging
+import math
 from copy import deepcopy
 from dataclasses import fields, replace
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
+from statistics import median
 
 from app.services.chain_cache import ChainCacheEntry
 from app.services.franchise_redesign import live_ratings
@@ -31,6 +33,7 @@ from app.services.season_ratings import (
 )
 from sleeper_dynasty.api.nfl_schedule import parse_scoreboard
 from sleeper_dynasty.engine.gm_rating import rating_to_letter
+from sleeper_dynasty.engine.playoff_phase import weeks_for_round
 from sleeper_dynasty.engine.standings import standings_as_of
 from sleeper_dynasty.util.atomic import write_json_atomic
 
@@ -49,14 +52,21 @@ def validate_brackets(
     playoff_start,
     final_week,
     toilet_bowl=False,
+    playoff_round_type=0,
+    inactive_rosters=(),
 ):
     """Require complete title-path and placement evidence, not just scored rows."""
     if not 2 <= playoff_teams <= len(roster_ids):
         raise ValueError("Unsupported playoff team count.")
-    populations = []
+    if playoff_round_type not in (0, 1, 2):
+        raise ValueError("Unknown playoff round timing.")
+    inactive = set(inactive_rosters)
+    if not inactive <= set(roster_ids):
+        raise ValueError("Unknown inactive postseason roster.")
+    populations, round_ends = [], []
     for games, size, low_wins in (
         (winners, playoff_teams, False),
-        (losers, len(roster_ids) - playoff_teams, toilet_bowl),
+        (losers, len(roster_ids) - playoff_teams - len(inactive), toilet_bowl),
     ):
         if size == 0 and not games:
             populations.append(set())
@@ -82,29 +92,122 @@ def validate_brackets(
                 "Completed postseason bracket evidence is missing, truncated, or inconsistent."
             )
         populations.append(participants)
+        total_rounds = max(int(g["r"]) for g in games)
         for game in games:
-            week = playoff_start + int(game["r"]) - 1
-            win = matchups.get((league_id, week, game["w"]))
-            loss = matchups.get((league_id, week, game["l"]))
-            if (
-                not win
-                or not loss
-                or win["opponent_roster_id"] != game["l"]
-                or loss["opponent_roster_id"] != game["w"]
-                or (
-                    win["team_points"] > loss["team_points"]
-                    if low_wins
-                    else win["team_points"] < loss["team_points"]
-                )
-            ):
+            weeks = weeks_for_round(
+                int(game["r"]), playoff_start, playoff_round_type, total_rounds
+            )
+            if min(weeks) < playoff_start or max(weeks) > 18:
+                raise ValueError("Invalid postseason round timing.")
+            round_ends.append(max(weeks))
+            totals = [0.0, 0.0]
+            for week in weeks:
+                win = matchups.get((league_id, week, game["w"]))
+                loss = matchups.get((league_id, week, game["l"]))
+                if (
+                    not win
+                    or not loss
+                    or win["opponent_roster_id"] != game["l"]
+                    or loss["opponent_roster_id"] != game["w"]
+                    or any(
+                        not isinstance(row.get("team_points"), (int, float))
+                        or not math.isfinite(row["team_points"])
+                        for row in (win, loss)
+                    )
+                ):
+                    raise ValueError(
+                        f"Postseason bracket disagrees with played matchups: league={league_id} "
+                        f"week={week} game={game}; missing score or opponent evidence."
+                    )
+                totals[0] += win["team_points"]
+                totals[1] += loss["team_points"]
+            if totals[0] > totals[1] if low_wins else totals[0] < totals[1]:
                 raise ValueError(
                     f"Postseason bracket disagrees with played matchups: league={league_id} "
-                    f"week={week} game={game}, winner={win and win['team_points']}, loser={loss and loss['team_points']}."
+                    f"weeks={weeks} game={game}, winner={totals[0]}, loser={totals[1]}."
                 )
-    if max(playoff_start + int(g["r"]) - 1 for g in winners + losers) != final_week:
+    if max(round_ends) != final_week:
         raise ValueError("Postseason bracket does not reach the final played week.")
-    if populations[0] & populations[1] or set.union(*populations) != set(roster_ids):
+    if (
+        populations[0] & populations[1]
+        or set.union(*populations) & inactive
+        or set.union(*populations, inactive) != set(roster_ids)
+    ):
         raise ValueError("Postseason brackets do not cover every roster exactly once.")
+
+
+def verified_idle_rosters(weekly, rows, winners, losers, settings, start, final):
+    """Prove the middle two idle teams in Sleeper's 10-team, four-team toilet format."""
+    population = {r.roster_id for r in rows}
+    win_ids = {g.get(k) for g in winners for k in ("w", "l")}
+    lose_ids = {g.get(k) for g in losers for k in ("w", "l")}
+    absent = population - win_ids - lose_ids
+    if not absent:
+        return set()
+    ranked = sorted(rows, key=lambda r: (-(r.wins + r.ties / 2), -r.points_for))
+    if (
+        len(population) != 10
+        or settings.get("playoff_teams") != 4
+        or settings.get("playoff_type") != 0
+        or settings.get("playoff_round_type") != 2
+        or win_ids != {r.roster_id for r in ranked[:4]}
+        or lose_ids != {r.roster_id for r in ranked[-4:]}
+        or absent != {r.roster_id for r in ranked[4:6]}
+    ):
+        raise ValueError(
+            "Missing postseason participants lack verified inactive seed evidence."
+        )
+    for week in range(start, final + 1):
+        source = weekly.get(week, [])
+        indexed = {r["roster_id"]: r for r in source}
+        if (
+            set(indexed) != population
+            or len(source) != len(population)
+            or any(
+                "matchup_id" not in indexed[r] or indexed[r]["matchup_id"] is not None
+                for r in absent
+            )
+        ):
+            raise ValueError(
+                "Missing postseason participants lack explicit inactive weekly evidence."
+            )
+    return absent
+
+
+def historical_standings(
+    matchups, *, league_id, playoff_start, roster_to_user, median_game=False
+):
+    """Reconstruct H2H plus an optional median result; PF/PA count H2H only."""
+    rows = standings_as_of(
+        matchups,
+        league_id=league_id,
+        through_week=playoff_start - 1,
+        playoff_week_start=playoff_start,
+        roster_to_user=roster_to_user,
+    )
+    for week in range(1, playoff_start):
+        weekly = {
+            rid: row
+            for (lid, wk, rid), row in matchups.items()
+            if lid == league_id and wk == week
+        }
+        if set(weekly) != set(roster_to_user) or any(
+            not isinstance(row.get(key), (int, float)) or not math.isfinite(row[key])
+            for row in weekly.values()
+            for key in ("team_points", "opponent_points")
+        ):
+            raise ValueError(
+                "Regular-season matchup evidence is incomplete or invalid."
+            )
+        scores = {rid: row["team_points"] for rid, row in weekly.items()}
+        if median_game:
+            midpoint = median(scores.values())
+            for row in rows:
+                value = scores[row.roster_id]
+                row.wins += int(value > midpoint)
+                row.losses += int(value < midpoint)
+                row.ties += int(value == midpoint)
+    return rows
 
 
 def read_entry(path):
@@ -122,7 +225,7 @@ def read_entry(path):
     )
 
 
-def collect(client, entry, season):
+def collect(client, entry, season, *, results_only=False):
     lids = {lid: y for lid, y in entry.league_season_by_id.items() if y <= season}
     targets = [lid for lid, y in lids.items() if y == season]
     if len(targets) != 1:
@@ -153,13 +256,13 @@ def collect(client, entry, season):
         if (
             int(league["season"]) != year
             or league["status"] != "complete"
-            or settings.get("type") != 2
-            or settings.get("league_average_match", 0)
-            or settings.get("playoff_round_type", 0) != 0
+            or settings.get("type") not in (0, 1, 2)
+            or settings.get("league_average_match", 0) not in (0, 1)
+            or settings.get("playoff_round_type", 0) not in (0, 1, 2)
             or settings.get("playoff_type", 1) not in (0, 1)
         ):
             raise ValueError(
-                "Only completed Sleeper dynasty seasons without median games and with one-week playoff rounds are supported."
+                "Unsupported or incomplete Sleeper season settings; verify format, median games, and playoff timing."
             )
         previous = league.get("previous_league_id")
         if previous and previous != "0" and previous not in lids:
@@ -172,7 +275,7 @@ def collect(client, entry, season):
             r["roster_id"]: entry.owner_aliases.get(r["owner_id"], r["owner_id"])
             for r in rosters
         }
-        if observed != expected or observed != entry.roster_to_user_by_league[target]:
+        if observed != expected:
             raise ValueError(
                 "Historical owner membership changed or is unmapped; review canonical identities."
             )
@@ -185,12 +288,12 @@ def collect(client, entry, season):
         for week in range(1, pws):
             if {r for lg, w, r in matchups if w == week} != set(expected):
                 raise ValueError("Regular-season matchup evidence is incomplete.")
-        rows = standings_as_of(
+        rows = historical_standings(
             matchups,
             league_id=lid,
-            through_week=pws - 1,
-            playoff_week_start=pws,
+            playoff_start=pws,
             roster_to_user=expected,
+            median_game=bool(settings.get("league_average_match", 0)),
         )
         records = {}
         for row in rows:
@@ -229,6 +332,10 @@ def collect(client, entry, season):
             records[row.roster_id] = record
         wb = client.get(base + "/winners_bracket")
         lb = client.get(base + "/losers_bracket")
+        inactive = verified_idle_rosters(
+            weekly, rows, wb, lb, settings, pws, final_week
+        )
+        supporting.setdefault("inactive_postseason_rosters", {})[lid] = sorted(inactive)
         validate_brackets(
             wb,
             lb,
@@ -239,6 +346,8 @@ def collect(client, entry, season):
             playoff_start=pws,
             final_week=final_week,
             toilet_bowl=settings.get("playoff_type") == 0,
+            playoff_round_type=settings.get("playoff_round_type", 0),
+            inactive_rosters=inactive,
         )
         season_tx = [
             t for week in range(19) for t in client.get(base + f"/transactions/{week}")
@@ -254,7 +363,13 @@ def collect(client, entry, season):
         ):
             supporting[key + "_by_league"][lid] = value
         bundles[lid] = (league, rosters, weekly, season_tx, final_week)
+    if results_only:
+        return None, None, supporting
     league, rosters, weekly, season_tx, final_week = bundles[target]
+    if league["settings"]["type"] != 2:
+        raise ValueError(
+            "Keeper/redraft assets require separately verified retention, pick inventory, and compatible prices; dynasty rookie-pick prices cannot be substituted."
+        )
     schedule = client.get(
         f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates={season}&seasontype=2&week={final_week}&limit=1000"
     )
@@ -265,9 +380,12 @@ def collect(client, entry, season):
         raise ValueError("Schedule season/week mismatch.")
     games = parse_scoreboard(schedule, strict=True)
     if not games or any(
-        not g["kickoff"] or not (
-            g["completed"] or (g["status"] == "STATUS_CANCELED" and g["state"] == "post")
-        ) for g in games
+        not g["kickoff"]
+        or not (
+            g["completed"]
+            or (g["status"] == "STATUS_CANCELED" and g["state"] == "post")
+        )
+        for g in games
     ):
         raise ValueError("Final NFL week is incomplete.")
     cutoff = max(

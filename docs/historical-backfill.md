@@ -8,11 +8,28 @@ or publishes automatically. Keep private league evidence in the gitignored
 
 ## Supported inputs
 
-Completed Sleeper dynasty seasons, stable canonical owner/roster mappings across
-the full league chain, one-week playoff rounds, and standard TE valuation. Median
-games, owner turnover requiring reconciliation, individual defensive players,
-multiweek playoff rounds, and TE premiums fail explicitly. This first version
-does not claim support for Yahoo or keeper roster reconstruction.
+Results validation supports completed Sleeper seasons with one-week rounds,
+two-week finals, or two-week rounds throughout the playoffs. Every leg must have
+reciprocal opponents and finite scores; advancement is checked against the sum
+of all legs, including low-score advancement in the toilet bowl. League-median
+games add a win, loss, or tie to each regular-season record without duplicating
+points for or against. Every weekly population must be complete.
+
+Owner mappings are checked against each season's canonical identities, allowing
+verified ownership changes between seasons. The ten-team, four-playoff-team
+toilet format may leave its middle two seeds idle: the top four and bottom four
+must be the bracket participants, and all postseason weeks must explicitly show
+no matchup for each idle team. Other missing participants and unsupported bracket
+shapes remain blocked.
+
+Automatic asset preparation still requires a dynasty target, standard TE
+valuation, and supported offensive-player valuation. The programmatic
+`collect(..., results_only=True)` mode verifies results for keeper/redraft targets
+without claiming their assets are verified or emitting an asset manifest.
+Keeper draft rounds cannot be valued using dynasty rookie-pick prices. Keeper
+assets require separately verified retention rules, pick inventory, compatible
+prices, and supported player positions. Individual defensive players and TE
+premiums still fail explicitly. Yahoo reconstruction remains a separate workflow.
 
 Use an exported canonical `ChainCacheEntry` as `--chain`; it establishes owner
 identities and the expected chain. Actual standings, scores, brackets, roster
