@@ -39,3 +39,17 @@ User explicitly authorized implementation; execute inline without another approv
 - Mutation probe changed former classification to current; all three format regression cases failed. Restored source byte-for-byte and reran API tests successfully.
 - Independent review findings fixed: missing draft helper import, ambiguous mobile bet labels, and missing status in bet/profile selectors.
 - No production deployment or live Dads membership verification performed. No cache data or historical records modified.
+
+## Follow-up: fail closed on selected-year participation
+
+User requested removal of the historical missing-roster fallback before deployment.
+Added a shared selected-season eligibility resolver, separate unverified-owner
+responses and UI notices for dashboard/trades/ratings, and eligibility filtering
+before rating calculations. Historical roster-rank denominators are rebased.
+Current/former membership is kept separate from uncertainty about one season.
+
+Verified 135 API tests and the full frontend suite (1,042 tests in 115 files),
+TypeScript, lint (existing DashboardClient warning only), and diff whitespace.
+Mutation probes proved that restoring the old inclusion fallback or allowing
+unverified owners into the rating population fails the new regressions. Sources
+were restored byte-for-byte before the final passing run. No deployment performed.

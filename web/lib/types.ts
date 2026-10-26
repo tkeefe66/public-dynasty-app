@@ -218,6 +218,7 @@ export interface RatingScope {
 }
 
 export interface DashboardResp {
+  unverified_season_owners?: OwnerRef[];
   rating_scope?: RatingScope | null;
   league: LeagueSummary;
   selected_year: Year;
@@ -327,6 +328,7 @@ export interface GMRow {
 }
 
 export interface LeaderboardResp {
+  unverified_season_owners?: OwnerRef[];
   rating_scope?: RatingScope | null;
   league_id: string;
   /** "all" or the season as a string. */

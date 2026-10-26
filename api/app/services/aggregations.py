@@ -383,11 +383,14 @@ def _intel_hero_stats(
     from app.services.season_ratings import scoped_rating_entry
     scoped = scoped_rating_entry(entry, year)
     outlook = (scoped.outlook_signals or {}) if scoped else {}
-    from app.services.owner_membership import owner_membership
+    from app.services.owner_membership import owner_membership, season_membership
+    membership = season_membership(entry, year) if year != "all" else {}
     latest = max(entry.league_season_by_id.values(), default=0)
     historical = year != "all" and year < latest
     eligible = {uid for uid in entry.owners if historical or
                 owner_membership(entry, uid)["membership_status"] != "former"}
+    if year != "all":
+        eligible &= {uid for uid, status in membership.items() if status == "active"}
     ratings = {uid: rating for uid, rating in ratings.items() if uid in eligible}
     prev_ratings = {uid: rating for uid, rating in (prev_ratings or {}).items() if uid in eligible}
 
@@ -745,25 +748,10 @@ def build_dashboard(
     """Produce a DashboardResp from a cached chain entry + query params."""
     trades = _filter_trades_by_year(entry, year)
     rows = _aggregate_owner_rows(entry, trades)
+    from app.services.owner_membership import season_membership
+    membership = season_membership(entry, year) if year != "all" else {}
     if year != "all":
-        season_leagues = [
-            lid for lid, season in entry.league_season_by_id.items() if season == year
-        ]
-        # Filter membership, not ratings. Yahoo's private manager identities can
-        # leave one distinct team per season; old teams must not fill every year.
-        # Keep trade participants who departed before the final roster snapshot,
-        # and preserve older caches when season membership is unavailable.
-        if season_leagues and all(
-            lid in entry.roster_to_user_by_league for lid in season_leagues
-        ):
-            members = {
-                uid for lid in season_leagues
-                for uid in entry.roster_to_user_by_league[lid].values()
-            }
-            rows = {
-                uid: row for uid, row in rows.items()
-                if uid in members or row["trades"] > 0
-            }
+        rows = {uid: row for uid, row in rows.items() if membership.get(uid) == "active"}
 
     from app.services.franchise_redesign import live_ratings
     from app.services.season_ratings import rating_scope, scoped_rating_entry
@@ -938,6 +926,7 @@ def build_dashboard(
     )
 
     return DashboardResp(
+        unverified_season_owners=[owner_ref(entry, uid) for uid, status in membership.items() if status == "unverified"],
         league=league,
         selected_year=year,
         rating_scope=scope,

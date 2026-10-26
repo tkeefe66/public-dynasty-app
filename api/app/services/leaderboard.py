@@ -52,6 +52,10 @@ def build_leaderboard(
     prev_ratings: dict[str, int],
 ) -> LeaderboardResp:
     rows = _aggregate_owner_rows(entry, _filter_trades_by_year(entry, year))
+    from app.services.owner_membership import season_membership
+    membership = season_membership(entry, year) if year != "all" else {}
+    if year != "all":
+        rows = {uid: row for uid, row in rows.items() if membership.get(uid) == "active"}
     ratings = live_ratings(entry, year=year)
     from app.services.season_ratings import rating_scope, scoped_rating_entry
     rating_entry = scoped_rating_entry(entry, year)
@@ -118,6 +122,7 @@ def build_leaderboard(
         )
 
     return LeaderboardResp(
+        unverified_season_owners=[owner_ref(entry, uid) for uid, status in membership.items() if status == "unverified"],
         rating_scope=rating_scope(entry, year),
         league_id=entry.league_id,
         scope=scope_key,

@@ -240,6 +240,7 @@ class LeagueCapabilitiesResp(BaseModel):
 
 
 class DashboardResp(BaseModel):
+    unverified_season_owners: list[OwnerRef] = Field(default_factory=list)
     rating_scope: RatingScope | None = None
     league: LeagueSummary
     selected_year: Year

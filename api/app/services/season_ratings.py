@@ -43,15 +43,23 @@ def scoped_rating_entry(entry: ChainCacheEntry, year) -> ChainCacheEntry | None:
     if snapshot.get("version") != INPUT_VERSION or snapshot.get("status") != "ready":
         return None
     owners = snapshot.get("owners") or []
+    if any(uid not in entry.owners for uid in owners):
+        return None
+    from app.services.owner_membership import season_membership
+    membership = season_membership(entry, int(year))
+    owners = [uid for uid in owners if membership.get(uid) == "active"]
     outcomes = snapshot.get("outcome_signals") or {}
     assets = snapshot.get("outlook_signals") or {}
     fmt = snapshot.get("format")
     if fmt not in {"dynasty", "keeper", "redraft"} or not owners:
         return None
-    if any(uid not in entry.owners for uid in owners):
-        return None
     if not _complete_signals(owners, outcomes, assets, fmt):
         return None
+    roster_ranks = snapshot.get("roster_ranks") or {}
+    if any(uid not in owners for uid in roster_ranks):
+        ranked = sorted((uid for uid in roster_ranks if uid in owners),
+                        key=lambda uid: roster_ranks[uid]["rank"])
+        roster_ranks = {uid: {"rank": i + 1, "of": len(ranked)} for i, uid in enumerate(ranked)}
     return replace(
         entry,
         owners={uid: entry.owners[uid] for uid in owners},
@@ -59,7 +67,7 @@ def scoped_rating_entry(entry: ChainCacheEntry, year) -> ChainCacheEntry | None:
         outcome_signals=outcomes, outlook_signals=assets,
         season_records={s: rows for s, rows in (snapshot.get("season_records") or {}).items()
                         if int(s) <= int(year)},
-        roster_ranks=snapshot.get("roster_ranks") or {},
+        roster_ranks=roster_ranks,
         # Historical stage applies to the historical roster, including owners
         # who have since left. Never consult today's outlook availability.
         dynasty_outlooks={uid: {"historical": True} for uid in assets},

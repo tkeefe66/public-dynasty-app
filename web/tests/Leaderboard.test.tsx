@@ -32,6 +32,16 @@ function resp(rows: GMRow[]): LeaderboardResp {
 }
 
 describe("Leaderboard", () => {
+  it("renders excluded season participants separately from rating rows", async () => {
+    // Mutation: the API exclusion is invisible because the warning is never wired in.
+    leaderboard.mockResolvedValue({ ...resp([]), scope: "2024", unverified_season_owners: [
+      { user_id: "unknown", owner_name: "Unverified Alex", membership_status: "current" },
+    ] });
+    render(<Leaderboard leagueId="L1" initialYear={2024} seasons={[2026, 2024]} />);
+    expect(await screen.findByText("2024 participation unverified")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Unverified Alex" })).toHaveAttribute("href", "/league/L1/owner/unknown");
+    expect(screen.queryByRole("button", { name: /breakdown for Unverified Alex/ })).toBeNull();
+  });
   it("separates the default current ranking from all-owner history", async () => {
     // Mutation: rank remaining owners with gaps after filtering former owners.
     leaderboard.mockResolvedValue(resp([

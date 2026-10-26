@@ -1,4 +1,5 @@
 "use client";
+import { SeasonMembershipNotice } from "./SeasonMembershipNotice";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, dashboard, getMe, getProfiles, myLeagues, refreshStream } from "@/lib/api";
@@ -230,6 +231,9 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
         <LeagueHeader league={data.league} totalTrades={isNaN(activityCount) ? 0 : activityCount} />
 
         <DashboardTabs leagueId={leagueId} active={initialTab} year={String(initialYear)} lens={initialLens} />
+        {(initialTab === "dashboard" || initialTab === "trades") && (
+          <SeasonMembershipNotice leagueId={leagueId} year={data.selected_year} owners={data.unverified_season_owners} />
+        )}
         {/* The GM board carries its own all-time/per-season toggle. Franchises
             reads as all-time (grades, track record, H2H are career-wide), so the
             season tabs would be inert there. */}

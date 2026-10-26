@@ -1,5 +1,6 @@
 "use client";
 import { RatingScopeNotice } from "./RatingScopeNotice";
+import { SeasonMembershipNotice } from "./SeasonMembershipNotice";
 import { OwnerStatus } from "./OwnerStatus";
 import { OwnerPopulationControl } from "./OwnerPopulationControl";
 import { membershipRows, OwnerPopulation } from "@/lib/owner-membership";
@@ -432,6 +433,7 @@ export function Leaderboard({ leagueId, initialYear, seasons, format }: Props) {
         your league. Tap a row for the full receipt.
       </p>
       <RatingExplainer hasOutlook={hasOutlook} />
+      <SeasonMembershipNotice leagueId={leagueId} year={initialYear} owners={data?.unverified_season_owners} />
       {!historical && <OwnerPopulationControl value={population} onChange={setPopulation} />}
       {rows.length > 0 && <RatingScopeNotice scope={data?.rating_scope} />}
 
