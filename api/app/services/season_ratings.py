@@ -98,7 +98,11 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
         "prices_as_of": source.get("prices_as_of") if stats_guy else None,
         "valuation_note": (f"{policy['priced']}/{policy['eligible']} offensive players priced. "
                            "Unranked players use a zero replacement floor; kickers and defenses are excluded "
-                           "from assets. Generic round values price future picks. Historical estimates use "
+                           "from assets. "
+                           + ("No future-pick assets were included in this verified snapshot. "
+                              if source.get("draft_rounds") == 0 else
+                              "Generic round values price future picks. ")
+                           + "Historical estimates use "
                            "a different valuation source from current ratings.") if stats_guy else None,
     }
 

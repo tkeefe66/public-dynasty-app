@@ -60,6 +60,23 @@ Their original facts and provenance are retained in
 the computed season snapshot. Changed identity mappings or mismatched season,
 format, membership, or final week make an import unavailable until reviewed.
 
+## Keeper evidence
+
+The dated `stats-guy-v1` valuation policy accepts reviewed keeper manifests as
+well as dynasty manifests, with the same coverage, sensitivity, and digest
+checks. It values the complete roster at the season cutoff; it does not infer
+which players will be selected as next year's keepers. Prices are dated dynasty
+market estimates, consistent with the app's roster asset signal.
+
+For Yahoo, fetch the explicit final-week roster resource for **every** team.
+Played-matchup rows alone can omit eliminated teams. Reconcile played rosters
+and completed transaction ownership, including bench and IR, before attesting
+the snapshot. Keeper player markers do not prove future-pick ownership.
+Yahoo's empty adapter pick list is not evidence that the league has no picks:
+zero draft rounds requires an explicit league-rule attestation. Retain that
+attestation with the private source evidence. The automatic Sleeper collector
+still does not collect Yahoo keeper evidence.
+
 ## Cache compatibility
 
 `season_rating_inputs` is additive and versioned. An older cache continues to

@@ -57,6 +57,16 @@ def test_selected_snapshot_controls_both_rating_views(dynasty_entry, fmt):
     entry.outlook_signals["u2"]["draft_capital"] = 999999
     entry.season_records["2026"] = {"u1": {"wins": 14, "losses": 0}}
     assert live_ratings(entry, year=2024) == before
+    if fmt == "keeper":
+        from app.services.season_ratings import rating_scope
+        entry.season_rating_inputs["2024"]["asset_source"] = {
+            "draft_rounds": 0, "prices_as_of": "2025-01-06",
+            "valuation_policy": {"version": "stats-guy-v1", "priced": 2, "eligible": 2},
+        }
+        scope = rating_scope(entry, 2024)
+        assert scope["valuation_source"] == "stats_guy"
+        assert "No future-pick assets" in scope["valuation_note"]
+        assert "Generic round" not in scope["valuation_note"]
 
 
 def test_all_remains_current_career_rating(dynasty_entry):

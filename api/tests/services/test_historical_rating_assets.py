@@ -35,6 +35,33 @@ def test_verified_assets_use_historical_ages_holdings_and_pick_transfers():
     assert ranks["u1"] == {"rank": 1, "of": 2}
 
 
+def test_keeper_dated_policy_accepts_verified_rosters_without_future_assets():
+    from app.services.historical_backfill import digest
+    from app.services.historical_rating_assets import HistoricalRatingAssets
+
+    data = manifest()
+    data.update(format="keeper", draft_rounds=0, picks=[], prices_as_of="2025-01-06")
+    for player in data["players"]:
+        player.update(position="RB", pricing="provider")
+    data = HistoricalRatingAssets.model_validate(data).model_dump(mode="json", exclude={"validation"})
+    data["valuation_policy"] = {
+        "version": "stats-guy-v1", "source_url": "https://statsguyfantasy.com",
+        "excluded": [], "unranked_upper_bounds": {}, "priced": 2, "eligible": 2,
+        "evidence_sha256": "a" * 64,
+    }
+    data["validation"] = {
+        "manifest_sha256": digest(data), "result_inputs_sha256": "b" * 64,
+        "stable": True, "scenarios": 1,
+    }
+    assets = HistoricalRatingAssets.model_validate(data)
+    signals, _ = assets.signals()
+    assert signals["u1"]["roster_value_share"] == .9
+    assert signals["u1"]["draft_capital"] == signals["u2"]["draft_capital"] == 0
+    data["players"][0]["value"] = 1
+    with pytest.raises(ValueError, match="differs from validated preview"):
+        HistoricalRatingAssets.model_validate(data)
+
+
 @pytest.mark.parametrize("change", ["future_price", "missing_pick", "duplicate_player", "missing_age", "unknown_owner"])
 def test_incomplete_or_future_assets_are_rejected(change):
     # Mutation: accept future prices, missing inventory, or incomplete player evidence.

@@ -112,7 +112,7 @@ class HistoricalRatingAssets(BaseModel):
             from app.services.historical_backfill import digest
             policy = self.valuation_policy
             missing = {p.player_id for p in self.players if p.pricing == "unranked_floor"}
-            if (self.format != "dynasty" or self.prices_as_of >= self.as_of
+            if (self.prices_as_of >= self.as_of
                     or policy.eligible != len(self.players)
                     or policy.priced != len(self.players) - len(missing)
                     or set(policy.unranked_upper_bounds) != missing
