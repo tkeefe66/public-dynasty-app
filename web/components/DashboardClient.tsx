@@ -47,7 +47,8 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
   // Only season-filtered ledgers opt into the active-season data default.
   // Keep initialYear for navigation so a career-wide view's fallback to All
   // does not become an explicit user choice when returning to the dashboard.
-  const requestedYear = initialYear === "auto" && initialTab !== "dashboard" && initialTab !== "trades"
+  const requestedYear = initialTab === "owners" || initialTab === "bets" ||
+    (initialYear === "auto" && initialTab !== "dashboard" && initialTab !== "trades")
     ? "all" : initialYear;
 
   const loadOrRefresh = useCallback(async (startNewAttempt = false) => {

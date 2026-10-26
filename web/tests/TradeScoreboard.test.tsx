@@ -57,6 +57,11 @@ function renderBoard(over: Partial<React.ComponentProps<typeof TradeScoreboard>>
 }
 
 describe("TradeScoreboard", () => {
+  it("labels former winners in both desktop and mobile scoreboards", () => {
+    // Mutation: winner cells use bare owner_name instead of status-aware labels.
+    renderBoard({ sides: [{ ...SIDES[0], membership_status: "former", last_active_season: 2023 }, SIDES[1]] });
+    expect(screen.getAllByText("Reznik · Former owner · last played 2023")).toHaveLength(6);
+  });
   it("renders the five lenses in the fixed vocabulary, in full, in fixed order", () => {
     renderBoard();
     // The desktop ledger and the narrow card list both render every lens (the

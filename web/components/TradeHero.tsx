@@ -1,6 +1,7 @@
 import { LensMargins, LensWinners, TradeCall, TradeSideView, TradeStory } from "@/lib/types";
 import { fmtDateShort } from "@/lib/format-date";
 import { GenerationStamp } from "@/components/GenerationStamp";
+import { ownerNameWithStatus, ownerStatusText } from "@/lib/owner-membership";
 import { fmtLensMargin, LENS_LABEL_LOWER, LENS_ORDER, soleDecidedLens } from "@/lib/trade-lens";
 
 export interface TradeHeroProps {
@@ -238,6 +239,11 @@ export function TradeHero({
           <h1 className="mt-1.5 font-display text-[length:var(--nameplate-2-sm)] sm:text-nameplate font-extrabold leading-[0.98] tracking-[var(--track-nameplate)] max-w-[20ch]">
             {headline}
           </h1>
+          {sides.filter((side) => ownerStatusText(side)).map((side) => (
+            <p key={side.user_id} className="mt-2 text-label text-dim">
+              {ownerNameWithStatus(side)}
+            </p>
+          ))}
 
           {hasBeats ? (
             <>

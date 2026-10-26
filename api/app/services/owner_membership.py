@@ -56,7 +56,9 @@ def owner_membership(entry: ChainCacheEntry, uid: str) -> dict:
         if lid in seasons and uid in {canonical(u) for u in roster.values() if u}
     }
     played.update(int(year) for year, records in entry.season_records.items()
-                  if uid in {canonical(u) for u in records})
+                  if any(canonical(u) == uid and
+                         sum(record.get(key, 0) or 0 for key in ("wins", "losses", "ties")) > 0
+                         for u, record in records.items()))
     for trade in entry.resolved_trades:
         season = (trade.get("trade") or {}).get("season")
         if season and uid in {canonical(u) for u in (trade.get("sides") or {})}:

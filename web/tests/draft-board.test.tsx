@@ -50,6 +50,15 @@ const base = {
 };
 
 describe("DraftBoard", () => {
+  it.each(["dynasty", "keeper", "redraft"])("retains and labels former drafters in %s desktop and mobile views", (format) => {
+    // Mutation: drop historical drafters or render their names without membership status.
+    const owner = { user_id: "u1", owner_name: "Alice", membership_status: "former" as const, last_active_season: 2024 };
+    render(<DraftBoard leagueId="lg" board={{ ...base, format, graded: true,
+      owners: [{ ...base.owners[0], owner }], picks: [{ ...base.picks[0], owner }],
+    }} />);
+    expect(screen.getAllByText("Alice · Former owner · last played 2024").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("Player One").length).toBeGreaterThanOrEqual(2);
+  });
   it("renders picks on draft night with no production column", () => {
     render(<DraftBoard leagueId="lg" board={{ ...base, graded: false }} />);
     // Renders once in the desktop ledger and once in the ≤700px reflow

@@ -44,6 +44,14 @@ const story: TradeStory = {
 const NO_WINNERS: LensWinners = { value: null, total: null, regular: null, playoff: null, toilet: null };
 const NO_MARGINS: LensMargins = { value: null, total: null, regular: null, playoff: null, toilet: null };
 
+it("identifies former participants even before the trade side panels", () => {
+  // Mutation: trade hero renders bare names without membership context.
+  render(<TradeHero date="2023-09-24" sides={[
+    { ...sideA, membership_status: "former", last_active_season: 2023 }, sideB,
+  ]} story={null} lopsidedness={0} winnersByLens={NO_WINNERS} marginsByLens={NO_MARGINS} call="none" lensTally="0-0" />);
+  expect(screen.getByText(/Mikey.*Former owner.*2023/)).toBeInTheDocument();
+});
+
 function unanimous(winner: string): { winnersByLens: LensWinners; marginsByLens: LensMargins } {
   return {
     winnersByLens: { value: winner, total: winner, regular: winner, playoff: winner, toilet: null },

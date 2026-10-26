@@ -5,6 +5,13 @@ from app.services.draft_board_view import build_draft_board
 
 class _Entry:
     league_id = "lg"
+    # Match the ChainCacheEntry defaults used by read-time membership lookup.
+    owner_aliases = {}
+    chain = []
+    league_season_by_id = {}
+    roster_to_user_by_league = {}
+    season_records = {}
+    resolved_trades = []
     owners = {"u1": {"display_name": "Alice"}, "u2": {"display_name": "Bob"}}
 
     def __init__(self, picks, capabilities=None, draft_needs=None):

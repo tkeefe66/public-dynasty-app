@@ -51,6 +51,28 @@ class Source:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("league_format", ["redraft", "keeper", "dynasty"])
+async def test_scoring_franchises_use_rosters_not_historical_user_directory(tmp_path, league_format):
+    # Mutation: build scoring franchises from all users, resurrecting former owners.
+    from app.services.scoring_leaders import load_scoring_leaders
+
+    class HistoricalUsers(Source):
+        async def get_league(self, league_id):
+            league, prior = await super().get_league(league_id)
+            league.format = league_format
+            return league, prior
+
+        async def get_users(self, league_id):
+            return {**await super().get_users(league_id),
+                    "former": {"display_name": "Departed", "team_name": "Old Team"}}
+
+    result = await load_scoring_leaders("123", tmp_path, HistoricalUsers())
+    assert [f["owner_id"] for f in result["franchises"]] == ["owner", None]
+    assert result["franchises"][0]["players"][0]["player_id"] == "rostered"
+    assert "free" in {p["player_id"] for p in result["players"]}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("absent", ["free", "rostered"])
 async def test_yahoo_absent_free_agent_is_disclosed_but_absent_roster_blocks(tmp_path, absent):
     # Mutation: silently exclude players, rank excluded data, or permit missing rostered players.

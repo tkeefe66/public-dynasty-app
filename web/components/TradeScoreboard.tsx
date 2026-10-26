@@ -1,6 +1,7 @@
 "use client";
 
 import { LensMargins, LensWinners, TradeCall, TradeSideView } from "@/lib/types";
+import { ownerNameWithStatus } from "@/lib/owner-membership";
 import { LENS_LABEL_FULL, LENS_ORDER, realizedTotals, StatTotals } from "@/lib/trade-lens";
 import { InfoTooltip } from "./InfoTooltip";
 import { SectionHeader, useSectionCollapse } from "./furniture/SectionCollapse";
@@ -104,7 +105,7 @@ interface Props {
 export function TradeScoreboard({ margins, winners, sides, call, lensTally }: Props) {
   const { open, toggle } = useSectionCollapse("trade-scoreboard");
 
-  const nameOf = (uid: string) => sides.find((s) => s.user_id === uid)?.owner_name ?? uid;
+  const nameOf = (uid: string) => ownerNameWithStatus(sides.find((s) => s.user_id === uid), uid);
 
   // Both sides' realized totals — the same rows-plus-became reading the side
   // ledgers render, used only to scale the bars. The MARGIN itself still comes
@@ -162,7 +163,7 @@ export function TradeScoreboard({ margins, winners, sides, call, lensTally }: Pr
                       <Bar value={margin} max={scaleFor(lens)} />
                     )}
                     <span
-                      className={`truncate text-right ${winnerUid ? "text-ink" : "text-dim"}`}
+                      className={`break-words text-right ${winnerUid ? "text-ink" : "text-dim"}`}
                     >
                       {winnerUid ? nameOf(winnerUid) : "—"}
                     </span>
@@ -195,7 +196,7 @@ export function TradeScoreboard({ margins, winners, sides, call, lensTally }: Pr
                     <span className="font-mono text-label uppercase tracking-[0.11em] text-dim">
                       Winner
                     </span>
-                    <span className={`truncate ${winnerUid ? "text-ink" : "text-dim"}`}>
+                    <span className={`min-w-0 break-words text-right ${winnerUid ? "text-ink" : "text-dim"}`}>
                       {winnerUid ? nameOf(winnerUid) : "—"}
                     </span>
                   </span>

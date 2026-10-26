@@ -70,6 +70,8 @@ def test_create_and_list(client, db_maker):
         "team_name": None,
         "franchise_name": None,
         "avatar_url": None,
+        "membership_status": "unverified",
+        "last_active_season": None,
     }
 
     listed = client.get("/api/league/L1/bets").json()
@@ -80,6 +82,52 @@ def test_validation_rejections(client, db_maker):
     assert _make_bet(client, side_b_owner_id="u_tom").status_code == 422
     assert _make_bet(client, amount_cents=0).status_code == 422
     assert _make_bet(client, description="   ").status_code == 422
+
+
+@pytest.mark.parametrize("format", ["redraft", "keeper", "dynasty"])
+def test_linked_former_owner_bets_keep_settlement_ids_and_merge_totals(client, db_maker, monkeypatch, format):
+    # Mutation: canonicalize bet sides but leave the stored winner raw, or split aliased totals.
+    from tests.test_owner_membership import entry_for
+    from app.routes import bets
+    entry = entry_for(format)
+    entry.owner_aliases = {"old-former": "former"}
+    monkeypatch.setattr(bets.ChainCache, "read", lambda *args, **kwargs: entry)
+    for uid in ["old-former", "former"]:
+        made = _make_bet(client, side_a_owner_id=uid, side_b_owner_id="returning", season=2023).json()
+        # The UI settles using the side id it received. It must still match the persisted bet.
+        settled = client.patch(f"/api/league/L1/bets/{made['id']}",
+                               json={"status": "settled", "winner_owner_id": made["side_a"]["user_id"]})
+        assert settled.status_code == 200
+        view = settled.json()
+        assert view["winner_owner_id"] == view["side_a"]["user_id"]
+        assert view["side_a"]["membership_status"] == "former"
+    summary = client.get("/api/league/L1/bets/summary").json()["owners"]
+    assert len(summary) == 2
+    assert summary[0]["owner"]["user_id"] == "former"
+    assert summary[0]["net_cents"] == 100000
+    # Profile-level bet history must include both historical and canonical IDs.
+    assert len(client.get("/api/league/L1/bets?owner_id=former").json()["bets"]) == 2
+
+
+@pytest.mark.parametrize("format", ["redraft", "keeper", "dynasty"])
+def test_former_bet_history_and_money_survive_departure(client, db_maker, monkeypatch, format):
+    # Mutation: remove departed participants from bet lists/summary, or lose their status.
+    from tests.test_owner_membership import entry_for
+    from app.routes import bets
+    entry = entry_for(format)
+    monkeypatch.setattr(bets.ChainCache, "read", lambda *args, **kwargs: entry)
+    made = _make_bet(client, side_a_owner_id="former", side_b_owner_id="returning", season=2023).json()
+    settled = client.patch(f"/api/league/L1/bets/{made['id']}",
+                          json={"status": "settled", "winner_owner_id": "former"})
+    assert settled.status_code == 200
+    listed = client.get("/api/league/L1/bets?season=2023").json()["bets"]
+    assert listed[0]["side_a"]["membership_status"] == "former"
+    assert listed[0]["side_a"]["last_active_season"] == 2023
+    summary = client.get("/api/league/L1/bets/summary?season=2023").json()["owners"]
+    assert len(summary) == 2
+    assert summary[0]["owner"]["membership_status"] == "former"
+    assert summary[0]["net_cents"] == 50000
+    assert sum(o["net_cents"] for o in summary) == 0
 
 
 def test_settle_push_void_and_summary(client, db_maker):

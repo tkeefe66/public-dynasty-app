@@ -65,6 +65,15 @@ def test_newest_season_without_assignments_does_not_fall_back():
     assert owner_ref(entry, "former").membership_status == "unverified"
 
 
+def test_placeholder_records_do_not_claim_last_played_or_departure():
+    # Mutation: any record key, including a zero-game placeholder, means played.
+    entry = entry_for()
+    entry.season_records = {"2024": {"former": {"wins": 0, "losses": 0}, "unknown": {}}}
+    assert owner_ref(entry, "former").last_active_season == 2023
+    assert owner_ref(entry, "unknown").membership_status == "unverified"
+    assert owner_ref(entry, "unknown").last_active_season is None
+
+
 def test_current_highlights_do_not_promote_a_former_owner():
     # Mutation: current Top GM selects a departed owner from career ratings.
     from app.services.aggregations import _intel_hero_stats
@@ -73,13 +82,15 @@ def test_current_highlights_do_not_promote_a_former_owner():
     assert stats.top_gm.owner_user_id == "returning"
 
 
-def test_history_remains_accessible_with_membership_on_every_reference():
+@pytest.mark.parametrize("format", ["redraft", "keeper", "dynasty"])
+def test_history_remains_accessible_with_membership_on_every_reference(format):
     # Mutation: discard former owners from cache to fix the current list.
     from tests.test_aggregations import _sample_entry
     from app.services.aggregations import build_dashboard
     from app.services.owner_view import build_owner_detail
     from app.services.trade_view import build_trade_detail
     entry = _sample_entry()
+    entry.capabilities = {"format": format}
     entry.owners["replacement"] = {"owner_name": "Replacement"}
     entry.roster_to_user_by_league["L_current"] = {1: "u_alice", 2: "replacement"}
     dashboard = build_dashboard(entry, "all", "ktc")
@@ -93,3 +104,20 @@ def test_history_remains_accessible_with_membership_on_every_reference():
     assert len(profile.trades) == 2
     trade = build_trade_detail(entry, "tx_2024")
     assert next(s for s in trade.sides if s.user_id == "u_bob").membership_status == "former"
+
+
+@pytest.mark.parametrize("format", ["redraft", "keeper", "dynasty"])
+def test_draft_history_keeps_former_drafters_and_status_on_picks_and_owners(format):
+    # Mutation: filter historical draft rows to current owners, or omit status from picks.
+    from app.services.draft_board_view import build_draft_board
+    from tests.test_draft_board_view import _pick
+    entry = entry_for(format)
+    entry.drafted_picks = [_pick("p1", "former", 1, season=2023, production_total=100),
+                           _pick("p2", "returning", 2, season=2023, production_total=50),
+                           _pick("p3", "newcomer", 1, season=2024)]
+    board = build_draft_board(entry, season=2023)
+    assert {o.user_id for o in board.owners} == {"former", "returning"}
+    assert board.picks[0].owner.membership_status == "former"
+    former = next(o for o in board.owners if o.user_id == "former")
+    assert former.owner.membership_status == "former"
+    assert former.production_total == 100

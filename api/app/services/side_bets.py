@@ -6,7 +6,7 @@ the Python-side aggregation in app/repositories/events.py."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Callable, Iterable
 
 OPEN = "open"
 SETTLED = "settled"
@@ -71,10 +71,12 @@ class OwnerBetTotals:
         return self.cents_won - self.cents_lost
 
 
-def summarize(bets: Iterable) -> dict[str, OwnerBetTotals]:
+def summarize(bets: Iterable, *, resolve_owner_id: Callable[[str], str] | None = None) -> dict[str, OwnerBetTotals]:
     totals: dict[str, OwnerBetTotals] = {}
 
     def t(owner_id: str) -> OwnerBetTotals:
+        if resolve_owner_id is not None:
+            owner_id = resolve_owner_id(owner_id)
         return totals.setdefault(owner_id, OwnerBetTotals(owner_id=owner_id))
 
     for bet in bets:

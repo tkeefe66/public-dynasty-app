@@ -72,6 +72,17 @@ const facts = (scope: HTMLElement) =>
   );
 
 describe("BetsTab", () => {
+  it("keeps former owners labelled in the ledger, money summary, and recording options", async () => {
+    // Mutation: filter former owners out of bets or drop their shared status labels.
+    const former = { ...settledBet.side_a, membership_status: "former" as const, last_active_season: 2024 };
+    vi.mocked(listBets).mockResolvedValue({ bets: [{ ...settledBet, side_a: former }] });
+    vi.mocked(betsSummary).mockResolvedValue({ owners: [{ ...summary.owners[0], owner: former }] });
+    render(<BetsTab leagueId="L1" owners={[{ ...owners[0], owner: former }, owners[1]]} />);
+    expect((await screen.findAllByText("Former owner · last played 2024")).length).toBeGreaterThanOrEqual(4);
+    expect(screen.getAllByText("+$500").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Record a bet" }));
+    expect(screen.getAllByRole("option", { name: "Tom · Former owner · last played 2024" })).toHaveLength(2);
+  });
   it("renders the leaderboard with signed nets and the ledger", async () => {
     render(<BetsTab leagueId="L1" owners={owners} />);
     // Both the leaderboard and the ledger render a desktop variant and a phone

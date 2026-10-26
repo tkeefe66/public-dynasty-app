@@ -63,8 +63,10 @@ def _view(bet: SideBet, ref) -> SideBetView:
         season=bet.season,
         description=bet.description,
         amount_cents=bet.amount_cents,
-        side_a=ref(bet.side_a_owner_id),
-        side_b=ref(bet.side_b_owner_id),
+        # Names/status follow confirmed identity links; settlement actions must
+        # still use the exact participant IDs stored on this historical bet.
+        side_a=ref(bet.side_a_owner_id).model_copy(update={"user_id": bet.side_a_owner_id}),
+        side_b=ref(bet.side_b_owner_id).model_copy(update={"user_id": bet.side_b_owner_id}),
         status=bet.status,
         winner_owner_id=bet.winner_owner_id,
         made_at=bet.made_at,
@@ -112,9 +114,14 @@ async def list_bets(
     db: AsyncSession = Depends(get_db),
 ) -> SideBetListResp:
     bets = await side_bets_repo.list_for_league(
-        db, league_id, owner_id=owner_id, season=season
+        db, league_id, season=season
     )
     ref = _resolver(league_id)
+    if owner_id is not None:
+        canonical_id = ref(owner_id).user_id
+        bets = [bet for bet in bets if canonical_id in {
+            ref(bet.side_a_owner_id).user_id, ref(bet.side_b_owner_id).user_id,
+        }]
     return SideBetListResp(bets=[_view(b, ref) for b in bets])
 
 
@@ -125,8 +132,8 @@ async def bets_summary(
     db: AsyncSession = Depends(get_db),
 ) -> BetsSummaryResp:
     bets = await side_bets_repo.list_for_league(db, league_id, season=season)
-    totals = service.summarize(bets)
     ref = _resolver(league_id)
+    totals = service.summarize(bets, resolve_owner_id=lambda uid: ref(uid).user_id)
     ranked = sorted(totals.values(), key=lambda t: t.net_cents, reverse=True)
     return BetsSummaryResp(
         owners=[

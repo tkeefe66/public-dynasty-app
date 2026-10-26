@@ -49,3 +49,24 @@ Season eligibility is applied before computing relative ratings, trade grades,
 and current/season highlights. Snapshot roster ranks are rebased over eligible
 owners. Missing membership cannot inflate a rank denominator or change another
 owner's grade. This does not alter the owner's current/former league status.
+
+## Trades, scoring, drafts, and bets audit
+
+- Trade history retains every participant. Cards, side panels, the detail
+  headline context, and desktop/mobile winner summaries identify former owners.
+- Scoring franchises come from that league's provider roster snapshot, not the
+  historical owner directory. Former owners do not create extra franchises;
+  unclaimed teams remain unclaimed. Player points remain full-season totals.
+- Draft boards retain the owners who made that season's picks, with membership
+  labels on owner and pick views. Departure never removes a pick or its results.
+- Bets retain both sides, settled results, and outstanding money, with labels
+  on the ledger, summary, and recording selectors. Bets have their own season
+  filter; navigating from an older dashboard year must not narrow the available
+  owner directory. The Owners tab likewise always loads the career directory.
+  Confirmed aliases merge money totals under one owner; individual bets retain
+  their original participant IDs so winner display and settlement still agree.
+- Empty/zero-game season records do not establish a last-played year or departure.
+
+Regression coverage exercises dynasty, keeper, and redraft projections, plus
+desktop/mobile draft and trade presentations. These are read-time changes;
+historical cache data and recorded bets are not rewritten.
