@@ -146,3 +146,26 @@ async def test_incomplete_schedule_never_establishes_cutoff(tmp_path, monkeypatc
     monkeypatch.setattr("sleeper_dynasty.api.nfl_schedule.fetch_week_evidence", AsyncMock(return_value={"raw": json.dumps(raw)}))
     with pytest.raises(ValueError):
         await HistoricalAssetStore(tmp_path, "chain").verified_week_cutoff(2024, 18)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,state,expected", [
+    ("STATUS_CANCELED", "post", "2023-01-04"),
+    ("STATUS_POSTPONED", "post", None),
+    ("STATUS_SUSPENDED", "in", None),
+    ("STATUS_CANCELED", "pre", None),
+])
+async def test_terminal_cancellation_can_close_historical_week(tmp_path, monkeypatch, status, state, expected):
+    from app.services.historical_rating_assets import HistoricalAssetStore
+    # Mutation: reject terminal cancellations, or accept any unfinished/post-state game.
+    # Captured ESPN 2022 week 17: Buffalo-Cincinnati was canceled, not awaiting completion.
+    raw = json.loads((Path(__file__).parents[1] / "fixtures/historical_cutoff_canceled_scoreboard.json").read_text())
+    canceled = next(e for e in raw["events"] if e["status"]["type"]["name"] == "STATUS_CANCELED")
+    canceled["status"]["type"].update(name=status, state=state)
+    monkeypatch.setattr("sleeper_dynasty.api.nfl_schedule.fetch_week_evidence", AsyncMock(return_value={"raw": json.dumps(raw)}))
+    store = HistoricalAssetStore(tmp_path, "chain")
+    if expected:
+        assert await store.verified_week_cutoff(2022, 17) == expected
+    else:
+        with pytest.raises(ValueError, match="incomplete"):
+            await store.verified_week_cutoff(2022, 17)

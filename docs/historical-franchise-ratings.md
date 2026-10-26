@@ -79,6 +79,12 @@ still does not collect Yahoo keeper evidence.
 
 ## Cache compatibility
 
+The final-week cutoff accepts completed NFL games and provider-confirmed
+`STATUS_CANCELED` games in the terminal `post` state. A canceled game's scheduled
+kickoff still bounds the week; it does not supply a fantasy score or outcome.
+Postponed, suspended, ongoing, and otherwise unverified games continue to block
+the cutoff. The original schedule response is retained for replay.
+
 `season_rating_inputs` is additive and versioned. An older cache continues to
 serve All and season records, but selected-year ratings are unavailable until
 refresh builds verified inputs. No schema-wide invalidation is needed because

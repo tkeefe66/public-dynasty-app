@@ -202,7 +202,7 @@ class HistoricalAssetStore:
         """Immutable completed-week evidence, fetched only for an existing import.
 
         Normalize to 00:00 UTC on the day after the last game's UTC kickoff
-        date. The entire NFL week must be completed. Never guess from calendar
+        date. Every game must be completed or finally canceled. Never guess from calendar
         arithmetic or accept an importer-supplied final-week date as proof.
         """
         from sleeper_dynasty.api.nfl_schedule import (
@@ -215,7 +215,11 @@ class HistoricalAssetStore:
         if int((raw.get("season") or {}).get("year", 0)) != season or int((raw.get("week") or {}).get("number", 0)) != week:
             raise ValueError("NFL evidence season/week does not match the requested historical cutoff")
         games = parse_scoreboard(raw, strict=True)
-        if not games or any(not g["completed"] or not g["kickoff"] for g in games):
+        if not games or any(
+            not g["kickoff"] or not (
+                g["completed"] or (g["status"] == "STATUS_CANCELED" and g["state"] == "post")
+            ) for g in games
+        ):
             raise ValueError("NFL final-week evidence is incomplete; historical cutoff remains unverified")
         last_kickoff = max(datetime.fromisoformat(g["kickoff"]) for g in games)
         cutoff = (last_kickoff.date() + timedelta(days=1)).isoformat()

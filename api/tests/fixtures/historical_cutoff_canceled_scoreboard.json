@@ -1,0 +1,588 @@
+{
+  "season": {
+    "type": 2,
+    "year": 2022
+  },
+  "week": {
+    "number": 17
+  },
+  "events": [
+    {
+      "id": "401437932",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2022-12-30T01:15Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "TEN"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "DAL"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437933",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T18:00Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "ATL"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "ARI"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437935",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T18:00Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "DET"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "CHI"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437937",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T18:00Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "KC"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "DEN"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437938",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T18:00Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "NE"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "MIA"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437939",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T18:00Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "NYG"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "IND"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437940",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T18:00Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "PHI"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "NO"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437941",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T18:00Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "TB"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "CAR"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437942",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T18:00Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "WSH"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "CLE"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437936",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T18:00Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "HOU"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "JAX"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437943",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 5,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final/OT",
+          "shortDetail": "Final/OT",
+          "altDetail": "OT"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T21:05Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "LV"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "SF"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437944",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T21:05Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "SEA"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "NYJ"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437945",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T21:25Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "GB"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "MIN"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437946",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-01T21:25Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "LAC"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "LAR"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437934",
+      "status": {
+        "clock": 0.0,
+        "displayClock": "0:00",
+        "period": 4,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-02T01:20Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "BAL"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "PIT"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401437947",
+      "status": {
+        "clock": 372.0,
+        "displayClock": "6:12",
+        "period": 1,
+        "type": {
+          "id": "5",
+          "name": "STATUS_CANCELED",
+          "state": "post",
+          "completed": false,
+          "description": "Canceled",
+          "detail": "Canceled",
+          "shortDetail": "Canceled"
+        }
+      },
+      "competitions": [
+        {
+          "date": "2023-01-03T01:30Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "CIN"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "BUF"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

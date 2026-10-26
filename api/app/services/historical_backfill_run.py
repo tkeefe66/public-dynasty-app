@@ -264,7 +264,11 @@ def collect(client, entry, season):
     ):
         raise ValueError("Schedule season/week mismatch.")
     games = parse_scoreboard(schedule, strict=True)
-    if not games or any(not g["completed"] or not g["kickoff"] for g in games):
+    if not games or any(
+        not g["kickoff"] or not (
+            g["completed"] or (g["status"] == "STATUS_CANCELED" and g["state"] == "post")
+        ) for g in games
+    ):
         raise ValueError("Final NFL week is incomplete.")
     cutoff = max(
         datetime.fromisoformat(g["kickoff"]) for g in games
