@@ -1,4 +1,5 @@
 "use client";
+import { ownerNameWithStatus } from "@/lib/owner-membership";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { betsSummary, createBet, listBets, updateBet } from "@/lib/api";
@@ -129,7 +130,7 @@ export function BetsTab({
         <RecordBetForm
           owners={owners.map((o) => ({
             user_id: o.user_id,
-            name: o.owner.owner_name,
+            name: ownerNameWithStatus(o.owner),
           }))}
           onSave={onSave}
           onCancel={() => setRecording(false)}

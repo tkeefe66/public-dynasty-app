@@ -383,6 +383,13 @@ def _intel_hero_stats(
     from app.services.season_ratings import scoped_rating_entry
     scoped = scoped_rating_entry(entry, year)
     outlook = (scoped.outlook_signals or {}) if scoped else {}
+    from app.services.owner_membership import owner_membership
+    latest = max(entry.league_season_by_id.values(), default=0)
+    historical = year != "all" and year < latest
+    eligible = {uid for uid in entry.owners if historical or
+                owner_membership(entry, uid)["membership_status"] != "former"}
+    ratings = {uid: rating for uid, rating in ratings.items() if uid in eligible}
+    prev_ratings = {uid: rating for uid, rating in (prev_ratings or {}).items() if uid in eligible}
 
     # Top GM — use year-scoped ratings when viewing a specific past season,
     # all-time ratings otherwise (all years / current season).
@@ -405,7 +412,7 @@ def _intel_hero_stats(
     )
 
     # Best Roster ------------------------------------------------------------
-    roster_vals = {uid: float(outlook.get(uid, {}).get("roster_value") or 0) for uid in entry.owners}
+    roster_vals = {uid: float(outlook.get(uid, {}).get("roster_value") or 0) for uid in eligible}
     roster_context = "Roster value · today" if year == "all" else f"Roster value · {year}"
     if any(v > 0 for v in roster_vals.values()):
         roster_uid = max(roster_vals, key=lambda u: roster_vals[u])
@@ -421,10 +428,10 @@ def _intel_hero_stats(
     # Draft Ace — year-scoped when viewing a specific year, all-time otherwise -
     if year != "all" and isinstance(year, int):
         year_skill = (entry.draft_skill_by_season or {}).get(str(year), {})
-        skill_vals = {uid: float(year_skill.get(uid) or 0) for uid in entry.owners if uid in year_skill}
+        skill_vals = {uid: float(year_skill.get(uid) or 0) for uid in eligible if uid in year_skill}
         ace_context = f"draft skill score · {year} class"
     else:
-        skill_vals = {uid: float(outlook.get(uid, {}).get("draft_skill") or 0) for uid in entry.owners}
+        skill_vals = {uid: float(outlook.get(uid, {}).get("draft_skill") or 0) for uid in eligible}
         ace_context = "draft skill score · all-time"
     if any(v > 0 for v in skill_vals.values()):
         ace_uid = max(skill_vals, key=lambda u: skill_vals[u])

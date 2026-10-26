@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.models.common import OwnerRef
 from app.services.chain_cache import ChainCacheEntry
+from app.services.owner_membership import owner_membership
 
 
 def owner_name(entry: ChainCacheEntry, uid: str) -> str:
@@ -19,6 +20,7 @@ def owner_ref(entry: ChainCacheEntry, uid: str) -> OwnerRef:
         team_name=o.get("team_name"),
         franchise_name=o.get("franchise_name"),
         avatar_url=o.get("avatar_url"),
+        **owner_membership(entry, uid),
     )
 
 

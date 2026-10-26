@@ -1,3 +1,4 @@
+import { ownerNameWithStatus } from "@/lib/owner-membership";
 import type { DraftBoardOwner, OwnerNeedsResp, OwnerRef, SlotStandingResp } from "@/lib/types";
 import { Section as Card, SectionTitle as CardHead } from "@/components/furniture/Section";
 import { Panel } from "@/components/furniture/Panel";
@@ -100,7 +101,7 @@ interface Props {
 }
 
 function ownerName(o?: OwnerRef | null, fallbackId?: string): string {
-  return o?.owner_name ?? fallbackId ?? "Unknown";
+  return ownerNameWithStatus(o, fallbackId);
 }
 
 type Reading = { text: string; dim: boolean };

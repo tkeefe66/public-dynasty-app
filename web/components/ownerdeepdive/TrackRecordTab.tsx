@@ -1,4 +1,5 @@
 "use client";
+import { OwnerStatus } from "../OwnerStatus";
 
 import { Fragment } from "react";
 import { H2H, SeasonResult, TrackRecord } from "@/lib/types";
@@ -93,6 +94,7 @@ function H2HRow({ h }: { h: H2H }) {
     >
       <span className="min-w-0 truncate font-display text-figure font-bold tracking-[-0.02em]">
         {h.opponent.owner_name}
+        <OwnerStatus owner={h.opponent} />
       </span>
       <SplitBar winPct={winPct} />
       <span className={`text-right font-mono text-figure font-semibold tabular ${up ? "text-pos-strong" : even ? "text-dim" : "text-neg-strong"}`}>

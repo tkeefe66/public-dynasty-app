@@ -62,8 +62,7 @@ export function TradeSidePanel({
 
   const ownerBlock = (
     <OwnerLabel
-      owner={{ user_id: side.user_id, owner_name: side.owner_name,
-               team_name: side.team_name, avatar_url: side.avatar_url }}
+      owner={side}
       variant="full"
     />
   );

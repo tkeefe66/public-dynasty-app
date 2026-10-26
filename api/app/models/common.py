@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel
+from typing import Literal
 
 
 class OwnerRef(BaseModel):
@@ -12,3 +13,5 @@ class OwnerRef(BaseModel):
     team_name: str | None = None
     franchise_name: str | None = None
     avatar_url: str | None = None
+    membership_status: Literal["current", "former", "unverified"] = "unverified"
+    last_active_season: int | None = None

@@ -16,6 +16,9 @@ import { Row } from "./furniture/Row";
 import { CardList, EntryCard, Meta, MetaLine } from "./furniture/EntryCard";
 import { Name } from "./furniture/Name";
 import { SegmentControl } from "./SegmentControl";
+import { OwnerStatus } from "./OwnerStatus";
+import { OwnerPopulationControl } from "./OwnerPopulationControl";
+import { membershipRows, OwnerPopulation } from "@/lib/owner-membership";
 
 interface Props {
   /** WHICH LEDGER THIS INSTANCE DRAWS.
@@ -510,7 +513,16 @@ function LedgerEntry({ href, isYou, children }: { href: string; isYou: boolean; 
   );
 }
 
-export function StandingsTable({ sections = "franchises", yearControl, leagueId, rows, year, youUserId, ratingScope }: Props) {
+export function StandingsTable({ sections = "franchises", yearControl, leagueId, rows: allRows, year, currentSeason, youUserId, ratingScope }: Props) {
+  const [population, setPopulation] = useState<OwnerPopulation>("current");
+  const historical = year !== "all" && year < currentSeason;
+  const rows = useMemo(() => {
+    const filtered = membershipRows(allRows, population, historical);
+    if (historical || population === "all" || filtered.length === allRows.length) return filtered;
+    const order = [...filtered].sort((a, b) => rankOf(a) - rankOf(b));
+    const ranks = new Map(order.map((r, i) => [r.user_id, i + 1]));
+    return filtered.map((r) => ({ ...r, rank: ranks.get(r.user_id)!, gm_rank: ranks.get(r.user_id)!, gm_trend: 0 }));
+  }, [allRows, population, historical]);
   const showFranchises = sections === "franchises";
   const showTrades = sections === "trades";
   const router = useRouter();
@@ -592,6 +604,7 @@ export function StandingsTable({ sections = "franchises", yearControl, leagueId,
 
   return (
     <div className="mt-8">
+      {!historical && <OwnerPopulationControl value={population} onChange={setPopulation} />}
       {showFranchises && (
       <>
       {/* The year control RIDES THE HEAD IT FILTERS. It used to sit above
@@ -619,7 +632,7 @@ export function StandingsTable({ sections = "franchises", yearControl, leagueId,
                   <Row className={`items-center ${franchiseGrid} `}>
                     <div className="text-dim">{rankOf(r)}</div>
                     <div className="min-w-0 flex items-baseline gap-1">
-                      <Name title={franchiseLabel(r)}>{franchiseLabel(r)}</Name>
+                      <span className="min-w-0"><Name title={franchiseLabel(r)}>{franchiseLabel(r)}</Name><OwnerStatus owner={r.owner} /></span>
                       {isYou && <span className="font-mono text-label tracking-[0.11em] text-dim shrink-0">YOU</span>}
                     </div>
                     <div>{r.season_record ?? <span className="text-dim">—</span>}</div>
@@ -737,7 +750,7 @@ export function StandingsTable({ sections = "franchises", yearControl, leagueId,
                   <div className="flex items-center gap-2.5">
                     <span className="shrink-0 font-mono text-figure tabular text-dim">{rankOf(r)}</span>
                     <span className="min-w-0 flex-1 flex items-baseline gap-1">
-                      <Name title={franchiseLabel(r)}>{franchiseLabel(r)}</Name>
+                      <span className="min-w-0"><Name title={franchiseLabel(r)}>{franchiseLabel(r)}</Name><OwnerStatus owner={r.owner} /></span>
                       {isYou && (
                         <span className="shrink-0 font-mono text-label tracking-[0.11em] text-stamp">YOU</span>
                       )}
@@ -796,7 +809,7 @@ export function StandingsTable({ sections = "franchises", yearControl, leagueId,
                   <Row className={`items-center ${TRADE_GRID} `}>
                     <div className="text-dim">{rankOf(r)}</div>
                     <div className="min-w-0 flex items-baseline gap-1">
-                      <Name title={franchiseLabel(r)}>{franchiseLabel(r)}</Name>
+                      <span className="min-w-0"><Name title={franchiseLabel(r)}>{franchiseLabel(r)}</Name><OwnerStatus owner={r.owner} /></span>
                       {isYou && <span className="font-mono text-label tracking-[0.11em] text-dim shrink-0">YOU</span>}
                     </div>
                     <div className={`text-right font-semibold ${signColor(r.net_ktc)}`}>{fmtSigned(r.net_ktc)}</div>
@@ -839,7 +852,7 @@ export function StandingsTable({ sections = "franchises", yearControl, leagueId,
                   <div className="flex items-center gap-2.5">
                     <span className="shrink-0 font-mono text-figure tabular text-dim">{rankOf(r)}</span>
                     <span className="min-w-0 flex-1 flex items-baseline gap-1">
-                      <Name title={franchiseLabel(r)}>{franchiseLabel(r)}</Name>
+                      <span className="min-w-0"><Name title={franchiseLabel(r)}>{franchiseLabel(r)}</Name><OwnerStatus owner={r.owner} /></span>
                       {isYou && (
                         <span className="shrink-0 font-mono text-label tracking-[0.11em] text-stamp">YOU</span>
                       )}

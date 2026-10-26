@@ -1,4 +1,5 @@
 "use client";
+import { ownerNameWithStatus } from "@/lib/owner-membership";
 
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
@@ -101,7 +102,7 @@ interface Props {
 }
 
 function ownerName(o?: OwnerRef | null, fallbackId?: string): string {
-  return o?.owner_name ?? fallbackId ?? "Unknown";
+  return ownerNameWithStatus(o, fallbackId);
 }
 
 /** PAR is `total − mean`, so a value can land in `(-0.05, 0)` — arithmetically

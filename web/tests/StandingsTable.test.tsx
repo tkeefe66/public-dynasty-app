@@ -59,6 +59,20 @@ beforeEach(() => {
 });
 
 describe("StandingsTable sections", () => {
+  it("defaults to current owners but preserves former owners in history", async () => {
+    // Mutation: omit population filter, or apply it to historical seasons.
+    const rows: StandingRow[] = ROWS.map((r, i) => ({ ...r, owner: { ...r.owner,
+      membership_status: i === 0 ? "former" : "current", last_active_season: 2024 } }));
+    const { rerender } = render(<StandingsTable leagueId="123" rows={rows} year="all" currentSeason={2026} />);
+    expect(screen.queryByText("Tom")).toBeNull();
+    expect(screen.getAllByText("Mike").length).toBeGreaterThan(0);
+    await userEvent.selectOptions(screen.getByLabelText("Owner population"), "all");
+    expect(screen.getAllByText("Tom").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Former owner · last played 2024").length).toBeGreaterThan(0);
+    await userEvent.selectOptions(screen.getByLabelText("Owner population"), "current");
+    rerender(<StandingsTable leagueId="123" rows={rows} year={2024} currentSeason={2026} />);
+    expect(screen.getAllByText("Tom").length).toBeGreaterThan(0);
+  });
   it("names season results Finish and reserves Trophy for the career view", () => {
     // Mutation: keeping the Trophy header for single-season finishes.
     const { rerender } = render(

@@ -1,5 +1,8 @@
 "use client";
 import { RatingScopeNotice } from "./RatingScopeNotice";
+import { OwnerStatus } from "./OwnerStatus";
+import { OwnerPopulationControl } from "./OwnerPopulationControl";
+import { membershipRows, OwnerPopulation } from "@/lib/owner-membership";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -174,6 +177,7 @@ function GmRowView({
           >
             {r.owner.owner_name}
           </span>
+          <OwnerStatus owner={r.owner} />
         </Link>
         {/* Rating + trend → expand the breakdown (secondary). */}
         <button
@@ -360,6 +364,7 @@ export function Leaderboard({ leagueId, initialYear, seasons, format }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [population, setPopulation] = useState<OwnerPopulation>("current");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -393,7 +398,10 @@ export function Leaderboard({ leagueId, initialYear, seasons, format }: Props) {
     router.push(`/league/${leagueId}?${sp.toString()}`);
   };
 
-  const rows = data?.rows ?? [];
+  const historical = initialYear !== "all" && initialYear < Math.max(...seasons);
+  const allRows = data?.rows ?? [];
+  const filtered = membershipRows(allRows, population, historical);
+  const rows = filtered.length === allRows.length ? filtered : filtered.map((r, i) => ({ ...r, rank: i + 1, trend: 0 }));
 
   // Format decides the pillar count, not row shape. This USED to check
   // `rows.some((r) => "outlook" in r.pillars)` — under v2 NO weight tree
@@ -424,6 +432,7 @@ export function Leaderboard({ leagueId, initialYear, seasons, format }: Props) {
         your league. Tap a row for the full receipt.
       </p>
       <RatingExplainer hasOutlook={hasOutlook} />
+      {!historical && <OwnerPopulationControl value={population} onChange={setPopulation} />}
       {rows.length > 0 && <RatingScopeNotice scope={data?.rating_scope} />}
 
       {error ? (

@@ -32,6 +32,21 @@ function resp(rows: GMRow[]): LeaderboardResp {
 }
 
 describe("Leaderboard", () => {
+  it("separates the default current ranking from all-owner history", async () => {
+    // Mutation: rank remaining owners with gaps after filtering former owners.
+    leaderboard.mockResolvedValue(resp([
+      row({ user_id: "gone", rank: 1, owner: { user_id: "gone", owner_name: "Gone", membership_status: "former" } }),
+      row({ user_id: "here", rank: 2, owner: { user_id: "here", owner_name: "Here", membership_status: "current" } }),
+    ]));
+    render(<Leaderboard leagueId="L1" initialYear="all" seasons={[2026, 2024]} />);
+    await screen.findByText("Here");
+    expect(screen.queryByText("Gone")).toBeNull();
+    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.queryByText("2")).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("Owner population"), "all");
+    expect(screen.getByText("Gone")).toBeInTheDocument();
+    expect(screen.getByText("Former owner")).toBeInTheDocument();
+  });
   beforeEach(() => {
     leaderboard.mockReset();
     push.mockClear();

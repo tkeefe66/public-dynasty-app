@@ -9,6 +9,8 @@ export interface OwnerRef {
   team_name?: string;
   franchise_name?: string;
   avatar_url?: string;
+  membership_status?: "current" | "former" | "unverified";
+  last_active_season?: number | null;
 }
 
 export interface LeagueSummary {
@@ -609,7 +611,7 @@ export interface StandingAtTrade {
   total_teams: number;
 }
 
-export interface TradeSideView {
+export interface TradeSideView extends OwnerRef {
   user_id: string;
   owner_name: string;
   team_name?: string;

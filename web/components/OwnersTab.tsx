@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ApiError, ownerDetail } from "@/lib/api";
 import { OwnerDetailResp, ProfilesMap, StandingRow } from "@/lib/types";
@@ -10,6 +10,7 @@ import { OwnerDeepDive } from "./OwnerDeepDive";
 import { franchiseLetterTone } from "./ownerdeepdive/util";
 import { IndeterminateBar } from "./furniture/IndeterminateBar";
 import { StateMessage } from "./furniture/StateMessage";
+import { ownerNameWithStatus } from "@/lib/owner-membership";
 
 /** Desktop swaps the pane inline; mobile lets the <Link> navigate to the full
  *  owner page (same deep-dive component). */
@@ -27,12 +28,26 @@ interface Props {
 }
 
 export function OwnersTab({ leagueId, owners, profiles, onProfilesChange, youUserId }: Props) {
+  const [showFormer, setShowFormer] = useState(false);
+  const { current, former, unverified } = useMemo(() => ({
+    current: owners.filter((o) => o.owner.membership_status === "current"),
+    former: owners.filter((o) => o.owner.membership_status === "former"),
+    unverified: owners.filter((o) => !o.owner.membership_status || o.owner.membership_status === "unverified"),
+  }), [owners]);
+  const selectable = useMemo(() => [...current, ...unverified, ...(showFormer ? former : [])],
+    [current, unverified, former, showFormer]);
   const [selected, setSelected] = useState<string | null>(
-    owners[0]?.user_id ?? null,
+    selectable[0]?.user_id ?? null,
   );
   const [details, setDetails] = useState<Record<string, OwnerDetailResp>>({});
   const [loadingUid, setLoadingUid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectable.some((o) => o.user_id === selected)) {
+      setSelected(selectable[0]?.user_id ?? null);
+    }
+  }, [selectable, selected]);
 
   useEffect(() => {
     if (!selected || details[selected]) return;
@@ -74,7 +89,7 @@ export function OwnersTab({ leagueId, owners, profiles, onProfilesChange, youUse
     .filter((o) => o.user_id !== selected)
     .map((o) => ({
       user_id: o.user_id,
-      name: winName(o.user_id, o.owner.owner_name, profiles),
+      name: ownerNameWithStatus({ ...o.owner, owner_name: winName(o.user_id, o.owner.owner_name, profiles) }),
     }));
 
   return (
@@ -86,9 +101,20 @@ export function OwnersTab({ leagueId, owners, profiles, onProfilesChange, youUse
       <nav aria-label="Franchises" className="flex flex-col gap-1 max-w-xl lg:max-w-none">
         <div className="flex justify-between items-baseline mb-1.5 px-1">
           <div className="text-prose font-bold tracking-tight">Franchise Grades</div>
-          <div className="font-mono text-figure text-dim">{owners.length}</div>
         </div>
-        {owners.map((o) => {
+        <p className="text-label text-dim px-1">{`${current.length} current · ${former.length} former${unverified.length ? ` · ${unverified.length} unverified` : ""}`}</p>
+        {[
+          { label: "Current owners", rows: current },
+          { label: "Membership unverified", rows: unverified },
+          { label: "Former owners", rows: former },
+        ].map((group) => group.rows.length > 0 && <div key={group.label}>
+          {group.label === "Former owners" ? (
+            <button type="button" className="text-figure text-dim py-3 px-1" aria-expanded={showFormer}
+              onClick={() => setShowFormer((value) => !value)}>
+              {showFormer ? "Hide" : "Show"} Former owners ({former.length})
+            </button>
+          ) : <div className="text-label text-dim px-1 pt-2">{group.label}</div>}
+          {(group.label !== "Former owners" || showFormer) && group.rows.map((o, index) => {
           const active = o.user_id === selected;
           const isYou = !!youUserId && o.user_id === youUserId;
           return (
@@ -110,7 +136,7 @@ export function OwnersTab({ leagueId, owners, profiles, onProfilesChange, youUse
                 + (isYou ? " you-marker" : "")
               }
             >
-              <span className="font-mono text-figure text-dim w-5 shrink-0">#{o.rank}</span>
+              <span className="font-mono text-figure text-dim w-5 shrink-0">{group.label === "Current owners" ? `#${index + 1}` : "—"}</span>
               <span className="min-w-0 flex-1 flex items-center gap-1.5">
                 <OwnerLabel owner={o.owner} variant="compact" />
                 {isYou && (
@@ -142,7 +168,7 @@ export function OwnersTab({ leagueId, owners, profiles, onProfilesChange, youUse
               })()}
             </Link>
           );
-        })}
+        })}</div>)}
       </nav>
 
       {/* Deep-dive pane (desktop only; mobile taps through to the full page) */}

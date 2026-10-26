@@ -4,6 +4,7 @@ import { FranchiseRating, OwnerDetailResp, ProseSegment, RankView, TrackRecord }
 import { Emphasis, isEmphasisKind } from "@/components/furniture/Emphasis";
 import { GenerationStamp, GenerationPeriod } from "@/components/GenerationStamp";
 import { StatStrip } from "./ui";
+import { OwnerStatus } from "../OwnerStatus";
 import { franchiseLetterTone, ordinal, ownerIdentitySlot } from "./util";
 
 /* ---------------------------------------------------------------------------
@@ -69,7 +70,7 @@ function VerdictRail({ fr }: { fr: FranchiseRating }) {
   return (
     <div className="shrink-0 text-right">
       <span
-        aria-label={`Grade ${fr.letter}, ranked ${fr.rank} of ${fr.of} rated`}
+        aria-label={`Grade ${fr.letter}, ranked ${fr.rank} of ${fr.of} rated, all-owner career ranking`}
         className={`font-display text-[length:var(--nameplate-2-sm)] min-[701px]:text-[length:var(--nameplate-1)] font-extrabold leading-[0.9] tracking-[var(--track-nameplate)] ${franchiseLetterTone(fr.letter)}`}
       >
         {fr.letter}
@@ -216,6 +217,7 @@ export function HeroBand({
           <h1 className="font-display text-lead min-[701px]:text-nameplate font-extrabold tracking-[-0.034em] leading-[0.95]">
             {detail.owner.owner_name}
           </h1>
+          <OwnerStatus owner={detail.owner} />
           {(archetype || rivalNames.length > 0) && (
             <div className="mt-1.5 font-mono text-label uppercase tracking-[0.11em] text-dim">
               {archetype}

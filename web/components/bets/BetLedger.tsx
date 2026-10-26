@@ -1,4 +1,5 @@
 "use client";
+import { OwnerStatus } from "../OwnerStatus";
 
 import { Fragment, useState } from "react";
 import type { SideBetUpdateBody, SideBetView } from "@/lib/types";
@@ -167,11 +168,11 @@ export function BetLedger({
             <Row cols="minmax(0,1fr) 84px">
               <span className="min-w-0 truncate">
                 <span className="font-display font-bold tracking-[-0.02em] text-ink">
-                  {bet.side_a.owner_name}
+                  {bet.side_a.owner_name}<OwnerStatus owner={bet.side_a} />
                 </span>
                 <span className="mx-1 text-label uppercase tracking-[0.1em]">vs</span>
                 <span className="font-display font-bold tracking-[-0.02em] text-ink">
-                  {bet.side_b.owner_name}
+                  {bet.side_b.owner_name}<OwnerStatus owner={bet.side_b} />
                 </span>
                 <span className="ml-2 text-label tabular">
                   {bet.season} · {bet.made_at}
@@ -220,7 +221,12 @@ export function BetLedger({
               </div>
 
               <MetaLine>
-                <Meta>{`${bet.side_a.owner_name} vs ${bet.side_b.owner_name}`}</Meta>
+                <Meta>{`${bet.side_a.owner_name} vs ${bet.side_b.owner_name}`}
+                  {bet.side_a.membership_status && bet.side_a.membership_status !== "current" &&
+                    <span className="block">{bet.side_a.owner_name}: <OwnerStatus owner={bet.side_a} /></span>}
+                  {bet.side_b.membership_status && bet.side_b.membership_status !== "current" &&
+                    <span className="block">{bet.side_b.owner_name}: <OwnerStatus owner={bet.side_b} /></span>}
+                </Meta>
                 <Meta label="Season">{bet.season}</Meta>
                 <Meta label="Made">{fmtDateShort(bet.made_at)}</Meta>
                 <StatusMeta bet={bet} />

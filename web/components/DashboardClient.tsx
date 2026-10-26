@@ -271,6 +271,7 @@ export function DashboardClient({ leagueId, initialYear, initialLens, initialTab
           // own horizontal margins.
           <div className="mt-[var(--gutter-sm)] min-[701px]:mt-[var(--gutter)]">
             <OwnersTab
+              key={leagueId}
               leagueId={leagueId}
               owners={data.standings}
               profiles={profiles}

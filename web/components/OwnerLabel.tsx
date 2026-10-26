@@ -1,4 +1,5 @@
 import { OwnerRef } from "@/lib/types";
+import { OwnerStatus } from "./OwnerStatus";
 
 interface Props {
   owner: OwnerRef;
@@ -73,6 +74,7 @@ export function OwnerLabel({ owner, variant = "full", size = "md", nameAs: NameT
         <NameTag className={`block ${nameSize} text-ink leading-tight truncate`}>
           {owner.owner_name}
         </NameTag>
+        <OwnerStatus owner={owner} />
       </span>
     </span>
   );

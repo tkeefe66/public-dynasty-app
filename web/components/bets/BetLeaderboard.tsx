@@ -1,3 +1,4 @@
+import { OwnerStatus } from "../OwnerStatus";
 import type { OwnerBetSummary } from "@/lib/types";
 import { formatCents, formatSignedCents } from "@/lib/money";
 import { Section as Card, SectionTitle as CardHead } from "@/components/furniture/Section";
@@ -59,7 +60,7 @@ export function BetLeaderboard({ rows }: { rows: OwnerBetSummary[] }) {
         {rows.map((r) => (
           <Row key={r.owner.user_id} cols={GRID}>
             <div className="min-w-0 truncate font-display font-bold tracking-[-0.02em] text-ink">
-              {r.owner.owner_name}
+              {r.owner.owner_name}<OwnerStatus owner={r.owner} />
             </div>
             <div className="text-right">
               {r.won}-{r.lost}-{r.pushed}
@@ -84,7 +85,7 @@ export function BetLeaderboard({ rows }: { rows: OwnerBetSummary[] }) {
             <EntryCard key={r.owner.user_id}>
               <div className="flex items-center gap-2.5">
                 <span className="min-w-0 flex-1">
-                  <Name title={r.owner.owner_name}>{r.owner.owner_name}</Name>
+                  <span><Name title={r.owner.owner_name}>{r.owner.owner_name}</Name><OwnerStatus owner={r.owner} /></span>
                 </span>
                 <span className="shrink-0 grid justify-items-end">
                   <span

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+from app.models.common import OwnerRef
 
 
 class StandingAtTrade(BaseModel):
@@ -52,7 +53,7 @@ class AssetFlip(BaseModel):
 AssetLine.model_rebuild()
 
 
-class TradeSideView(BaseModel):
+class TradeSideView(OwnerRef):
     user_id: str
     owner_name: str
     team_name: str | None = None

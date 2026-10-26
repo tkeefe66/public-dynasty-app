@@ -338,6 +338,8 @@ def build_trade_detail(
             owner_name=ref.owner_name,
             team_name=ref.team_name,
             avatar_url=ref.avatar_url,
+            membership_status=ref.membership_status,
+            last_active_season=ref.last_active_season,
             received=side.get("received") or [],
             given=side.get("given") or [],
             snapshot_ktc_swing=float(

@@ -1,4 +1,5 @@
 "use client";
+import { ownerNameWithStatus } from "@/lib/owner-membership";
 
 import { useMemo, useState } from "react";
 import type { DraftBoardOwner, DraftBoardPick, OwnerRef } from "@/lib/types";
@@ -85,7 +86,7 @@ interface Props {
 type View = "owner" | "pick";
 
 function ownerName(o?: OwnerRef | null, fallbackId?: string): string {
-  return o?.owner_name ?? fallbackId ?? "Unknown";
+  return ownerNameWithStatus(o, fallbackId);
 }
 
 /** PAR is `total − mean`, so a value can land in `(-0.05, 0)` — arithmetically
