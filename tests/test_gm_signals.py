@@ -1,5 +1,71 @@
+import json
+from pathlib import Path
+
+import pytest
+
 from sleeper_dynasty.engine.gm_signals import outcome_signals
 from sleeper_dynasty.engine.standings import StandingRow
+
+
+@pytest.fixture
+def seven_team_bracket():
+    # Captured provider bracket, roster identities remapped by first appearance.
+    return json.loads((Path(__file__).parent / "fixtures/seven_team_bracket.json").read_text())
+
+
+def test_seven_team_consolation_advancement_is_not_title_depth(seven_team_bracket):
+    # Mutation: p=None awards the consolation semifinal winner a title-path win.
+    from sleeper_dynasty.engine.gm_signals import bracket_placements, bracket_results
+    owners = {i: str(i) for i in range(1, 9)}
+    results = bracket_results(seven_team_bracket, owners)
+    assert results == {
+        "1": {"champion": False, "runner_up": False, "rounds_won": 1},
+        "3": {"champion": True, "runner_up": False, "rounds_won": 3},
+        "6": {"champion": False, "runner_up": True, "rounds_won": 2},
+    }
+    placements = bracket_placements(seven_team_bracket, owners)
+    assert {u: p["place"] for u, p in placements.items()} == {
+        "1": 3, "2": 7, "3": 1, "4": 5, "5": 6, "6": 2, "7": 4,
+    }
+    assert placements["4"]["rounds_won"] == 0
+    assert "8" not in placements
+
+
+@pytest.mark.parametrize("edge", [{"w": 6}, {"l": 4}, {"w": 999}])
+def test_title_ancestry_rejects_conflicting_explicit_reference(seven_team_bracket, edge):
+    # Mutation: ignoring t1_from lets a contradictory title path look valid.
+    from sleeper_dynasty.engine.gm_signals import bracket_results
+    seven_team_bracket[6]["t1_from"] = edge
+    with pytest.raises(ValueError, match="bracket"):
+        bracket_results(seven_team_bracket, {i: str(i) for i in range(1, 8)})
+
+
+def test_partial_seven_team_bracket_retains_only_proven_title_wins(seven_team_bracket):
+    # Mutation: classifying every completed unlabelled game counts m6 mid-playoffs.
+    from sleeper_dynasty.engine.gm_signals import bracket_placements
+    for game in seven_team_bracket[6:]:
+        game.pop("w")
+        game.pop("l")
+    placements = bracket_placements(seven_team_bracket, {i: str(i) for i in range(1, 8)})
+    assert placements["4"]["rounds_won"] == 0
+    assert placements["3"]["rounds_won"] == 2
+    assert all(row["place"] is None for row in placements.values())
+
+
+def test_title_ancestry_rejects_ambiguous_implicit_feeder(seven_team_bracket):
+    # Mutation: choosing the first of duplicate earlier wins silently invents ancestry.
+    from sleeper_dynasty.engine.gm_signals import bracket_results
+    seven_team_bracket.append({"m": 99, "r": 1, "w": 6, "l": 8})
+    with pytest.raises(ValueError, match="bracket"):
+        bracket_results(seven_team_bracket, {i: str(i) for i in range(1, 9)})
+
+
+def test_title_ancestry_rejects_result_outside_resolved_participants(seven_team_bracket):
+    # Mutation: trusting result fields that contradict resolved slots awards a false champion.
+    from sleeper_dynasty.engine.gm_signals import bracket_results
+    seven_team_bracket[6]["w"] = 4
+    with pytest.raises(ValueError, match="bracket"):
+        bracket_results(seven_team_bracket, {i: str(i) for i in range(1, 8)})
 
 
 def _row(uid, rank, pf):

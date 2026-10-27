@@ -32,6 +32,7 @@ from app.services.season_ratings import (
     historical_results_digest,
 )
 from sleeper_dynasty.api.nfl_schedule import parse_scoreboard
+from sleeper_dynasty.engine.brackets import implicit_seventh, title_path
 from sleeper_dynasty.engine.gm_rating import rating_to_letter
 from sleeper_dynasty.engine.playoff_phase import weeks_for_round
 from sleeper_dynasty.engine.standings import standings_as_of
@@ -72,9 +73,10 @@ def validate_brackets(
             populations.append(set())
             continue
         participants = {g.get(k) for g in games for k in ("w", "l")}
-        title_games = [g for g in games if g.get("p") in (None, 1)]
+        title_indices, _ = title_path(games)
+        implicit = implicit_seventh(games, title_indices) if size == 7 else {}
         placements = [g for g in games if g.get("p") is not None]
-        placed = [g[k] for g in placements for k in ("w", "l")]
+        placed = [g.get(k) for g in placements for k in ("w", "l")] + list(implicit)
         if (
             not games
             or len({g.get("m") for g in games}) != len(games)
@@ -82,7 +84,7 @@ def validate_brackets(
             or None in participants
             or not participants <= set(roster_ids)
             or len(participants) != size
-            or len(title_games) != size - 1
+            or len(title_indices) != size - 1
             or sum(g.get("p") == 1 for g in games) != 1
             or len(placed) != size
             or set(placed) != participants

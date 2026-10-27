@@ -183,6 +183,59 @@ def test_pick_replay_requires_previous_owner_and_cutoff():
         reconstruct_picks([1, 2], 2025, 1, tx, 200)
 
 
+def test_exact_cutoff_drop_resolution_requires_latest_completed_movement():
+    from app.services.historical_backfill import reconcile_rosters
+
+    current = [{"roster_id": 1, "players": ["a"]}, {"roster_id": 2, "players": ["b"]}]
+    final = [
+        {"roster_id": 1, "players": ["a", "DEF"]},
+        {"roster_id": 2, "players": ["b"]},
+    ]
+    tx = [
+        {
+            "transaction_id": "drop",
+            "status": "complete",
+            "status_updated": 100,
+            "drops": {"DEF": 1},
+            "adds": None,
+        }
+    ]
+    resolution = {"player_id": "DEF", "roster_id": 1, "transaction_id": "drop"}
+    with pytest.raises(ValueError, match="do not reconcile"):
+        reconcile_rosters(current, final, tx, 200)
+    assert reconcile_rosters(
+        current, final, tx, 200, verified_pre_cutoff_drops=[resolution]
+    ) == {"a": 1, "b": 2}
+    for bad in (
+        {**resolution, "roster_id": 2},
+        {**resolution, "transaction_id": "other"},
+    ):
+        with pytest.raises(ValueError, match="drop evidence"):
+            reconcile_rosters(current, final, tx, 200, verified_pre_cutoff_drops=[bad])
+    later = {
+        "transaction_id": "later",
+        "status": "complete",
+        "status_updated": 150,
+        "adds": {"DEF": 2},
+    }
+    with pytest.raises(ValueError, match="drop evidence"):
+        reconcile_rosters(
+            current, final, tx + [later], 200, verified_pre_cutoff_drops=[resolution]
+        )
+    with pytest.raises(ValueError, match="drop evidence"):
+        reconcile_rosters(
+            current,
+            final,
+            tx + [{**later, "status_updated": 100}],
+            200,
+            verified_pre_cutoff_drops=[resolution],
+        )
+    with pytest.raises(ValueError, match="drop evidence"):
+        reconcile_rosters(
+            current, final, tx, 50, verified_pre_cutoff_drops=[resolution]
+        )
+
+
 def test_receipts_replay_offline_and_detect_corruption(tmp_path):
     # Mutation: refetch cached requests or trust altered evidence bytes.
     from app.services.historical_backfill import EvidenceClient

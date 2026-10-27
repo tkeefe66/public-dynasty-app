@@ -12,6 +12,49 @@ from app.services.historical_rating_assets import (
 )
 
 
+def seven_team_evidence():
+    fixture = Path(__file__).resolve().parents[3] / "tests/fixtures/seven_team_bracket.json"
+    winners = json.loads(fixture.read_text())
+    losers = json.loads(fixture.read_text())
+    for game in losers:
+        for key in ("w", "l", "t1", "t2"):
+            game[key] += 7
+    matchups = {}
+    for game in winners + losers:
+        for rid, opponent, score in [(game["w"], game["l"], 100), (game["l"], game["w"], 90)]:
+            matchups["fixture", 14 + game["r"], rid] = {
+                "opponent_roster_id": opponent, "team_points": score,
+            }
+    return winners, losers, {
+        "matchups": matchups, "league_id": "fixture", "playoff_start": 15, "final_week": 17,
+    }
+
+
+def test_complete_seven_team_brackets_accept_elimination_proven_seventh():
+    # Mutation: p=None title count and explicit-only placement count reject valid 7-team evidence.
+    from app.services.historical_backfill_run import validate_brackets
+    winners, losers, kwargs = seven_team_evidence()
+    validate_brackets(winners, losers, list(range(1, 15)), 7, **kwargs)
+
+
+def test_seven_team_bracket_does_not_invent_absent_participant():
+    # Mutation: inferring missing roster placement from league population would allow missing evidence.
+    from app.services.historical_backfill_run import validate_brackets
+    winners, losers, kwargs = seven_team_evidence()
+    with pytest.raises(ValueError, match="postseason bracket"):
+        validate_brackets(winners, losers, list(range(1, 16)), 7, **kwargs)
+
+
+def test_seven_team_bracket_requires_consolation_elimination_evidence():
+    # Mutation: assign seventh to the leftover roster even without the decisive elimination game.
+    from app.services.historical_backfill_run import validate_brackets
+    winners, losers, kwargs = seven_team_evidence()
+    winners.pop(5)
+    winners[-1].pop("t2_from")
+    with pytest.raises(ValueError, match="postseason bracket"):
+        validate_brackets(winners, losers, list(range(1, 15)), 7, **kwargs)
+
+
 @pytest.fixture
 def season_source():
     """Synthetic ownership, real sanitized schedule shape, two complete teams."""

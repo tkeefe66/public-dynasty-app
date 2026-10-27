@@ -196,9 +196,17 @@ def roster_sets(rows):
     return result
 
 
-def reconcile_rosters(current_rosters, final_matchups, transactions, cutoff_ms):
+def reconcile_rosters(
+    current_rosters,
+    final_matchups,
+    transactions,
+    cutoff_ms,
+    *,
+    verified_pre_cutoff_drops=(),
+):
     current, final = roster_sets(current_rosters), roster_sets(final_matchups)
-    for tx in reversed(completed_transactions(transactions)):
+    completed = completed_transactions(transactions)
+    for tx in reversed(completed):
         if tx["status_updated"] < cutoff_ms:
             continue
         for pid, rid in (tx.get("adds") or {}).items():
@@ -209,6 +217,35 @@ def reconcile_rosters(current_rosters, final_matchups, transactions, cutoff_ms):
             if rid not in current or any(pid in ids for ids in current.values()):
                 raise ValueError("Cannot reconcile post-cutoff roster drop.")
             current[rid].add(pid)
+    resolved = set()
+    for evidence in verified_pre_cutoff_drops:
+        pid, rid = evidence["player_id"], evidence["roster_id"]
+        movements = [
+            tx
+            for tx in completed
+            if tx["status_updated"] < cutoff_ms
+            and (pid in (tx.get("adds") or {}) or pid in (tx.get("drops") or {}))
+        ]
+        last = movements[-1] if movements else {}
+        if (
+            pid in resolved
+            or sum(
+                tx["status_updated"] == last.get("status_updated") for tx in movements
+            )
+            != 1
+            or last.get("transaction_id") != evidence["transaction_id"]
+            or (last.get("drops") or {}).get(pid) != rid
+            or pid in (last.get("adds") or {})
+            or pid not in final.get(rid, set())
+            or any(pid in ids for ids in current.values())
+        ):
+            raise ValueError(
+                "Verified pre-cutoff drop evidence does not match final roster and latest ownership movement."
+            )
+        # A final-week lineup is not an ownership snapshot after subsequent
+        # transactions. Resolve only the explicitly evidenced dropped player.
+        final[rid].remove(pid)
+        resolved.add(pid)
     if current != final:
         raise ValueError(
             "Cutoff rosters do not reconcile with final-week player lists."

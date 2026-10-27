@@ -9,6 +9,7 @@ for a pillar; every requested owner gets an entry (zero defaults when absent).
 
 from __future__ import annotations
 
+from sleeper_dynasty.engine.brackets import implicit_seventh, title_path
 from sleeper_dynasty.engine.standings import StandingRow
 
 
@@ -77,24 +78,16 @@ def bracket_results(
 ) -> dict[str, dict]:
     """Per owner: ``{champion: bool, runner_up: bool, rounds_won: int}`` from a
     Sleeper winners-bracket. ``rounds_won`` counts title-path wins; the
-    championship game is the ``p == 1`` match (or the highest round)."""
+    championship game is the ``p == 1`` match (or a unique highest round)."""
     games = winners_bracket or []
+    path, final = title_path(games)
     rounds_won: dict[int, int] = {}
-    for g in games:
-        if g.get("p") not in (None, 1):
-            continue  # skip consolation/placement games (3rd place, etc.)
+    for index in path:
+        g = games[index]
         w = g.get("w")
         if w is not None:
             rounds_won[w] = rounds_won.get(w, 0) + 1
 
-    final = None
-    p1 = [g for g in games if g.get("p") == 1]
-    if p1:
-        final = p1[0]
-    elif games:
-        maxr = max((g.get("r") or 0) for g in games)
-        finals = [g for g in games if (g.get("r") or 0) == maxr]
-        final = finals[0] if finals else None
     champ_rid = final.get("w") if final else None
     runner_rid = final.get("l") if final else None
 
@@ -124,13 +117,15 @@ def bracket_placements(
     Unlike :func:`bracket_results`, this returns *every* roster that played a
     game — including first-round losers — so playoff participation is no longer
     lost. A roster eliminated before any placement game (rare brackets without
-    full consolation games) gets ``place = None`` but is still present.
+    full consolation games) gets ``place = None`` but is still present. The
+    verified seven-team structure also proves seventh by consolation elimination.
     """
     games = bracket or []
+    path, _ = title_path(games)
     participants: set[int] = set()
-    place_by_rid: dict[int, int] = {}
+    place_by_rid: dict[int, int] = implicit_seventh(games, path)
     rounds_won: dict[int, int] = {}
-    for g in games:
+    for index, g in enumerate(games):
         # Sleeper can populate t1/t2 with projected seeds during the regular
         # season. Only a recorded result proves that a team played this game.
         for key in ("w", "l"):
@@ -138,7 +133,7 @@ def bracket_placements(
             if isinstance(rid, int):
                 participants.add(rid)
         # Title-path wins (mirror bracket_results): advancement + championship.
-        if g.get("p") in (None, 1):
+        if index in path:
             w = g.get("w")
             if isinstance(w, int):
                 rounds_won[w] = rounds_won.get(w, 0) + 1
