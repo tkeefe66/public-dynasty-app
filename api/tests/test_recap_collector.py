@@ -255,7 +255,8 @@ async def test_authorization_requires_ready_episode_and_bound_digest(maker, enab
         from app.services.generation.models import stamp
         row.state, row.generation, row.lease_until = "running", 1, stamp() + 600
     async with maker.begin() as db:
-        await observe_period(db, key, {**s, "schedule_revision": "changed"}, 5500)
+        await observe_period(db, key, {**s, "observed_games": [
+            {**s["observed_games"][0], "home": "NYJ"}]}, 5500)
     transport = FakeTransport()
     from app.services.generation.gateway import Gateway
     with pytest.raises(Held, match="facts_unstable"):
@@ -411,7 +412,8 @@ async def test_failed_manual_authorization_never_admits(maker, enabled, block, c
         elif block == "incomplete":
             await observe_period(db, key, {**s, "observed_games": []}, 5500)
         elif block == "changed":
-            revised = {**s, "schedule_revision": "new"}
+            revised = {**s, "observed_games": [
+                {**s["observed_games"][0], "home": "NYJ"}]}
             await observe_period(db, key, revised, 5500)
             await observe_period(db, key, revised, 9100)
         with pytest.raises((Held, ValueError), match=code):

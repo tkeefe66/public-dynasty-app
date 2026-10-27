@@ -9,6 +9,32 @@ from app.services.generation.models import (ArtifactHead, ContentArtifact,
 from app.services.generation.store import digest
 
 
+def workflow_evidence(job, episode, now):
+    """Only content/workflow changes count; repeated import completion does not."""
+    if job and job.kind == 'generation':
+        progress = [job.id, job.state, job.generation, job.calls, job.progress_json]
+    elif job and job.state in ('held', 'needs_attention'):
+        progress = ['import_blocked', job.state, job.reason]
+    else:
+        progress = ['awaiting_article']
+    result = {}
+    if episode:
+        progress += [episode.episode_id, episode.lifecycle, episode.hold, episode.facts_digest]
+        gate = max(episode.eligible_at,
+            episode.stable_since + 3600 if episode.hold == 'facts_unstable' else 0)
+        if episode.hold and episode.hold not in ('facts_unstable', 'release_not_due'):
+            action = ('Inspect changed earlier-week evidence before recovering this recap; no replacement writing is authorized'
+                      if episode.hold.startswith('recap_dependency') else
+                      'Inspect this recap’s readiness hold in Admin; no replacement writing is authorized')
+            result.update(status='help', reason=episode.hold, episode_id=episode.episode_id,
+                          action=action, recoverable=False)
+        elif gate > now:
+            result.update(status='waiting', reason=episode.hold or 'release_not_due',
+                          gate=gate, recoverable=False)
+    result['progress'] = digest(progress)
+    return result
+
+
 def game_gate(expected, observed, now):
     expected_ids = [g['event_id'] for g in expected]
     observed_ids = [g['event_id'] for g in observed]

@@ -26,6 +26,33 @@ def test_live_roster_and_projected_bracket_do_not_change_historical_facts():
     assert competitive_digest(source) == competitive_digest(live_change(source))
 
 
+def test_inventory_revision_alone_does_not_reset_completed_period_stability():
+    from app.services.recap_video.readiness import evaluate_readiness
+    old = snapshot()
+    changed = {**old, 'schedule_revision': 'next-week-schedule-refresh'}
+    assert competitive_digest(old) == competitive_digest(changed)
+    assert evaluate_readiness(changed, old, 4600).ready
+
+
+@pytest.mark.asyncio
+async def test_schedule_metadata_rollout_preserves_existing_authority(maker, tmp_path, monkeypatch):
+    from app.services.generation.store import digest
+    from app.services.recap_video.readiness import competitive_facts
+    from app.services.recap_video.corrections import observe_correction
+    ident = await ready_article(maker, tmp_path, monkeypatch)
+    legacy, _ = await legacy_for_canonical(maker)
+    async with maker.begin() as db:
+        episode = await db.get(RecapEpisode, ident)
+        old = await db.get(RecapObservation, episode.latest_observation_id)
+        source = json.loads(old.snapshot_json)
+        old_hash = digest({**competitive_facts(source), 'schedule_revision': source['schedule_revision']})
+        old.facts_digest = episode.facts_digest = old_hash
+        result = await observe_correction(db, ident, {**source, 'schedule_revision': 'updated-inventory'}, 6400)
+        assert result['withdrawn'] == []
+        assert episode.facts_digest == old_hash
+        assert not (await db.get(RecapPublication, legacy)).withdrawn
+
+
 @pytest.mark.parametrize('field', ['score', 'starter', 'owner', 'scoring', 'postseason'])
 def test_competitive_changes_remain_detectable(field):
     # Mutation: drop actual period scores, lineup, ownership, scoring or playoff evidence.

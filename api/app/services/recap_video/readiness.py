@@ -27,6 +27,10 @@ def competitive_facts(snapshot: dict) -> dict:
     historical facts or correction triggers.
     """
     facts = {k: snapshot.get(k) for k in FACT_FIELDS}
+    # Inventory revisions cover the whole season, including unrelated future
+    # games. This period's exact games, identities and completion remain facts;
+    # the global revision stays in immutable source evidence only.
+    facts.pop('schedule_revision', None)
     facts['participants'] = [{k: participant[k] for k in
         ('roster_id', 'owner_id', 'owner_name', 'co_owners', 'status') if k in participant}
         for participant in snapshot.get('participants') or []]
@@ -56,7 +60,10 @@ async def previous_competitive_digest(db, episode) -> str:
         if digest(source) != old.snapshot_digest:
             continue
         semantic = competitive_digest(source)
-        if episode.facts_digest in (semantic, digest({k: source.get(k) for k in FACT_FIELDS})):
+        legacy_semantic = digest({**competitive_facts(source),
+                                  'schedule_revision': source.get('schedule_revision')})
+        if episode.facts_digest in (semantic, legacy_semantic,
+                                    digest({k: source.get(k) for k in FACT_FIELDS})):
             return semantic
     return episode.facts_digest
 

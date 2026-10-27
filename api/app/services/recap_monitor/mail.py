@@ -25,6 +25,8 @@ def message(item, recipient, sender):
     if cause == 'results_not_ready' or item.get('reason') == 'results_not_ready':
         week = item.get('readiness_week') or item.get('week', '?')
         reason = f"Week {week} results are incomplete. Provider scores or lineups are not ready; AI writing has not started."
+    elif item.get('reason') == 'recap_dependency_changed':
+        reason = 'This recap is blocked because earlier-week evidence was marked as changed. Data refreshes may succeed while writing remains blocked.'
     elif cause:
         reason += '. Job cause: ' + str(cause).replace('_', ' ')
     action = str(item.get('action', 'Review the recap monitor in the admin dashboard.'))

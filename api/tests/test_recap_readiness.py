@@ -89,11 +89,11 @@ def test_unresolved_event_status_holds(status):
     assert evaluate(s, s).ready
 
 
-@pytest.mark.parametrize("key", ["schedule_revision", "scores", "starters"])
+@pytest.mark.parametrize("key", ["observed_games", "scores", "starters"])
 def test_competitive_change_resets_stability(key):
     s, old = snapshot(), snapshot()
-    if key == "schedule_revision":
-        s[key] = "new-revision"
+    if key == "observed_games":
+        s[key][0]['home'] = "NYJ"
     elif key == "scores":
         s[key]["4"][0]["custom_points"] = "100.0200"
     else:

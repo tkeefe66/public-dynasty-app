@@ -11,7 +11,7 @@ from app.services.generation.models import LeagueSeason, LeagueSeries
 from app.services.generation.recap_budget import get_budget_view
 from app.services.generation.store import digest, resolve_policy
 from app.services.platform_client import connected_client
-from app.services.recap_monitor.evidence import game_gate, job_evidence, publication_proof, requires_recovery
+from app.services.recap_monitor.evidence import game_gate, job_evidence, publication_proof, requires_recovery, workflow_evidence
 from app.services.recap_monitor.state import ZONE
 from app.services.recap_video.periods import scoring_period
 from sleeper_dynasty.api.nfl_inventory import fetch_inventory
@@ -113,9 +113,6 @@ async def collect(config, maker, cache_dir, now, previous):
                     continue
                 old = previous.get(item['key'], {})
                 item.update(recovery_attempts=old.get('recovery_attempts', 0))
-                if old.get('status') == 'complete':
-                    observations.append(old)
-                    continue
                 gate = await completed(period)
                 if gate['status'] != 'ready':
                     observations.append({**item, **gate, 'progress': digest(gate)})
@@ -144,12 +141,11 @@ async def collect(config, maker, cache_dir, now, previous):
                         if job.kind == 'generation':
                             item['first_ready_observed_at'] = old.get('first_ready_observed_at', now)
                             item['generation_created_at'] = job.created_at
-                    item['progress'] = digest([job.id, job.state, job.generation, job.calls,
-                        job.updated_at, job.progress_json] if job else ['awaiting_provider_rollover'])
                     gates = [job.next_attempt_at] if job and job.next_attempt_at > now else []
                     from app.services.generation.recap_models import RecapEpisode
                     episode = await db.scalar(select(RecapEpisode).where(RecapEpisode.series_id == series_id,
                         RecapEpisode.season == year, RecapEpisode.period_id == period['period_id']))
+                    item.update(workflow_evidence(job, episode, now))
                     if episode and episode.eligible_at > now:
                         gates.append(episode.eligible_at)
                     if episode and episode.hold == 'facts_unstable' and episode.stable_since + 3600 > now:
@@ -158,7 +154,7 @@ async def collect(config, maker, cache_dir, now, previous):
                     account = await db.get(ProviderAccountControl, ('anthropic', get_settings().anthropic_account_alias))
                     if account and account.cooldown_until > now:
                         gates.append(account.cooldown_until)
-                    if gates:
+                    if gates and item['status'] != 'help':
                         item.update(status='waiting', gate=max(gates), recoverable=False)
                     observations.append(item)
         except Exception as exc:
