@@ -494,7 +494,10 @@ async def admit_provider_allocation(db, job, stage, request, saved, current, now
     obligations = await _obligations(db)
     if recap:
         _check_balances(obligations, job.series_id, episode, _caps(policy), now)
-        if any(r["episode"] == episode and (r["unknown"] or r["outcome_unknown"]) for r in obligations):
+        from app.services.generation.analyst_review_recovery import dispositioned
+        approved_unknown = await dispositioned(db, job) if job.feature == "analyst" else set()
+        if any(r["episode"] == episode and (r["unknown"] or r["outcome_unknown"])
+               and (r.get("attempt_id") not in approved_unknown or r["unbounded"]) for r in obligations):
             raise Held("recap_provider_outcome_unknown")
     await _check_app(db, obligations, now)
     return row

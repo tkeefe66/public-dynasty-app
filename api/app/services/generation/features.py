@@ -79,6 +79,11 @@ def validate(feature, result, facts, raw=None):
 
 
 async def generate(job, gateway):
+    if job.feature == "analyst":
+        from app.services.generation.analyst_review_recovery import generate_recovery
+        recovered = await generate_recovery(job, gateway)
+        if recovered is not None:
+            return recovered
     saved = json.loads(job.payload_json)
     policy = json.loads(job.policy_json)["policy"]["features"][job.feature]
     managed = ManagedClient(gateway, job.id, job.generation, asyncio.get_running_loop(), policy["max_tokens"])

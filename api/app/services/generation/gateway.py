@@ -46,6 +46,10 @@ class Gateway:
         async with self.maker.begin() as db:
             control = await lock_control(db)
             job = await require_owner(db, operation_id, generation)
+            from app.services.generation.analyst_review_recovery import require_recovery
+            recovery = await require_recovery(db, job) if job.feature == "analyst" else None
+            if recovery and (stage != 3 or request_hash != recovery[0]["source"]["request_digest"]):
+                raise Held("lost_review_request_changed")
             previous = await db.scalar(select(ProviderAttempt).where(
                 ProviderAttempt.operation_id == job.id, ProviderAttempt.stage == stage))
             if previous:

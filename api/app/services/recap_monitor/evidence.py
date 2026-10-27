@@ -93,6 +93,12 @@ async def publication_proof(db, cache_dir, league_id, season, week):
         # The public archive adds original_markdown while loading revisions.
         comparable = {k: editions[0].get(k) for k in payload if k != 'original_markdown'}
         canonical = {k: v for k, v in payload.items() if k != 'original_markdown'}
+        from app.services.generation.analyst_review_recovery import publication_attempts
+        from app.services.generation.store import Held
+        try:
+            attempts = await publication_attempts(db, job, payload, attempts)
+        except Held:
+            continue
         if (digest(payload) != artifact.digest or digest(comparable) != digest(canonical)
                 or not review_approved(attempts)):
             continue

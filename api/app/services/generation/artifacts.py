@@ -79,8 +79,12 @@ async def save_artifact(db, operation_id, generation, validated):
         raise Held("validation_changed")
     attempts = (await db.scalars(select(ProviderAttempt).where(
         ProviderAttempt.operation_id == job.id).order_by(ProviderAttempt.stage))).all()
-    if (not attempts or len(attempts) != validated.stages or len(attempts) != job.calls
-            or any(a.state != "received" or a.usage_state != "known" or a.error_code for a in attempts)):
+    if not attempts or len(attempts) != validated.stages or len(attempts) != job.calls:
+        raise Held("validation_checkpoints_missing")
+    if job.feature == "analyst":
+        from app.services.generation.analyst_review_recovery import publication_attempts
+        attempts = await publication_attempts(db, job, validated.payload, attempts)
+    if any(a.state != "received" or a.usage_state != "known" or a.error_code for a in attempts):
         raise Held("validation_checkpoints_missing")
     payload = validated.payload
     await require_actor(db, job)
