@@ -256,6 +256,71 @@ def test_incomplete_provider_board_cannot_create_publishable_manifest(
     assert not (tmp_path / "output/manifest.json").exists()
 
 
+@pytest.mark.parametrize("resolution", ["idp", "drop"])
+def test_prepare_explicit_asset_resolutions_preserve_evidence_checks(
+    tmp_path, season_source, resolution
+):
+    entry, handler, _ = season_source
+
+    def adjusted(request):
+        data = handler(request).json()
+        if resolution == "idp" and request.url.path.endswith("/players/nfl"):
+            data["p49"]["position"] = "DE"
+        if resolution == "drop" and request.url.path.endswith("/rosters"):
+            data[1]["players"].remove("p49")
+        if resolution == "drop" and request.url.path.endswith("/transactions/18"):
+            data = [
+                {
+                    "transaction_id": "synthetic-drop",
+                    "status": "complete",
+                    "status_updated": 1736200000000,
+                    "drops": {"p49": 2},
+                }
+            ]
+        return httpx.Response(200, json=data)
+
+    with httpx.Client(transport=httpx.MockTransport(adjusted)) as http:
+        client = EvidenceClient(tmp_path / "receipts", http=http)
+        with pytest.raises(ValueError):
+            prepare(entry, client, 2024, tmp_path / "blocked")
+        kwargs = (
+            {"exclude_idp": True}
+            if resolution == "idp"
+            else {
+                "verified_pre_cutoff_drops": [
+                    {
+                        "player_id": "p49",
+                        "roster_id": 2,
+                        "transaction_id": "synthetic-drop",
+                    }
+                ]
+            }
+        )
+        report = prepare(entry, client, 2024, tmp_path / "resolved", **kwargs)
+    manifest = json.loads((tmp_path / "resolved/manifest.json").read_text())
+    assert "p49" not in {p["player_id"] for p in manifest["players"]}
+    assert report["status"] == "validated"
+    if resolution == "idp":
+        assert report["policy"]["version"] == "stats-guy-offense-v2"
+    else:
+        assert (
+            report["verified_pre_cutoff_drops"] == kwargs["verified_pre_cutoff_drops"]
+        )
+        with pytest.raises(ValueError, match="Verified pre-cutoff drop"):
+            prepare(
+                entry,
+                client,
+                2024,
+                tmp_path / "bad",
+                verified_pre_cutoff_drops=[
+                    {
+                        **kwargs["verified_pre_cutoff_drops"][0],
+                        "transaction_id": "wrong",
+                    }
+                ],
+            )
+
+
 def test_sensitivity_checks_simultaneous_missing_values(monkeypatch):
     # Mutation: test each absent player individually but miss the joint reversal.
     from app.services.historical_backfill_run import validate_sensitivity
@@ -556,6 +621,7 @@ def test_exact_approved_points_resolution_is_bound_to_observed_values(
         client, entry, 2024, results_only=True, approved_points_resolutions=[approval]
     )
     assert support["roster_records_by_league"]["league"][1]["points_for"] == 2040
+    assert support["source_roster_records_by_league"]["league"][1]["points_for"] == 2041
     assert (
         support["evidence_discrepancies"][0]["resolution"] == "approved_weekly_scores"
     )
@@ -574,8 +640,11 @@ def test_exact_approved_points_resolution_is_bound_to_observed_values(
             )
 
 
-@pytest.mark.parametrize("blocked", [None, "record", "postseason"])
-def test_prior_year_points_policy_preserves_hard_gates(tmp_path, season_source, blocked):
+@pytest.mark.parametrize("excluded", [False, True])
+@pytest.mark.parametrize("blocked", [None, "record", "postseason", "selected_record"])
+def test_prior_year_points_policy_preserves_hard_gates(
+    tmp_path, season_source, blocked, excluded
+):
     from app.services.historical_backfill_run import collect
 
     entry, handler, _ = season_source
@@ -594,6 +663,12 @@ def test_prior_year_points_policy_preserves_hard_gates(tmp_path, season_source, 
             if blocked == "record":
                 data[0]["settings"]["wins"] -= 1
         if (
+            not prior
+            and blocked == "selected_record"
+            and request.url.path.endswith("/rosters")
+        ):
+            data[0]["settings"]["wins"] -= 1
+        if (
             prior
             and blocked == "postseason"
             and request.url.path.endswith("/winners_bracket")
@@ -610,7 +685,7 @@ def test_prior_year_points_policy_preserves_hard_gates(tmp_path, season_source, 
     }
     with httpx.Client(transport=httpx.MockTransport(adjusted)) as http:
         client = EvidenceClient(tmp_path / "receipts", http=http)
-        if blocked:
+        if (blocked and not excluded) or blocked == "selected_record":
             with pytest.raises(
                 ValueError, match="disagree|Missing postseason participants"
             ):
@@ -620,6 +695,9 @@ def test_prior_year_points_policy_preserves_hard_gates(tmp_path, season_source, 
                     2024,
                     results_only=True,
                     approved_points_resolutions=[approval],
+                    excluded_result_seasons={2023: "Unresolved results"}
+                    if excluded
+                    else None,
                 )
         else:
             _, _, support = collect(
@@ -628,8 +706,25 @@ def test_prior_year_points_policy_preserves_hard_gates(tmp_path, season_source, 
                 2024,
                 results_only=True,
                 approved_points_resolutions=[approval],
+                excluded_result_seasons={2023: "Unresolved results"}
+                if excluded
+                else None,
             )
-            assert support["roster_records_by_league"]["prior"][1]["points_for"] == 2040
+            assert support["roster_records_by_league"]["prior"][1]["points_for"] == (
+                2040.01 if excluded else 2040
+            )
+            assert (
+                support["source_roster_records_by_league"]["prior"][1]["points_for"]
+                == 2040.01
+            )
+            assert ("prior", 18, 1) in support["matchups"]
+            if excluded:
+                assert support["excluded_result_seasons"] == {
+                    2023: "Unresolved results"
+                }
+                assert support["excluded_points_resolutions"] == [approval]
+                assert support["approved_points_resolutions"] == []
+                return
             audit = support["evidence_discrepancies"][0]
             assert audit["season"] == 2023
             assert audit["differences"]["points_for"] == {
@@ -637,6 +732,123 @@ def test_prior_year_points_policy_preserves_hard_gates(tmp_path, season_source, 
                 "recomputed": 2040,
             }
             assert audit["resolution"] == "approved_weekly_scores"
+
+
+@pytest.mark.parametrize(
+    "exclusions", [{2024: "selected"}, {2022: "unknown"}, {2023: " "}]
+)
+def test_result_exclusions_require_known_prior_year_and_reason(
+    tmp_path, season_source, exclusions
+):
+    from app.services.historical_backfill_run import collect
+
+    entry, handler, _ = season_source
+    entry.league_season_by_id["prior"] = 2023
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as http,
+        pytest.raises(ValueError, match="exclusion"),
+    ):
+        collect(
+            EvidenceClient(tmp_path / "receipts", http=http),
+            entry,
+            2024,
+            results_only=True,
+            excluded_result_seasons=exclusions,
+        )
+
+
+@pytest.mark.parametrize("missing_transaction", [False, True])
+def test_excluded_results_keep_prior_pick_transfers(
+    tmp_path, season_source, missing_transaction
+):
+    # Mutation: omit excluded-year transactions, losing inherited ownership.
+    from app.services.historical_backfill_run import collect
+
+    entry, handler, _ = season_source
+    entry.league_season_by_id["prior"] = 2023
+    entry.roster_to_user_by_league["prior"] = {1: "a", 2: "b"}
+    pick = {
+        "season": "2025",
+        "round": 1,
+        "roster_id": 1,
+        "previous_owner_id": 1,
+        "owner_id": 2,
+    }
+
+    def adjusted(request):
+        path = request.url.path
+        prior = "/prior" in path
+        data = handler(
+            httpx.Request(
+                request.method,
+                str(request.url).replace("/prior", "/league"),
+                content=request.content,
+            )
+        ).json()
+        if path.endswith("/prior"):
+            data["season"] = "2023"
+        elif prior and path.endswith("/winners_bracket"):
+            data = []
+        elif prior and path.endswith("/transactions/0"):
+            if missing_transaction:
+                return httpx.Response(404)
+            data = [
+                {
+                    "transaction_id": "synthetic-transfer",
+                    "status": "complete",
+                    "status_updated": 1700000000000,
+                    "draft_picks": [pick],
+                }
+            ]
+        elif path.endswith("/traded_picks"):
+            data = [pick]
+        return httpx.Response(200, json=data)
+
+    with httpx.Client(transport=httpx.MockTransport(adjusted)) as http:
+        client = EvidenceClient(tmp_path / "receipts", http=http)
+        if missing_transaction:
+            with pytest.raises(ValueError, match="Evidence request failed HTTP 404"):
+                collect(
+                    client,
+                    entry,
+                    2024,
+                    excluded_result_seasons={2023: "Unverified bracket"},
+                )
+        else:
+            raw, _, support = collect(
+                client,
+                entry,
+                2024,
+                excluded_result_seasons={2023: "Unverified bracket"},
+            )
+            transferred = [
+                p
+                for p in raw["picks"]
+                if p["season"] == 2025 and p["original_owner_id"] == "a"
+            ]
+            assert len(transferred) == 1
+            assert transferred[0]["owner_id"] == "b"
+            assert support["verified_result_seasons"] == [2024]
+            report = prepare(
+                entry,
+                client,
+                2024,
+                tmp_path / "preview",
+                excluded_result_seasons={2023: "Unverified bracket"},
+            )
+            coverage = json.loads((tmp_path / "preview/results-coverage.json").read_text())
+            assert coverage["included_seasons"] == [2024]
+            assert coverage["excluded_seasons"] == [{"season": 2023, "reason": "Unverified bracket"}]
+            assert report["excluded_result_seasons"] == {2023: "Unverified bracket"}
+            assert set(report["rankings"]) == {"a", "b"}
+            replay = prepare(
+                entry,
+                EvidenceClient(tmp_path / "receipts", offline=True),
+                2024,
+                tmp_path / "replay",
+                excluded_result_seasons={2023: "Unverified bracket"},
+            )
+            assert replay == report
 
 
 def test_captured_median_season_reconciles_all_provider_records():

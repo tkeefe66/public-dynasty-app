@@ -1897,6 +1897,7 @@ class GraderService:
         # rollup reuse path. New verified evidence and identity fixes must apply.
         try:
             from app.services.historical_rating_assets import HistoricalAssetStore
+            from app.services.historical_results_coverage import HistoricalResultsStore
             from app.services.season_ratings import build_season_rating_inputs
             asset_store = HistoricalAssetStore(cache_dir, current_league_id) if cache_dir else None
             supporting["season_end_dates"] = {}
@@ -1910,11 +1911,19 @@ class GraderService:
                     except Exception:
                         log.exception("historical cutoff verification failed league=%s season=%s week=%s; rating unavailable",
                                       lid, season, through_week)
+            # Preserve exclusion requirements even after an identity correction.
+            # Only the guard is reused; ratings and evidence are rebuilt below.
+            previous_rating_entry = (ChainCache(cache_dir=cache_dir).read(
+                current_league_id, max_age_seconds=10 ** 9,
+            ) if cache_dir is not None else None)
             entry.season_rating_inputs = build_season_rating_inputs(
-                entry, supporting, asset_store=asset_store)
-            log.info("season rating inputs built league=%s ready=%s unavailable=%s", current_league_id,
+                entry, supporting, asset_store=asset_store,
+                prior_snapshots=previous_rating_entry.season_rating_inputs if previous_rating_entry else {},
+                results_store=HistoricalResultsStore(cache_dir) if cache_dir else None)
+            log.info("season rating inputs built league=%s ready=%s provisional=%s unavailable=%s", current_league_id,
                      sum(s["status"] == "ready" for s in entry.season_rating_inputs.values()),
-                     sum(s["status"] != "ready" for s in entry.season_rating_inputs.values()))
+                     sum(s["status"] == "provisional" for s in entry.season_rating_inputs.values()),
+                     sum(s["status"] == "unavailable" for s in entry.season_rating_inputs.values()))
         except Exception:
             log.exception("season rating inputs failed for league %s; historical ratings unavailable", current_league_id)
 

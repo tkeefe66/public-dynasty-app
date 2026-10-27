@@ -207,7 +207,7 @@ export interface DraftReview {
 }
 
 export interface RatingScope {
-  status: "ready" | "unavailable";
+  status: "ready" | "provisional" | "unavailable";
   basis: "current" | "season_end";
   label: string;
   as_of?: string | null;
@@ -215,6 +215,8 @@ export interface RatingScope {
   valuation_source?: "stats_guy" | null;
   prices_as_of?: string | null;
   valuation_note?: string | null;
+  included_seasons?: number[];
+  excluded_seasons?: { season: number; reason: string }[];
 }
 
 export interface DashboardResp {

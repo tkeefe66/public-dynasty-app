@@ -172,6 +172,10 @@ async def _league_matchup_bundle(client, lg, league_cache) -> dict:
                 cached["roster_records"] = _roster_records(await client.get_rosters(lg.league_id))
                 league_cache.write_matchup_bundle(lg.league_id, cached)
                 log.info("added provider season records to sealed league %s", lg.league_id)
+            # Older sealed bundles used Sleeper's wrong playoff setting key.
+            # Overlay current parsed metadata without rewriting raw evidence.
+            cached = {**cached, "num_playoff_teams": getattr(
+                lg, "num_playoff_teams", cached.get("num_playoff_teams", 0))}
             return resolve_owner_bundle(identity_client, cached)
 
     rosters = await client.get_rosters(lg.league_id)

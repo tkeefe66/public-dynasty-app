@@ -32,6 +32,27 @@ class TestGetUserId:
 
 class TestGetLeagues:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("single", [False, True])
+    @pytest.mark.parametrize("settings,expected", [
+        ({"playoff_teams": 7, "num_playoff_teams": 6}, 7),
+        ({"playoff_teams": 4}, 4),
+        ({"num_playoff_teams": 8}, 8),
+        ({}, 6),
+    ])
+    async def test_provider_playoff_count_overrides_legacy_key(self, client, single, settings, expected):
+        # Mutation: reading only the legacy key silently turns seven-team brackets into six.
+        raw = load_fixture("leagues.json")[0]
+        raw["settings"] = settings
+        resp = MagicMock()
+        resp.json.return_value = raw if single else [raw]
+        with patch.object(client._client, "get", AsyncMock(return_value=resp)):
+            if single:
+                league, _ = await client.get_league("synthetic-league")
+            else:
+                league = (await client.get_leagues("synthetic-user", 2026))[0]
+        assert league.num_playoff_teams == expected
+
+    @pytest.mark.asyncio
     async def test_returns_league_list(self, client):
         resp = mock_response("leagues.json")
         with patch.object(client._client, "get", AsyncMock(return_value=resp)):

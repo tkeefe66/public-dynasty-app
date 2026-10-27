@@ -138,3 +138,28 @@ independently checks the season-end NFL cutoff, owner identity version, season,
 final week, format, and validated Results digest before making the rating ready.
 Verify dashboard, leaderboard, and owner views against the private preview.
 An import alone does not prove that a refresh successfully published the ratings.
+
+## Provisional history
+
+For a verified selected season with unresolved earlier Results, call `prepare`
+with `excluded_result_seasons={year: reason}`. Every excluded year must be in the
+chain and strictly earlier than the selected year. Included years still pass all
+normal Results checks. The full formula and selected-year asset requirements are
+unchanged. Exclusions apply leaguewide; raw history and transactions remain intact.
+
+A passing provisional preview also emits `results-coverage.json`. This manifest
+binds the exact included/excluded years, canonical membership, raw weekly games,
+provider totals, postseason evidence, and approved points resolutions. The asset
+manifest's Results digest includes this coverage. Review both manifests together;
+import coverage with `HistoricalResultsStore(cache_dir).import_verified(payload)`
+alongside the existing asset import under the publication lock, then refresh and
+compare both rating surfaces against the preview. Coverage import alone cannot
+make missing assets usable. No production writes occur during preparation.
+
+The API and shared notice label successful output **Provisional**, list included
+years and excluded reasons, and disclose incomplete history and comparability
+limits. A missing or changed coverage manifest makes the rating unavailable.
+That requirement survives repeated refreshes and identity corrections. Restoring
+complete history requires explicit revalidation of all years and assets plus a
+reviewed replacement of the coverage requirement; deleting the file is not a
+promotion mechanism.

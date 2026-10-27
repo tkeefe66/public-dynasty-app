@@ -179,8 +179,12 @@ function Verdict() {
       <p className="mb-4 max-w-[68ch] text-prose leading-relaxed text-body">
         Past seasons use results through that season and verified season-end rosters, player ages,
         pick ownership, and asset prices. The current season uses the latest refresh until it is complete.
-        Missing historical evidence displays Historical data unavailable; it is never replaced with
-        today&rsquo;s assets.
+        When earlier seasons remain unresolved, a Provisional rating can use the verified seasons
+        listed in its notice. It retains the full Results and Assets formula and excludes the same
+        whole seasons for every franchise. The notice lists included seasons and each exclusion reason.
+        This is incomplete history; do not compare it directly with ratings based on complete history.
+        Missing selected-season results or historical asset evidence displays Historical data unavailable;
+        it is never replaced with today&rsquo;s assets.
       </p>
       <p className="mb-4 max-w-[68ch] text-prose leading-relaxed text-body">
         Imported dynasty seasons use dated estimates from{" "}

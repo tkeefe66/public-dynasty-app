@@ -16,8 +16,12 @@ INPUT_VERSION = 1
 
 def historical_results_digest(snapshot):
     from app.services.historical_backfill import digest
-    return digest({"outcome_signals": snapshot["outcome_signals"],
-                   "season_records": snapshot["season_records"]})
+    payload = {"outcome_signals": snapshot["outcome_signals"],
+               "season_records": snapshot["season_records"]}
+    if snapshot.get("results_coverage"):
+        payload["results_coverage"] = {k: v for k, v in snapshot["results_coverage"].items()
+                                       if k not in {"verified_at", "verified_by"}}
+    return digest(payload)
 
 
 def _complete_signals(owners, outcomes, assets, fmt):
@@ -40,8 +44,21 @@ def scoped_rating_entry(entry: ChainCacheEntry, year) -> ChainCacheEntry | None:
     if year == "all":
         return entry
     snapshot = (entry.season_rating_inputs or {}).get(str(year), {})
-    if snapshot.get("version") != INPUT_VERSION or snapshot.get("status") != "ready":
+    if snapshot.get("version") != INPUT_VERSION or snapshot.get("status") not in {"ready", "provisional"}:
         return None
+    if (snapshot.get("status") == "provisional" or snapshot.get("results_coverage")
+            or snapshot.get("requires_results_coverage")):
+        from app.services.historical_results_coverage import ResultsCoverage
+        try:
+            coverage = ResultsCoverage.model_validate(snapshot.get("results_coverage"))
+        except ValueError:
+            return None
+        if (snapshot.get("status") != "provisional" or coverage.season != int(year)
+                or coverage.identity_version != entry.owner_identity_version
+                or coverage.league_seasons != {lid: y for lid, y in entry.league_season_by_id.items() if y <= int(year)}
+                or {int(y) for y in snapshot.get("season_records", {})} != set(coverage.included_seasons)
+                or (snapshot.get("format") != "redraft" and not snapshot.get("asset_source"))):
+            return None
     owners = snapshot.get("owners") or []
     if any(uid not in entry.owners for uid in owners):
         return None
@@ -78,6 +95,8 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     snapshot = (entry.season_rating_inputs or {}).get(str(year), {})
     scoped = scoped_rating_entry(entry, year)
     ready = scoped is not None
+    provisional = ready and snapshot.get("status") == "provisional" and year != "all"
+    coverage = snapshot.get("results_coverage") or {}
     reason = None
     if scoped is None:
         reason = snapshot.get("reason") or (
@@ -87,13 +106,16 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     policy = source.get("valuation_policy") or {}
     stats_guy = ready and year != "all" and policy.get("version") in {"stats-guy-v1", "stats-guy-offense-v2"}
     return {
-        "status": "ready" if ready else "unavailable", "basis": basis,
+        "status": "provisional" if provisional else "ready" if ready else "unavailable", "basis": basis,
         "as_of": entry.cached_at if year == "all" else snapshot.get("as_of"),
-        "label": ("Current career rating" if year == "all" else
+        "label": (f"Provisional franchise rating at end of {year}" if provisional else
+                  "Current career rating" if year == "all" else
                   f"Franchise rating through {year}" if basis == "current" else
                   f"Franchise rating at end of {year}") if ready else
                  "Historical data unavailable" if year != "all" else "Rating unavailable",
         "reason": reason,
+        "included_seasons": coverage.get("included_seasons", []) if year != "all" else [],
+        "excluded_seasons": coverage.get("excluded_seasons", []) if year != "all" else [],
         "valuation_source": "stats_guy" if stats_guy else None,
         "prices_as_of": source.get("prices_as_of") if stats_guy else None,
         "valuation_note": (f"{policy['priced']}/{policy['eligible']} offensive players priced. "
@@ -109,7 +131,8 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     }
 
 
-def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asset_store=None) -> dict:
+def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asset_store=None,
+                              results_store=None, results_coverage=None, prior_snapshots=None) -> dict:
     """Build fresh inputs, including on incremental refresh and identity changes.
 
     Results are re-derived from bounded raw seasons. Historical Assets require
@@ -126,6 +149,7 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
     calendar_season = now.year - (1 if now.month <= 2 else 0)
     years = sorted(set(entry.league_season_by_id.values()))
     out = {}
+    prior_snapshots = entry.season_rating_inputs if prior_snapshots is None else prior_snapshots
     for year in years:
         lids = [lid for lid, season in entry.league_season_by_id.items() if season == year]
         from app.services.aggregations import _championship_decided
@@ -142,6 +166,10 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
                     "basis": "current" if current else "season_end", "format": fmt,
                     "as_of": entry.cached_at if current else None, "owners": owners}
         out[str(year)] = snapshot
+        prior = (prior_snapshots or {}).get(str(year), {})
+        if not current and (prior.get("status") == "provisional" or prior.get("results_coverage")
+                            or prior.get("requires_results_coverage")):
+            snapshot["requires_results_coverage"] = True
         if not owners or fmt is None:
             snapshot["reason"] = "Season membership or league format is unverified. Refresh league data."
             continue
@@ -152,9 +180,27 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
                             season_records=deepcopy(entry.season_records))
         else:
             bounded_lids = {lid: season for lid, season in entry.league_season_by_id.items() if season <= year}
+            effective = supporting
+            try:
+                raw_coverage = (results_coverage or {}).get(str(year))
+                if raw_coverage is None and results_store is not None and len(lids) == 1:
+                    raw_coverage = results_store.load(lids[0], year)
+                if raw_coverage is not None:
+                    snapshot["requires_results_coverage"] = True
+                    from app.services.historical_results_coverage import apply_coverage
+                    effective, coverage = apply_coverage(entry, supporting, year, raw_coverage)
+                    snapshot["results_coverage"] = coverage.model_dump(mode="json")
+                    bounded_lids = effective["league_season_by_id"]
+                elif snapshot.get("requires_results_coverage") or supporting.get("excluded_result_seasons"):
+                    snapshot["requires_results_coverage"] = True
+                    snapshot["reason"] = "Selected year requires verified Results coverage before excluded history can be used."
+                    continue
+            except ValueError as exc:
+                snapshot["reason"] = str(exc)
+                continue
             # A missing week changes every owner's all-play population. Do not
             # grade a partial archive as though it represented the full season.
-            matchups = supporting.get("matchups") or {}
+            matchups = effective.get("matchups") or {}
             complete = all(entry.roster_to_user_by_league.get(lid) for lid in bounded_lids) and all(
                 (lid, week, rid) in matchups
                 and matchups[(lid, week, rid)].get("team_points") is not None
@@ -164,9 +210,9 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
             if not complete:
                 snapshot["reason"] = "Historical game results are incomplete. Refresh league data."
                 continue
-            bounded = {**supporting, "league_season_by_id": bounded_lids,
+            bounded = {**effective, "league_season_by_id": bounded_lids,
                        "owners": {uid: entry.owners[uid] for uid in owners},
-                       "matchups": {key: val for key, val in (supporting.get("matchups") or {}).items()
+                       "matchups": {key: val for key, val in (effective.get("matchups") or {}).items()
                                     if key[0] in bounded_lids}}
             _, _, _, records = compute_rating_signals(bounded, {})
             all_play = {season: all_play_win_pct(
@@ -207,5 +253,5 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
         if not _complete_signals(owners, outcomes, assets, fmt):
             snapshot["reason"] = "Rating inputs are incomplete. Refresh league data."
             continue
-        snapshot["status"] = "ready"
+        snapshot["status"] = "provisional" if snapshot.get("results_coverage") else "ready"
     return out

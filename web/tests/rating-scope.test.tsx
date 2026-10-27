@@ -12,6 +12,36 @@ const missing = { status: "unavailable" as const, basis: "season_end" as const,
   label: "Historical data unavailable", reason: "Verified historical asset prices are missing." };
 
 describe("rating scope", () => {
+  it("discloses provisional coverage and excluded reasons at the standings call site", () => {
+    // Mutation: suppress coverage disclosure for provisional ratings.
+    render(<StandingsTable leagueId="L" rows={[]} year={2024} currentSeason={2026} ratingScope={{
+      status: "provisional", basis: "season_end", label: "Franchise rating at end of 2024",
+      included_seasons: [2022, 2024], excluded_seasons: [
+        { season: 2021, reason: "Final standings are unresolved." },
+        { season: 2023, reason: "Postseason results disagree." },
+      ],
+    }} />);
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("Provisional");
+    expect(notice).toHaveTextContent("Included seasons: 2022, 2024");
+    expect(notice).toHaveTextContent("2021: Final standings are unresolved.");
+    expect(notice).toHaveTextContent("2023: Postseason results disagree.");
+    expect(notice).toHaveTextContent("Incomplete history");
+    expect(notice).toHaveTextContent("Do not compare directly with ratings based on complete history");
+  });
+
+  it("retains the cutoff and historical pricing attribution for provisional ratings", () => {
+    // Mutation: limit cutoff and valuation attribution to ready ratings.
+    render(<RatingScopeNotice scope={{ status: "provisional", basis: "season_end",
+      label: "Provisional franchise rating at end of 2024", as_of: "2025-01-07",
+      valuation_source: "stats_guy", prices_as_of: "2024-12-30",
+      valuation_note: "Unranked players use a zero replacement floor." }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("As of 2025-01-07");
+    expect(screen.getByRole("link", { name: "Stats Guy Fantasy" })).toHaveAttribute("href", "https://statsguyfantasy.com");
+    expect(screen.getByRole("status")).toHaveTextContent("2024-12-30");
+    expect(screen.getByRole("status")).toHaveTextContent("zero replacement floor");
+  });
+
   it("attributes historical estimates and discloses missing-player policy", () => {
     render(<RatingScopeNotice scope={{ status: "ready", basis: "season_end",
       label: "Franchise rating at end of 2025", valuation_source: "stats_guy",

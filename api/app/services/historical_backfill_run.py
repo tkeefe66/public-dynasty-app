@@ -228,9 +228,29 @@ def read_entry(path):
 
 
 def collect(
-    client, entry, season, *, results_only=False, approved_points_resolutions=()
+    client,
+    entry,
+    season,
+    *,
+    results_only=False,
+    approved_points_resolutions=(),
+    excluded_result_seasons: dict[int, str] | None = None,
+    exclude_idp=False,
+    verified_pre_cutoff_drops=(),
 ):
     lids = {lid: y for lid, y in entry.league_season_by_id.items() if y <= season}
+    exclusions = dict(excluded_result_seasons or {})
+    if any(
+        type(year) is not int
+        or year >= season
+        or year not in lids.values()
+        or not isinstance(reason, str)
+        or not reason.strip()
+        for year, reason in exclusions.items()
+    ):
+        raise ValueError(
+            "Results exclusion requires a known prior season and a nonblank reason."
+        )
     approvals = {}
     for item in approved_points_resolutions:
         key = (item["season"], item["roster_id"], item["field"])
@@ -261,6 +281,7 @@ def collect(
             "losers_bracket_by_league",
             "num_playoff_teams_by_league",
             "roster_records_by_league",
+            "source_roster_records_by_league",
         )
     }
     supporting.update(
@@ -268,6 +289,10 @@ def collect(
         owners=entry.owners,
         roster_to_user_by_league=entry.roster_to_user_by_league,
         evidence_discrepancies=[],
+        excluded_result_seasons=exclusions,
+        excluded_points_resolutions=[
+            deepcopy(item) for key, item in approvals.items() if key[0] in exclusions
+        ],
     )
     bundles, transactions = {}, []
     for lid, year in sorted(lids.items(), key=lambda x: x[1]):
@@ -304,99 +329,108 @@ def collect(
         matchups = _assemble_played_matchups(weekly, lid)
         pws = int(settings["playoff_week_start"])
         final_week = max((key[1] for key in matchups), default=0)
-        if final_week != settings.get("last_scored_leg") or not pws <= final_week <= 18:
-            raise ValueError("Final played week conflicts with league settings.")
-        for week in range(1, pws):
-            if {r for lg, w, r in matchups if w == week} != set(expected):
-                raise ValueError("Regular-season matchup evidence is incomplete.")
-        rows = historical_standings(
-            matchups,
-            league_id=lid,
-            playoff_start=pws,
-            roster_to_user=expected,
-            median_game=bool(settings.get("league_average_match", 0)),
-        )
-        records = {}
-        for row in rows:
-            source = next(
-                r["settings"] for r in rosters if r["roster_id"] == row.roster_id
-            )
+        source_records = {}
+        for roster in rosters:
+            source = roster["settings"]
             record = {k: source[k] for k in ("wins", "losses", "ties")}
             record.update(
                 points_for=source.get("fpts", 0) + source.get("fpts_decimal", 0) / 100,
                 points_against=source.get("fpts_against", 0)
                 + source.get("fpts_against_decimal", 0) / 100,
             )
-            differences = {
-                k: {"recomputed": getattr(row, k), "provider": v}
-                for k, v in record.items()
-                if abs(getattr(row, k) - v)
-                > (1e-7 if (year, row.roster_id, k) in approvals else 0.011)
-            }
-            if differences:
-                unresolved = dict(differences)
-                for field, values in differences.items():
-                    key = (year, row.roster_id, field)
-                    approval = approvals.get(key)
-                    if approval is None:
-                        continue
-                    if any(
-                        abs(approval[k] - values[k]) > 1e-7
-                        for k in ("provider", "recomputed")
-                    ):
-                        raise ValueError(
-                            "Approved points resolution does not match observed evidence."
-                        )
-                    used_approvals.add(key)
-                    record[field] = values["recomputed"]
-                    unresolved.pop(field)
-                    supporting["evidence_discrepancies"].append(
-                        {
-                            "season": year,
-                            "roster_id": row.roster_id,
-                            "differences": {field: values},
-                            "resolution": "approved_weekly_scores",
-                        }
-                    )
-                if unresolved and (
-                    year == season
-                    or any(k in unresolved for k in ("wins", "losses", "ties"))
-                ):
-                    raise ValueError(
-                        f"Recomputed results disagree with provider records: {year}, roster {row.roster_id}: {unresolved}."
-                    )
-                # Prior seasons' aggregate points do not enter the rating. The
-                # weekly scores establish all-play; provider W/L establishes
-                # the record. Preserve their disagreement instead of repairing
-                # a game with an unknowable correction.
-                if unresolved:
-                    supporting["evidence_discrepancies"].append(
-                        {
-                            "season": year,
-                            "roster_id": row.roster_id,
-                            "differences": unresolved,
-                        }
-                    )
-            records[row.roster_id] = record
+            source_records[roster["roster_id"]] = record
+        supporting["source_roster_records_by_league"][lid] = deepcopy(source_records)
+        records = deepcopy(source_records)
         wb = client.get(base + "/winners_bracket")
         lb = client.get(base + "/losers_bracket")
-        inactive = verified_idle_rosters(
-            weekly, rows, wb, lb, settings, pws, final_week
-        )
-        supporting.setdefault("inactive_postseason_rosters", {})[lid] = sorted(inactive)
-        validate_brackets(
-            wb,
-            lb,
-            list(expected),
-            settings["playoff_teams"],
-            matchups=matchups,
-            league_id=lid,
-            playoff_start=pws,
-            final_week=final_week,
-            toilet_bowl=settings.get("playoff_type") == 0,
-            playoff_round_type=settings.get("playoff_round_type", 0),
-            inactive_rosters=inactive,
-        )
+        if year not in exclusions:
+            if (
+                final_week != settings.get("last_scored_leg")
+                or not pws <= final_week <= 18
+            ):
+                raise ValueError("Final played week conflicts with league settings.")
+            for week in range(1, pws):
+                if {r for lg, w, r in matchups if w == week} != set(expected):
+                    raise ValueError("Regular-season matchup evidence is incomplete.")
+            rows = historical_standings(
+                matchups,
+                league_id=lid,
+                playoff_start=pws,
+                roster_to_user=expected,
+                median_game=bool(settings.get("league_average_match", 0)),
+            )
+            for row in rows:
+                record = records[row.roster_id]
+                differences = {
+                    k: {"recomputed": getattr(row, k), "provider": v}
+                    for k, v in record.items()
+                    if abs(getattr(row, k) - v)
+                    > (1e-7 if (year, row.roster_id, k) in approvals else 0.011)
+                }
+                if differences:
+                    unresolved = dict(differences)
+                    for field, values in differences.items():
+                        key = (year, row.roster_id, field)
+                        approval = approvals.get(key)
+                        if approval is None:
+                            continue
+                        if any(
+                            abs(approval[k] - values[k]) > 1e-7
+                            for k in ("provider", "recomputed")
+                        ):
+                            raise ValueError(
+                                "Approved points resolution does not match observed evidence."
+                            )
+                        used_approvals.add(key)
+                        record[field] = values["recomputed"]
+                        unresolved.pop(field)
+                        supporting["evidence_discrepancies"].append(
+                            {
+                                "season": year,
+                                "roster_id": row.roster_id,
+                                "differences": {field: values},
+                                "resolution": "approved_weekly_scores",
+                            }
+                        )
+                    if unresolved and (
+                        year == season
+                        or any(k in unresolved for k in ("wins", "losses", "ties"))
+                    ):
+                        raise ValueError(
+                            f"Recomputed results disagree with provider records: {year}, roster {row.roster_id}: {unresolved}."
+                        )
+                    # Prior seasons' aggregate points do not enter the rating. The
+                    # weekly scores establish all-play; provider W/L establishes
+                    # the record. Preserve their disagreement instead of repairing
+                    # a game with an unknowable correction.
+                    if unresolved:
+                        supporting["evidence_discrepancies"].append(
+                            {
+                                "season": year,
+                                "roster_id": row.roster_id,
+                                "differences": unresolved,
+                            }
+                        )
+                records[row.roster_id] = record
+            inactive = verified_idle_rosters(
+                weekly, rows, wb, lb, settings, pws, final_week
+            )
+            supporting.setdefault("inactive_postseason_rosters", {})[lid] = sorted(
+                inactive
+            )
+            validate_brackets(
+                wb,
+                lb,
+                list(expected),
+                settings["playoff_teams"],
+                matchups=matchups,
+                league_id=lid,
+                playoff_start=pws,
+                final_week=final_week,
+                toilet_bowl=settings.get("playoff_type") == 0,
+                playoff_round_type=settings.get("playoff_round_type", 0),
+                inactive_rosters=inactive,
+            )
         season_tx = [
             t for week in range(19) for t in client.get(base + f"/transactions/{week}")
         ]
@@ -411,10 +445,17 @@ def collect(
         ):
             supporting[key + "_by_league"][lid] = value
         bundles[lid] = (league, rosters, weekly, season_tx, final_week)
-    if used_approvals != set(approvals):
+    if used_approvals != {key for key in approvals if key[0] not in exclusions}:
         raise ValueError(
             "Approved points resolutions contain unused or no-longer-matching evidence."
         )
+    supporting["verified_result_seasons"] = sorted(
+        set(lids.values()) - exclusions.keys()
+    )
+    supporting["approved_points_resolutions"] = [
+        deepcopy(approvals[key]) for key in sorted(used_approvals)
+    ]
+    supporting["evidence_receipts"] = deepcopy(client.used)
     if results_only:
         return None, None, supporting
     league, rosters, weekly, season_tx, final_week = bundles[target]
@@ -444,7 +485,13 @@ def collect(
         datetime.fromisoformat(g["kickoff"]) for g in games
     ).date() + timedelta(days=1)
     cutoff_ms = int(datetime.combine(cutoff, time(), UTC).timestamp() * 1000)
-    holders = reconcile_rosters(rosters, weekly[final_week], season_tx, cutoff_ms)
+    holders = reconcile_rosters(
+        rosters,
+        weekly[final_week],
+        season_tx,
+        cutoff_ms,
+        verified_pre_cutoff_drops=verified_pre_cutoff_drops,
+    )
     mapping = entry.roster_to_user_by_league[target]
     holders = {pid: mapping[rid] for pid, rid in holders.items()}
     rounds = int(league["settings"]["draft_rounds"])
@@ -477,7 +524,13 @@ def collect(
         f"{STATS_GUY}/rankings?format={format}&tep=std&date={price_date}&limit=1000"
     )
     players = client.get(f"{SLEEPER}/players/nfl")
-    priced, policy = value_roster(players, holders, board, cutoff, format)
+    priced, policy = value_roster(
+        players, holders, board, cutoff, format, exclude_idp=exclude_idp
+    )
+    if verified_pre_cutoff_drops:
+        supporting["verified_pre_cutoff_drops"] = deepcopy(
+            list(verified_pre_cutoff_drops)
+        )
     pick_ids = [
         f"pick:{y}:{r}"
         for y in range(season + 1, season + 4)
@@ -536,6 +589,7 @@ def collect(
     }
     # Record only receipts used by this run, including both requests and responses.
     policy["evidence_sha256"] = digest(client.used)
+    supporting["evidence_receipts"] = deepcopy(client.used)
     return raw, policy, supporting
 
 
@@ -556,8 +610,14 @@ def rank_preview(entry, supporting, raw, *, include_results=False):
                 raise ValueError("Preview identity or cutoff mismatch.")
             return assets, None
 
+    coverage = preview_coverage(entry, supporting, assets.season)
     snapshots = build_season_rating_inputs(
-        entry, supporting, asset_store=PreviewStore()
+        entry,
+        supporting,
+        asset_store=PreviewStore(),
+        results_coverage={str(assets.season): coverage.model_dump(mode="json")}
+        if coverage
+        else None,
     )
     preview = replace(entry, season_rating_inputs=snapshots)
     ratings = live_ratings(preview, year=assets.season)
@@ -615,8 +675,43 @@ def validate_sensitivity(entry, supporting, raw, policy):
     return baseline, scenarios, not changes
 
 
-def prepare(entry, client, season, output):
-    raw, policy, supporting = collect(client, entry, season)
+def preview_coverage(entry, supporting, season):
+    if not supporting.get("excluded_result_seasons"):
+        return None
+    from app.services.historical_results_coverage import make_coverage
+
+    policies = supporting.setdefault("preview_results_coverage", {})
+    if season not in policies:
+        policies[season] = make_coverage(
+            entry,
+            supporting,
+            season,
+            verified_by="Historical backfill validation",
+            evidence_sha256=digest(supporting.get("evidence_receipts", {})),
+        )
+    return policies[season]
+
+
+def prepare(
+    entry,
+    client,
+    season,
+    output,
+    *,
+    approved_points_resolutions=(),
+    excluded_result_seasons=None,
+    exclude_idp=False,
+    verified_pre_cutoff_drops=(),
+):
+    raw, policy, supporting = collect(
+        client,
+        entry,
+        season,
+        approved_points_resolutions=approved_points_resolutions,
+        excluded_result_seasons=excluded_result_seasons,
+        exclude_idp=exclude_idp,
+        verified_pre_cutoff_drops=verified_pre_cutoff_drops,
+    )
     raw = HistoricalRatingAssets.model_validate(raw).model_dump(mode="json")
     ratings, scenarios, stable = validate_sensitivity(entry, supporting, raw, policy)
     output.mkdir(parents=True, exist_ok=True)
@@ -636,6 +731,10 @@ def prepare(entry, client, season, output):
         "evidence": client.used,
         "chain_identity_version": entry.owner_identity_version,
         "prior_points_discrepancies": supporting["evidence_discrepancies"],
+        "included_result_seasons": supporting["verified_result_seasons"],
+        "excluded_result_seasons": supporting["excluded_result_seasons"],
+        "excluded_points_resolutions": supporting["excluded_points_resolutions"],
+        "verified_pre_cutoff_drops": supporting.get("verified_pre_cutoff_drops", []),
         "limitations": "Provider-dated estimates; not independently proven contemporaneous snapshots. "
         "Zero unranked floor; K/DEF excluded from assets. Results include all scoring.",
     }
@@ -678,6 +777,18 @@ def prepare(entry, client, season, output):
                 "Output already contains a different manifest; use a new output directory."
             )
         write_json_atomic(path, raw)
+        coverage = preview_coverage(entry, supporting, season)
+        if coverage is not None:
+            coverage_path = output / "results-coverage.json"
+            coverage_raw = coverage.model_dump(mode="json")
+            if (
+                coverage_path.exists()
+                and json.loads(coverage_path.read_text()) != coverage_raw
+            ):
+                raise ValueError(
+                    "Output already contains different Results coverage; use a new output directory."
+                )
+            write_json_atomic(coverage_path, coverage_raw)
     write_json_atomic(output / "preview.json", report)
     if not stable:
         raise ValueError(

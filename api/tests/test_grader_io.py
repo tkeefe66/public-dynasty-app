@@ -79,6 +79,7 @@ async def test_sealed_league_matchups_served_from_cache(tmp_path, monkeypatch):
                                     "players_points": {"p1": 20.0},
                                     "team_points": 100.0, "opponent_points": 90.0}},
         "playoff_week_start": 15,
+        "num_playoff_teams": 6,
         "roster_to_user": {1: "u_a"},
         "league_name": "Bros",
         "season": 2024,
@@ -100,7 +101,8 @@ async def test_sealed_league_matchups_served_from_cache(tmp_path, monkeypatch):
             raise AssertionError("network hit (matchups)")
 
     sealed = SimpleNamespace(league_id="L1", season=2024, name="Bros",
-                             playoff_week_start=15, status="complete", format="dynasty")
+                             playoff_week_start=15, num_playoff_teams=7,
+                             status="complete", format="dynasty")
     out = await pull_supporting_data(
         SealedMatchupClient(), [sealed],
         players={}, league_cache=cache,
@@ -108,6 +110,8 @@ async def test_sealed_league_matchups_served_from_cache(tmp_path, monkeypatch):
     assert out["matchups"][("L1", 5, 1)]["players_points"] == {"p1": 20.0}
     assert out["roster_to_user_by_league"]["L1"] == {1: "u_a"}
     assert out["playoff_weeks_by_league"]["L1"] == 15
+    assert out["num_playoff_teams_by_league"]["L1"] == 7
+    assert cache.read_matchup_bundle("L1")["num_playoff_teams"] == 6
     assert out["league_season_by_id"]["L1"] == 2024
     assert out["owners"]["u_a"]["owner_name"] == "Alice"
     assert out["roster_records_by_league"]["L1"]["1"]["wins"] == 1
