@@ -26,7 +26,8 @@ def test_missing_history_does_not_repeat_current_rating(dynasty_entry):
 @pytest.mark.parametrize("fmt", ["dynasty", "keeper", "redraft"])
 def test_selected_snapshot_controls_both_rating_views(dynasty_entry, fmt):
     # Mutation: dashboard or leaderboard scores today's inputs instead.
-    entry = replace(dynasty_entry, capabilities={"format": fmt})
+    entry = replace(dynasty_entry, capabilities={"format": fmt},
+                    current_rating_verification={"status": "ready", "format": fmt})
     historical = deepcopy(entry.outcome_signals)
     historical["u1"], historical["u2"] = historical["u2"], historical["u1"]
     assets = deepcopy(entry.outlook_signals)

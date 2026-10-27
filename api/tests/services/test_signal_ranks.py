@@ -7,11 +7,14 @@ to catch.
 """
 
 from app.services.franchise_redesign import live_ratings
+
 from tests.helpers import minimal_chain_cache_entry
 
 
 def _entry_three_owners():
     return minimal_chain_cache_entry(
+        capabilities={"format": "dynasty"},
+        current_rating_verification={"status": "ready", "format": "dynasty"},
         owners={u: {"owner_name": u} for u in ("a", "b", "c")},
         season_records={"2024": {
             u: {"wins": 7, "losses": 6, "ties": 0, "rank": i + 1}
@@ -51,6 +54,8 @@ def test_every_pillar_carries_ranks():
 def test_ties_share_the_better_rank_and_skip_the_next():
     """A finishing order, not a dense one: two firsts are followed by a third."""
     entry = minimal_chain_cache_entry(
+        capabilities={"format": "dynasty"},
+        current_rating_verification={"status": "ready", "format": "dynasty"},
         owners={u: {"owner_name": u} for u in ("a", "b", "c")},
         season_records={"2024": {
             u: {"wins": 7, "losses": 6, "ties": 0, "rank": i + 1}

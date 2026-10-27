@@ -5,7 +5,6 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
-
 from app.services.chain_cache import ChainCacheEntry
 from app.services.grader import GraderService
 
@@ -33,7 +32,12 @@ async def _run_with_one_trade(
     ``pull_supporting_data`` (notably ``snapshot_store``), so a test can assert
     on the wiring rather than only on the entry.
     """
-    from sleeper_dynasty.models.trade import PlayerAsset, TradeSide, Trade, ResolvedTrade
+    from sleeper_dynasty.models.trade import (
+        PlayerAsset,
+        ResolvedTrade,
+        Trade,
+        TradeSide,
+    )
 
     async def _progress(stage, message, **extra):
         pass
@@ -115,6 +119,7 @@ def _v2_entry(*, capabilities: dict) -> ChainCacheEntry:
         league_name_by_id={}, league_season_by_id={},
         cached_at="2026-08-16T00:00:00+00:00",
         capabilities=capabilities,
+        current_rating_verification={"version": 1, "status": "ready", "format": capabilities.get("format", "dynasty")},
         # A completed season for both owners: without it neither qualifies for
         # a rating at all (franchise_redesign.rated_owners — the thin-evidence
         # gate), which is the correct answer for a league that has played

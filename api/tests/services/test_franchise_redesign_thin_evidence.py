@@ -31,6 +31,8 @@ def _entry(*, owners: list[str], season_records: dict) -> ChainCacheEntry:
         playoff_weeks_by_league={}, roster_to_user_by_league={},
         league_name_by_id={}, league_season_by_id={},
         cached_at="2026-08-16T00:00:00+00:00",
+        capabilities={"format": "dynasty"},
+        current_rating_verification={"status": "ready", "format": "dynasty"},
         outcome_signals={
             u: {"expected_wins": tilt[u][0], "playoff_success": tilt[u][1],
                 "luck": tilt[u][2]}

@@ -22,6 +22,8 @@ def _entry() -> ChainCacheEntry:
             "production_total": {"A": 80.0, "B": 20.0},
         }},
         owners={"A": {}, "B": {}},
+        capabilities={"format": "dynasty"},
+        current_rating_verification={"status": "ready", "format": "dynasty"},
         playoff_weeks_by_league={}, roster_to_user_by_league={},
         league_name_by_id={}, league_season_by_id={}, cached_at="2026-06-26T00:00:00Z",
         outcome_signals={

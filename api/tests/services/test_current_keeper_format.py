@@ -44,6 +44,7 @@ def test_current_and_all_do_not_use_unverified_or_stale_format():
 
     entry = _v2_entry(capabilities={"format": "redraft"})
     entry.chain = [{"league_id": "L", "season": 2026, "format": "redraft", "format_verified": False}]
+    entry.current_rating_verification = {}
     assert live_ratings(entry) == {}
     entry.current_rating_verification = {"status": "ready", "format": "keeper"}
     assert live_ratings(entry) == {}
@@ -110,3 +111,46 @@ def test_asset_verification_does_not_hide_missing_current_results():
     entry.current_rating_verification = {"status": "ready", "format": "keeper"}
     entry.outcome_signals = {}
     assert live_ratings(entry) == {}
+
+
+def test_legacy_current_cache_requires_verification_even_with_provider_format():
+    from app.services.franchise_redesign import live_ratings
+
+    entry = _v2_entry(capabilities={"format": "redraft"})
+    entry.current_rating_verification = {}
+    entry.chain = [{"league_id": "L", "season": 2026, "format": "redraft", "format_verified": True}]
+    assert live_ratings(entry) == {}
+
+
+def test_career_rating_cannot_reinclude_explicitly_excluded_results():
+    from app.services.season_ratings import rating_scope
+
+    entry = _v2_entry(capabilities={"format": "redraft"})
+    entry.current_rating_verification = {"status": "ready", "format": "redraft"}
+    entry.season_rating_inputs = {
+        "2025": {"results_coverage": {"excluded_seasons": [
+            {"season": 2023, "reason": "Unverified postseason participation"}]}},
+        "2026": {"basis": "current", "version": 1, "status": "ready"},
+    }
+    assert rating_scope(entry, "all")["status"] == "unavailable"
+    assert "2023" in rating_scope(entry, "all")["reason"]
+    assert rating_scope(entry, 2026)["status"] == "unavailable"
+    # Rejected evidence leaves only a durable requirement on refresh.
+    entry.season_rating_inputs = {"2023": {"status": "unavailable", "requires_results_coverage": True}}
+    assert rating_scope(entry, "all")["status"] == "unavailable"
+    assert "2023" in rating_scope(entry, "all")["reason"]
+
+
+@pytest.mark.asyncio
+async def test_failed_historical_rebuild_blocks_current_rating(tmp_path, monkeypatch):
+    from app.services.grader import GraderService
+    from app.services.season_ratings import rating_scope
+
+    def fail(*args, **kwargs):
+        raise OSError("Coverage store unreadable")
+
+    monkeypatch.setattr("app.services.season_ratings.build_season_rating_inputs", fail)
+    entry = await _run_with_one_trade(GraderService(), cache_dir=tmp_path,
+                                      nfl_state={"season": "2026", "week": 7})
+    assert entry.current_rating_verification["status"] == "unavailable"
+    assert "Historical Results verification failed" in rating_scope(entry, "all")["reason"]

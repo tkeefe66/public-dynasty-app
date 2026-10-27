@@ -45,6 +45,18 @@ def verify_current_assets(league, rosters, supporting, *, picks_verified, draft_
 
 
 def current_rating_error(entry):
+    # Current/All Results are cumulative. Dated provisional snapshots filter
+    # excluded seasons, but the career rollup does not yet apply that coverage.
+    excluded = {}
+    for year, snapshot in (entry.season_rating_inputs or {}).items():
+        coverage = snapshot.get("results_coverage") or {}
+        if snapshot.get("requires_results_coverage") and not coverage:
+            excluded[int(year)] = "Required historical Results verification is missing."
+        for item in coverage.get("excluded_seasons", []):
+            excluded[item["season"]] = item["reason"]
+    if excluded:
+        details = "; ".join(f"{year}: {reason}" for year, reason in sorted(excluded.items()))
+        return f"Cumulative Results include unverified history ({details}). Current and All ratings remain unavailable until that history is verified or explicitly excluded from the career calculation."
     audit = entry.current_rating_verification
     if audit:
         if audit.get("status") != "ready":
@@ -56,7 +68,5 @@ def current_rating_error(entry):
         if not _complete_signals(owners, entry.outcome_signals, entry.outlook_signals, audit["format"]):
             return "Current rating signals are incomplete. Refresh league data; missing inputs are not scored as zero."
     else:
-        current = next((r for r in entry.chain if r.get("league_id") == entry.league_id), {})
-        if current.get("format_verified") is False or current.get("requires_format_evidence"):
-            return "Current league format and asset inputs require verification. Refresh league data."
+        return "Current league format and rating inputs require verification. Refresh league data."
     return None

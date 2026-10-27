@@ -1946,6 +1946,9 @@ class GraderService:
             previous_rating_entry = (ChainCache(cache_dir=cache_dir).read(
                 current_league_id, max_age_seconds=10 ** 9,
             ) if cache_dir is not None else None)
+            # Let the current-year gate see durable historical exclusions while
+            # rebuilding. Never reopen career ratings during a partial rebuild.
+            entry.season_rating_inputs = previous_rating_entry.season_rating_inputs if previous_rating_entry else {}
             entry.season_rating_inputs = build_season_rating_inputs(
                 entry, supporting, asset_store=asset_store,
                 prior_snapshots=previous_rating_entry.season_rating_inputs if previous_rating_entry else {},
@@ -1956,6 +1959,10 @@ class GraderService:
                      sum(s["status"] == "provisional" for s in entry.season_rating_inputs.values()),
                      sum(s["status"] == "unavailable" for s in entry.season_rating_inputs.values()))
         except Exception:
+            entry.current_rating_verification = {
+                **entry.current_rating_verification, "status": "unavailable",
+                "reason": "Historical Results verification failed during refresh. Retry league data refresh; cumulative ratings remain unavailable.",
+            }
             log.exception("season rating inputs failed for league %s; historical ratings unavailable", current_league_id)
 
         _no_key_blurbs = _blurb_writer is None
