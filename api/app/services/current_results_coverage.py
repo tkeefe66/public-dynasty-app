@@ -58,5 +58,11 @@ def current_scoped_entry(entry):
     snapshot = current_results(entry)
     if snapshot is None:
         return entry
-    return replace(entry, outcome_signals=deepcopy(snapshot['outcome_signals']),
+    owners = entry.owners
+    if entry.capabilities.get('format') != 'redraft':
+        # A departed owner has no verified current holdings. The signal builder
+        # may have emitted numeric zero defaults for them; those are not assets.
+        active = set(entry.roster_to_user_by_league.get(entry.league_id, {}).values())
+        owners = {uid: owner for uid, owner in owners.items() if uid in active}
+    return replace(entry, owners=owners, outcome_signals=deepcopy(snapshot['outcome_signals']),
                    season_records=deepcopy(snapshot['season_records']))

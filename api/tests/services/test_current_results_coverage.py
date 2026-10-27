@@ -60,3 +60,16 @@ def test_changed_or_missing_receipt_cannot_publish_current_provisional():
     entry.owner_identity_version = ''
     entry.current_rating_verification.pop('results_snapshot')
     assert rating_scope(entry, 'all')['status'] == 'unavailable'
+
+
+def test_provisional_keeper_does_not_rank_former_owner_zero_asset_defaults():
+    from app.services.current_results_coverage import apply_current_results
+    from app.services.season_ratings import scoped_rating_entry
+
+    entry, support = prepared()
+    entry.roster_to_user_by_league['old'] = {1: 'u1'}
+    entry.outlook_signals['u2'] = {'roster_value_share': 0, 'young_core_share': 0, 'draft_capital': 0}
+    apply_current_results(entry, support, policy(entry, support).model_dump(mode='json'))
+    scoped = scoped_rating_entry(entry, 'all')
+    assert set(scoped.owners) == {'u1'}
+    assert 'u2' in entry.owners
