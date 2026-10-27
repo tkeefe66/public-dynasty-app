@@ -35,7 +35,10 @@ def test_verified_assets_use_historical_ages_holdings_and_pick_transfers():
     assert ranks["u1"] == {"rank": 1, "of": 2}
 
 
-def test_keeper_dated_policy_accepts_verified_rosters_without_future_assets():
+@pytest.mark.parametrize("policy_version", ["stats-guy-v1", "stats-guy-offense-v2"])
+def test_keeper_dated_policy_accepts_verified_rosters_without_future_assets(
+    policy_version,
+):
     from app.services.historical_backfill import digest
     from app.services.historical_rating_assets import HistoricalRatingAssets
 
@@ -43,20 +46,37 @@ def test_keeper_dated_policy_accepts_verified_rosters_without_future_assets():
     data.update(format="keeper", draft_rounds=0, picks=[], prices_as_of="2025-01-06")
     for player in data["players"]:
         player.update(position="RB", pricing="provider")
-    data = HistoricalRatingAssets.model_validate(data).model_dump(mode="json", exclude={"validation"})
+    data = HistoricalRatingAssets.model_validate(data).model_dump(
+        mode="json", exclude={"validation"}
+    )
     data["valuation_policy"] = {
-        "version": "stats-guy-v1", "source_url": "https://statsguyfantasy.com",
-        "excluded": [], "unranked_upper_bounds": {}, "priced": 2, "eligible": 2,
+        "version": policy_version,
+        "source_url": "https://statsguyfantasy.com",
+        "excluded": (
+            [{"player_id": "defender", "owner_id": "u1", "position": "LB"}]
+            if policy_version == "stats-guy-offense-v2"
+            else []
+        ),
+        "unranked_upper_bounds": {},
+        "priced": 2,
+        "eligible": 2,
         "evidence_sha256": "a" * 64,
     }
     data["validation"] = {
-        "manifest_sha256": digest(data), "result_inputs_sha256": "b" * 64,
-        "stable": True, "scenarios": 1,
+        "manifest_sha256": digest(data),
+        "result_inputs_sha256": "b" * 64,
+        "stable": True,
+        "scenarios": 1,
     }
     assets = HistoricalRatingAssets.model_validate(data)
     signals, _ = assets.signals()
-    assert signals["u1"]["roster_value_share"] == .9
+    assert signals["u1"]["roster_value_share"] == 0.9
     assert signals["u1"]["draft_capital"] == signals["u2"]["draft_capital"] == 0
+    if policy_version == "stats-guy-offense-v2":
+        invalid = deepcopy(data)
+        invalid["valuation_policy"]["version"] = "stats-guy-v1"
+        with pytest.raises(ValueError, match="Invalid excluded assets"):
+            HistoricalRatingAssets.model_validate(invalid)
     data["players"][0]["value"] = 1
     with pytest.raises(ValueError, match="differs from validated preview"):
         HistoricalRatingAssets.model_validate(data)

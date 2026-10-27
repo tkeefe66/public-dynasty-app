@@ -33,7 +33,7 @@ class HistoricalPlayer(BaseModel):
 
 class HistoricalValuationPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    version: Literal["stats-guy-v1"]
+    version: Literal["stats-guy-v1", "stats-guy-offense-v2"]
     source_url: Literal["https://statsguyfantasy.com"]
     excluded: list[dict]
     unranked_upper_bounds: dict[str, float]
@@ -109,7 +109,7 @@ class HistoricalRatingAssets(BaseModel):
         if sum(p.value for p in self.players) <= 0:
             raise ValueError("Historical roster prices cannot all be zero.")
         if self.valuation_policy is not None:
-            from app.services.historical_backfill import digest
+            from app.services.historical_backfill import IDP, digest
             policy = self.valuation_policy
             missing = {p.player_id for p in self.players if p.pricing == "unranked_floor"}
             if (self.prices_as_of >= self.as_of
@@ -126,9 +126,10 @@ class HistoricalRatingAssets(BaseModel):
                 if count > 2 or count / len(roster) > .10:
                     raise ValueError("Owner offensive coverage below policy threshold.")
             excluded = policy.excluded
+            excluded_positions = {"K", "DEF"} | (IDP if policy.version == "stats-guy-offense-v2" else set())
             if (len(missing) / len(self.players) > .02 or len(missing) > 8
                     or len({p.get('player_id') for p in excluded}) != len(excluded)
-                    or any(p.get('position') not in {'K', 'DEF'} or p.get('owner_id') not in owners
+                    or any(p.get('position') not in excluded_positions or p.get('owner_id') not in owners
                            or p.get('player_id') in {r.player_id for r in self.players} for p in excluded)):
                 raise ValueError("Invalid excluded assets or league coverage.")
             if (self.validation is None or self.validation.scenarios != 2 ** len(missing)

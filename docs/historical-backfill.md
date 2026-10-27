@@ -28,8 +28,9 @@ valuation, and supported offensive-player valuation. The programmatic
 without claiming their assets are verified or emitting an asset manifest.
 Keeper draft rounds cannot be valued using dynasty rookie-pick prices. Keeper
 assets require separately verified retention rules, pick inventory, compatible
-prices, and supported player positions. Individual defensive players and TE
-premiums still fail explicitly. Yahoo reconstruction remains a separate workflow.
+prices, and supported player positions. TE premiums still fail explicitly.
+Individual defensive players require the explicit offensive-only policy below.
+Yahoo reconstruction remains a separate workflow.
 
 Use an exported canonical `ChainCacheEntry` as `--chain`; it establishes owner
 identities and the expected chain. Actual standings, scores, brackets, roster
@@ -60,6 +61,27 @@ rating model. Current owner display names are labels, not historical evidence.
 The 90% team threshold allows two unranked players on a 22-player offensive
 roster; the initially proposed 95% threshold did not. The leaguewide threshold
 and exhaustive rank/grade stability gate remain mandatory.
+
+### Offensive-only keeper assets with IDP
+
+`value_roster(..., exclude_idp=True)` emits `stats-guy-offense-v2`. It retains
+recognized defensive players in the exclusion ledger instead of inventing market
+prices for them. Results and scoring retain their contributions. QB/RB/WR/TE
+eligibility takes precedence for dual-position players; unknown positions still
+block preparation. The import schema checks exclusions against this policy
+version, and the rating disclosure explicitly names individual defensive players.
+Existing `stats-guy-v1` manifests and their restrictions remain unchanged.
+
+### Exact approved points resolutions
+
+The programmatic `collect` function accepts `approved_points_resolutions` only
+after explicit operator authorization. Each item binds `season`, `roster_id`,
+`field`, `provider`, and `recomputed`. Only selected-season `points_for` and
+`points_against` may use the verified weekly total. W/L/T never accepts this
+override. Duplicate, unused, changed, or mismatched approvals fail. Both source
+values and the `approved_weekly_scores` resolution remain in the audit evidence;
+weekly scores themselves are never edited. This is an exact source decision,
+not an increased tolerance for other leagues or years.
 
 ## Prepare and replay
 

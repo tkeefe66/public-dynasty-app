@@ -85,7 +85,7 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     basis = "current" if year == "all" else snapshot.get("basis", "season_end")
     source = snapshot.get("asset_source") or {}
     policy = source.get("valuation_policy") or {}
-    stats_guy = ready and year != "all" and policy.get("version") == "stats-guy-v1"
+    stats_guy = ready and year != "all" and policy.get("version") in {"stats-guy-v1", "stats-guy-offense-v2"}
     return {
         "status": "ready" if ready else "unavailable", "basis": basis,
         "as_of": entry.cached_at if year == "all" else snapshot.get("as_of"),
@@ -97,8 +97,10 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
         "valuation_source": "stats_guy" if stats_guy else None,
         "prices_as_of": source.get("prices_as_of") if stats_guy else None,
         "valuation_note": (f"{policy['priced']}/{policy['eligible']} offensive players priced. "
-                           "Unranked players use a zero replacement floor; kickers and defenses are excluded "
-                           "from assets. "
+                           "Unranked players use a zero replacement floor; "
+                           + ("kickers, team defenses, and individual defensive players are excluded from assets. "
+                              if policy.get("version") == "stats-guy-offense-v2" else
+                              "kickers and defenses are excluded from assets. ")
                            + ("No future-pick assets were included in this verified snapshot. "
                               if source.get("draft_rounds") == 0 else
                               "Generic round values price future picks. ")

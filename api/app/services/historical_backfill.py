@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 POLICY_VERSION = "stats-guy-v1"
 SOURCE_URL = "https://statsguyfantasy.com"
 OFFENSE = {"QB", "RB", "WR", "TE"}
+IDP = {"DL", "DE", "DT", "NT", "LB", "ILB", "OLB", "DB", "CB", "S", "SS", "FS"}
 
 
 def digest(value):
@@ -88,7 +89,9 @@ class EvidenceClient:
         return payload
 
 
-def value_roster(players, holders, board, cutoff: date, format: str):
+def value_roster(
+    players, holders, board, cutoff: date, format: str, *, exclude_idp=False
+):
     if (
         board.get("format") != format
         or board.get("tep") != "std"
@@ -114,7 +117,7 @@ def value_roster(players, holders, board, cutoff: date, format: str):
         )
         if not eligible:
             position = player.get("position")
-            if position not in {"K", "DEF"}:
+            if position not in ({"K", "DEF"} | (IDP if exclude_idp else set())):
                 raise ValueError(
                     f"Unknown/unsupported position for {pid}; review eligibility."
                 )
@@ -159,7 +162,7 @@ def value_roster(players, holders, board, cutoff: date, format: str):
             "Historical offensive coverage below policy threshold; resolve missing prices."
         )
     return rows, {
-        "version": POLICY_VERSION,
+        "version": "stats-guy-offense-v2" if exclude_idp else POLICY_VERSION,
         "excluded": excluded,
         "unranked_upper_bounds": upper,
         "priced": len(rows) - len(upper),

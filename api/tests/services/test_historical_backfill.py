@@ -100,6 +100,34 @@ def test_dual_position_player_uses_offensive_eligibility_and_birthdate():
     assert rows[0]["birth_date"] == "2000-01-01"
 
 
+def test_idp_exclusion_requires_versioned_opt_in_and_preserves_offensive_eligibility():
+    from app.services.historical_backfill import value_roster
+
+    players, holders, board = inputs()
+    players.update(defender={"position": "LB"})
+    holders["defender"] = "a"
+    with pytest.raises(ValueError, match="unsupported position"):
+        value_roster(players, holders, board, date(2025, 12, 31), "non_sf_dynasty")
+    rows, policy = value_roster(
+        players, holders, board, date(2025, 12, 31), "non_sf_dynasty", exclude_idp=True
+    )
+    assert policy["version"] == "stats-guy-offense-v2"
+    assert policy["excluded"] == [
+        {"player_id": "defender", "owner_id": "a", "position": "LB"}
+    ]
+    assert len(rows) == 50 and policy["eligible"] == 50
+    players["defender"]["position"] = "UNKNOWN"
+    with pytest.raises(ValueError, match="unsupported position"):
+        value_roster(
+            players,
+            holders,
+            board,
+            date(2025, 12, 31),
+            "non_sf_dynasty",
+            exclude_idp=True,
+        )
+
+
 def test_roster_reversal_includes_post_cutoff_drop_but_not_before():
     # Mutation: trust current old-league rosters or reverse all transactions.
     from app.services.historical_backfill import reconcile_rosters
@@ -178,9 +206,11 @@ def test_rate_limit_is_explicit_and_never_cached_as_data(tmp_path):
     from app.services.historical_backfill import EvidenceClient
 
     with (
-        httpx.Client(transport=httpx.MockTransport(
-            lambda r: httpx.Response(429, headers={"Retry-After": "60"})
-        )) as http,
+        httpx.Client(
+            transport=httpx.MockTransport(
+                lambda r: httpx.Response(429, headers={"Retry-After": "60"})
+            )
+        ) as http,
         pytest.raises(ValueError, match="60"),
     ):
         EvidenceClient(tmp_path, http=http).get("https://api.sleeper.app/v1/example")

@@ -225,7 +225,26 @@ def read_entry(path):
     )
 
 
-def collect(client, entry, season, *, results_only=False):
+def collect(
+    client, entry, season, *, results_only=False, approved_points_resolutions=()
+):
+    approvals = {}
+    for item in approved_points_resolutions:
+        key = (item["season"], item["roster_id"], item["field"])
+        if (
+            key in approvals
+            or item["field"] not in {"points_for", "points_against"}
+            or item["season"] != season
+            or any(
+                not isinstance(item.get(k), (int, float)) or not math.isfinite(item[k])
+                for k in ("provider", "recomputed")
+            )
+        ):
+            raise ValueError(
+                "Points resolutions must be unique exact selected-season PF/PA evidence."
+            )
+        approvals[key] = item
+    used_approvals = set()
     lids = {lid: y for lid, y in entry.league_season_by_id.items() if y <= season}
     targets = [lid for lid, y in lids.items() if y == season]
     if len(targets) != 1:
@@ -312,8 +331,33 @@ def collect(client, entry, season, *, results_only=False):
                     for k, v in record.items()
                     if abs(getattr(row, k) - v) > 0.011
                 }
-                if year == season or any(
-                    k in differences for k in ("wins", "losses", "ties")
+                unresolved = dict(differences)
+                for field, values in differences.items():
+                    key = (year, row.roster_id, field)
+                    approval = approvals.get(key)
+                    if approval is None:
+                        continue
+                    if any(
+                        abs(approval[k] - values[k]) > 1e-7
+                        for k in ("provider", "recomputed")
+                    ):
+                        raise ValueError(
+                            "Approved points resolution does not match observed evidence."
+                        )
+                    used_approvals.add(key)
+                    record[field] = values["recomputed"]
+                    unresolved.pop(field)
+                    supporting["evidence_discrepancies"].append(
+                        {
+                            "season": year,
+                            "roster_id": row.roster_id,
+                            "differences": {field: values},
+                            "resolution": "approved_weekly_scores",
+                        }
+                    )
+                if unresolved and (
+                    year == season
+                    or any(k in unresolved for k in ("wins", "losses", "ties"))
                 ):
                     raise ValueError(
                         f"Recomputed results disagree with provider records: {year}, roster {row.roster_id}: {differences}."
@@ -322,13 +366,14 @@ def collect(client, entry, season, *, results_only=False):
                 # weekly scores establish all-play; provider W/L establishes
                 # the record. Preserve their disagreement instead of repairing
                 # a game with an unknowable correction.
-                supporting["evidence_discrepancies"].append(
-                    {
-                        "season": year,
-                        "roster_id": row.roster_id,
-                        "differences": differences,
-                    }
-                )
+                if unresolved:
+                    supporting["evidence_discrepancies"].append(
+                        {
+                            "season": year,
+                            "roster_id": row.roster_id,
+                            "differences": unresolved,
+                        }
+                    )
             records[row.roster_id] = record
         wb = client.get(base + "/winners_bracket")
         lb = client.get(base + "/losers_bracket")
@@ -363,6 +408,10 @@ def collect(client, entry, season, *, results_only=False):
         ):
             supporting[key + "_by_league"][lid] = value
         bundles[lid] = (league, rosters, weekly, season_tx, final_week)
+    if used_approvals != set(approvals):
+        raise ValueError(
+            "Approved points resolutions contain unused or no-longer-matching evidence."
+        )
     if results_only:
         return None, None, supporting
     league, rosters, weekly, season_tx, final_week = bundles[target]

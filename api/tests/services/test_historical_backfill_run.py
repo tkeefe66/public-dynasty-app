@@ -131,7 +131,10 @@ def season_source():
     return entry, handler, mutations
 
 
-def test_full_prepare_offline_replay_import_and_scope(tmp_path, season_source):
+@pytest.mark.parametrize("exclude_idp", [False, True])
+def test_full_prepare_offline_replay_import_and_scope(
+    tmp_path, season_source, exclude_idp
+):
     # Mutation: compute a separate preview formula, lose attribution, or skip import binding.
     from app.services.historical_backfill_run import rank_preview
     from app.services.season_ratings import rating_scope
@@ -180,6 +183,12 @@ def test_full_prepare_offline_replay_import_and_scope(tmp_path, season_source):
     scope = rating_scope(entry, 2024)
     assert scope["valuation_source"] == "stats_guy"
     assert "49/50" in scope["valuation_note"]
+    if exclude_idp:
+        source = entry.season_rating_inputs["2024"]["asset_source"]
+        source["valuation_policy"]["version"] = "stats-guy-offense-v2"
+        scope = rating_scope(entry, 2024)
+        assert scope["valuation_source"] == "stats_guy"
+        assert "individual defensive players" in scope["valuation_note"]
     raw["players"][0]["value"] += 1
     with pytest.raises(ValueError, match="validated preview"):
         store.import_verified(raw)
@@ -471,6 +480,55 @@ def test_median_cannot_hide_missing_head_to_head_evidence(opponent_points):
             roster_to_user={1: "a", 2: "b"},
             median_game=True,
         )
+
+
+def test_exact_approved_points_resolution_is_bound_to_observed_values(
+    tmp_path, season_source
+):
+    from app.services.historical_backfill_run import collect
+
+    entry, handler, _ = season_source
+
+    def adjusted(request):
+        data = handler(request).json()
+        if request.url.path.endswith("/rosters"):
+            data[0]["settings"]["fpts"] += 1
+        return httpx.Response(200, json=data)
+
+    with httpx.Client(transport=httpx.MockTransport(adjusted)) as http:
+        client = EvidenceClient(tmp_path / "receipts", http=http)
+        with pytest.raises(ValueError, match="disagree"):
+            collect(client, entry, 2024, results_only=True)
+    approval = {
+        "season": 2024,
+        "roster_id": 1,
+        "field": "points_for",
+        "provider": 2041,
+        "recomputed": 2040,
+    }
+    client = EvidenceClient(
+        tmp_path / "receipts", http=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    _, _, support = collect(
+        client, entry, 2024, results_only=True, approved_points_resolutions=[approval]
+    )
+    assert support["roster_records_by_league"]["league"][1]["points_for"] == 2040
+    assert (
+        support["evidence_discrepancies"][0]["resolution"] == "approved_weekly_scores"
+    )
+    for bad in (
+        {**approval, "provider": 2042},
+        {**approval, "field": "wins"},
+        {**approval, "roster_id": 2},
+    ):
+        with pytest.raises(ValueError):
+            collect(
+                client,
+                entry,
+                2024,
+                results_only=True,
+                approved_points_resolutions=[bad],
+            )
 
 
 def test_captured_median_season_reconciles_all_provider_records():
