@@ -1949,11 +1949,24 @@ class GraderService:
             # Let the current-year gate see durable historical exclusions while
             # rebuilding. Never reopen career ratings during a partial rebuild.
             entry.season_rating_inputs = previous_rating_entry.season_rating_inputs if previous_rating_entry else {}
+            from app.services.current_results_coverage import apply_current_results
+            results_store = HistoricalResultsStore(cache_dir) if cache_dir else None
+            if previous_rating_entry and previous_rating_entry.current_rating_verification.get('requires_results_coverage'):
+                entry.current_rating_verification['requires_results_coverage'] = True
+            try:
+                current_coverage = results_store.load(current_league_id, _current_format.season) if results_store else None
+                if current_coverage:
+                    entry.current_rating_verification['requires_results_coverage'] = True
+                    apply_current_results(entry, supporting, current_coverage)
+            except (ValueError, OSError) as exc:
+                entry.current_rating_verification.update(status='unavailable', requires_results_coverage=True,
+                                                         reason=str(exc))
+                log.warning('Current provisional Results verification failed league=%s: %s', current_league_id, exc)
             entry.season_rating_inputs = build_season_rating_inputs(
                 entry, supporting, asset_store=asset_store,
                 prior_snapshots=previous_rating_entry.season_rating_inputs if previous_rating_entry else {},
                 format_store=SeasonFormatStore(cache_dir) if cache_dir else None,
-                results_store=HistoricalResultsStore(cache_dir) if cache_dir else None)
+                results_store=results_store)
             log.info("season rating inputs built league=%s ready=%s provisional=%s unavailable=%s", current_league_id,
                      sum(s["status"] == "ready" for s in entry.season_rating_inputs.values()),
                      sum(s["status"] == "provisional" for s in entry.season_rating_inputs.values()),

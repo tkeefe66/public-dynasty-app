@@ -43,7 +43,8 @@ def _complete_signals(owners, outcomes, assets, fmt):
 def scoped_rating_entry(entry: ChainCacheEntry, year) -> ChainCacheEntry | None:
     from app.services.current_rating_verification import current_rating_error
     if year == "all":
-        return None if current_rating_error(entry) else entry
+        from app.services.current_results_coverage import current_scoped_entry
+        return None if current_rating_error(entry) else current_scoped_entry(entry)
     snapshot = (entry.season_rating_inputs or {}).get(str(year), {})
     if snapshot.get("basis") == "current" and current_rating_error(entry):
         return None
@@ -60,7 +61,7 @@ def scoped_rating_entry(entry: ChainCacheEntry, year) -> ChainCacheEntry | None:
                 or coverage.identity_version != entry.owner_identity_version
                 or coverage.league_seasons != {lid: y for lid, y in entry.league_season_by_id.items() if y <= int(year)}
                 or {int(y) for y in snapshot.get("season_records", {})} != set(coverage.included_seasons)
-                or (snapshot.get("format") != "redraft" and not snapshot.get("asset_source"))):
+                or (snapshot.get("basis") != "current" and snapshot.get("format") != "redraft" and not snapshot.get("asset_source"))):
             return None
     owners = snapshot.get("owners") or []
     if any(uid not in entry.owners for uid in owners):
@@ -98,8 +99,10 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     snapshot = (entry.season_rating_inputs or {}).get(str(year), {})
     scoped = scoped_rating_entry(entry, year)
     ready = scoped is not None
-    provisional = ready and snapshot.get("status") == "provisional" and year != "all"
-    coverage = snapshot.get("results_coverage") or {}
+    from app.services.current_results_coverage import current_results
+    current_snapshot = current_results(entry) if year == "all" else None
+    coverage = (current_snapshot or {}).get("coverage", {}) if year == "all" else snapshot.get("results_coverage") or {}
+    provisional = ready and bool(coverage)
     reason = None
     if scoped is None:
         from app.services.current_rating_verification import current_rating_error
@@ -114,14 +117,15 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     return {
         "status": "provisional" if provisional else "ready" if ready else "unavailable", "basis": basis,
         "as_of": entry.cached_at if year == "all" else snapshot.get("as_of"),
-        "label": (f"Provisional franchise rating at end of {year}" if provisional else
+        "label": ("Provisional current career rating" if provisional and basis == "current" else
+                  f"Provisional franchise rating at end of {year}" if provisional else
                   "Current career rating" if year == "all" else
                   f"Franchise rating through {year}" if basis == "current" else
                   f"Franchise rating at end of {year}") if ready else
                  "Historical data unavailable" if year != "all" else "Rating unavailable",
         "reason": reason,
-        "included_seasons": coverage.get("included_seasons", []) if year != "all" else [],
-        "excluded_seasons": coverage.get("excluded_seasons", []) if year != "all" else [],
+        "included_seasons": coverage.get("included_seasons", []),
+        "excluded_seasons": coverage.get("excluded_seasons", []),
         "valuation_source": "stats_guy" if stats_guy else "dynasty_process" if dynasty_process else None,
         "prices_as_of": source.get("prices_as_of") if dated_prices else None,
         "valuation_note": (f"{policy['priced']}/{policy['eligible']} offensive players priced. "
@@ -196,14 +200,22 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
             continue
         if current:
             from app.services.current_rating_verification import current_rating_error
+            from app.services.current_results_coverage import (
+                current_results,
+                current_scoped_entry,
+            )
             error = current_rating_error(entry)
             if error:
                 snapshot["reason"] = error
                 continue
-            snapshot.update(outcome_signals=deepcopy(entry.outcome_signals),
+            scoped_current = current_scoped_entry(entry)
+            receipt = current_results(entry)
+            if receipt:
+                snapshot.update(results_coverage=receipt['coverage'], requires_results_coverage=True)
+            snapshot.update(outcome_signals=deepcopy(scoped_current.outcome_signals),
                             outlook_signals=deepcopy(entry.outlook_signals),
                             roster_ranks=deepcopy(entry.roster_ranks),
-                            season_records=deepcopy(entry.season_records))
+                            season_records=deepcopy(scoped_current.season_records))
         else:
             bounded_lids = {lid: season for lid, season in entry.league_season_by_id.items() if season <= year}
             effective = supporting

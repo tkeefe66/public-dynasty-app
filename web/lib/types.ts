@@ -532,6 +532,7 @@ export interface ProseSegment {
 }
 
 export interface OwnerDetailResp {
+  rating_scope?: RatingScope | null;
   league_id: string;
   user_id: string;
   owner: OwnerRef;

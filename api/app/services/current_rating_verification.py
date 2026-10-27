@@ -45,6 +45,8 @@ def verify_current_assets(league, rosters, supporting, *, picks_verified, draft_
 
 
 def current_rating_error(entry):
+    from app.services.current_results_coverage import current_results
+    scoped = current_results(entry)
     # Current/All Results are cumulative. Dated provisional snapshots filter
     # excluded seasons, but the career rollup does not yet apply that coverage.
     excluded = {}
@@ -54,10 +56,13 @@ def current_rating_error(entry):
             excluded[int(year)] = "Required historical Results verification is missing."
         for item in coverage.get("excluded_seasons", []):
             excluded[item["season"]] = item["reason"]
-    if excluded:
+    scoped_exclusions = {x['season'] for x in scoped['coverage']['excluded_seasons']} if scoped else set()
+    if excluded and not set(excluded).issubset(scoped_exclusions):
         details = "; ".join(f"{year}: {reason}" for year, reason in sorted(excluded.items()))
         return f"Cumulative Results include unverified history ({details}). Current and All ratings remain unavailable until that history is verified or explicitly excluded from the career calculation."
     audit = entry.current_rating_verification
+    if audit.get('requires_results_coverage') and scoped is None:
+        return "Current provisional Results verification is missing or stale. Revalidate coverage before publishing ratings."
     if audit:
         if audit.get("status") != "ready":
             return audit.get("reason") or "Current rating inputs are unverified. Refresh league data."
@@ -65,7 +70,8 @@ def current_rating_error(entry):
             return "Current rating inputs use a different league format. Refresh league data."
         from app.services.season_ratings import _complete_signals
         owners = set(entry.roster_to_user_by_league.get(entry.league_id, {}).values()) or set(entry.owners)
-        if not _complete_signals(owners, entry.outcome_signals, entry.outlook_signals, audit["format"]):
+        outcomes = scoped['outcome_signals'] if scoped else entry.outcome_signals
+        if not _complete_signals(owners, outcomes, entry.outlook_signals, audit["format"]):
             return "Current rating signals are incomplete. Refresh league data; missing inputs are not scored as zero."
     else:
         return "Current league format and rating inputs require verification. Refresh league data."

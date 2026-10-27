@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.models.common import OwnerRef
 from app.models.leaderboard import PillarBreakdown
+from app.models.rating_scope import RatingScope
 from app.models.trade import ProductionPoint, ProductionVerdictView, TradeProductionView
 
 
@@ -260,6 +261,7 @@ class ProseSegment(BaseModel):
 
 
 class OwnerDetailResp(BaseModel):
+    rating_scope: RatingScope | None = None
     league_id: str
     user_id: str
     owner: OwnerRef

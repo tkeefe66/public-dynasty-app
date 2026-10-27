@@ -8,6 +8,7 @@ import { ownerReceipt, ownerPath } from "@/lib/receipts";
 import { ProfileEditor } from "./ProfileEditor";
 import { ReceiptButton } from "./ReceiptButton";
 import { HeroBand } from "./ownerdeepdive/HeroBand";
+import { RatingScopeNotice } from "./RatingScopeNotice";
 import { OverviewTab, TabKey } from "./ownerdeepdive/OverviewTab";
 import { TradesTab, tradeSeasons } from "./ownerdeepdive/TradesTab";
 import { TrackRecordTab } from "./ownerdeepdive/TrackRecordTab";
@@ -161,6 +162,7 @@ export function OwnerDeepDive({
         roast={profile?.roast}
         editAffordance={editButton}
       />
+      {detail.rating_scope?.status === "provisional" && <RatingScopeNotice scope={detail.rating_scope} />}
 
       <div className="flex items-stretch border-b border-rule mt-4">
         {/* The strip wraps instead of scrolling: nothing but the year line

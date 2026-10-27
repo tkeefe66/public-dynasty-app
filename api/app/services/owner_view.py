@@ -370,7 +370,9 @@ def build_owner_detail(
     for rows_ in draft_picks_by_season.values():
         rows_.sort(key=lambda r: r.current_value - r.avg_slot_value, reverse=True)
 
+    from app.services.season_ratings import rating_scope
     return OwnerDetailResp(
+        rating_scope=rating_scope(entry, "all"),
         league_id=entry.league_id, user_id=user_id,
         owner=owner_ref(entry, user_id),
         format=league_format,
