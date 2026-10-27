@@ -87,7 +87,7 @@ async def test_first_saved_request_pins_prompt_version_before_the_next_stage(mak
     fixture_contract = contract if contract in ("legacy", "passage") else "grounded_v1"
     fixture = json.loads((Path(__file__).parent / f"fixtures/synthetic_analyst_{fixture_contract}_receipts.json").read_text())
     if contract == "grounded_v2":
-        system, messages = RecapWriter().build_request(ArchivedPacket(fixture["payload"]["edition"]["facts"]), lore=None)
+        system, messages = RecapWriter(grounding_version="recap-owner-evidence-v2").build_request(ArchivedPacket(fixture["payload"]["edition"]["facts"]), lore=None)
         fixture["requests"][0] = {**fixture["requests"][0], "system": system, "messages": messages}
     saved_count = 0 if contract == "new" else 1
     await seed_job(maker)
@@ -118,7 +118,8 @@ async def test_first_saved_request_pins_prompt_version_before_the_next_stage(mak
     if contract in ("legacy", "passage", "grounded_v1"):
         assert outgoing[0] == fixture["requests"][1]
     else:
-        assert outgoing[0]["system"][1]["text"].startswith("recap-owner-evidence-v2\n")
+        version = "recap-owner-evidence-v2" if contract == "grounded_v2" else "recap-owner-evidence-v3"
+        assert outgoing[0]["system"][1]["text"].startswith(version + "\n")
         if contract == "grounded_v2":
             assert json.loads(outgoing[0]["messages"][0]["content"])["claim_evidence"]["player_usage"][0]["unit"] == "offensive_snaps"
     assert transport.sends == 0

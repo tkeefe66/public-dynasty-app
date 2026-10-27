@@ -556,12 +556,29 @@ async def test_second_rejection_never_publishes_or_automatically_retries(maker):
     async with maker.begin() as db:
         await attention(db, job.id, job.generation, "execution_failed")
         failed = await db.get(GenerationOperation, job.id)
-        assert (await resolution(db, failed))["action"] == "support"
+        assert (await resolution(db, failed))["action"] == "replacement"
     await admit_automatic(maker)
     async with maker() as db:
         assert (await db.get(GenerationOperation, job.id)).calls == 2
         assert len((await db.scalars(select(GenerationOperation))).all()) == 2
     assert len(transport.requests) == 2
+
+    # A new explicit approval can repair the latest rejected draft, with a fresh
+    # two-call bound. Neither inspection nor scheduler admission buys those calls.
+    async with maker.begin() as db:
+        failed = await db.get(GenerationOperation, job.id)
+        proposal = await prepare_replacement(db, failed.id, SimpleNamespace(
+            expected_generation=failed.generation, expected_state=failed.state,
+            reason="Owner approves another bounded repair"), "owner")
+    assert proposal["max_calls"] == 2
+    next_job = await running(maker, await apply(maker, proposal))
+    from app.services.generation.artifacts import save_artifact
+    result = await generate(next_job, Gateway(maker, RepairTransport(), epoch="test-epoch"))
+    async with maker.begin() as db:
+        await save_artifact(db, next_job.id, next_job.generation, result)
+    async with maker() as db:
+        assert (await db.get(GenerationOperation, next_job.id)).state == "succeeded"
+        assert len((await db.scalars(select(ProviderAttempt))).all()) == 8
 
 
 @pytest.mark.asyncio

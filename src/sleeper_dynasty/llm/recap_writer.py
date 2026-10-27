@@ -36,8 +36,18 @@ REQUEST_TIMEOUT_SECONDS = 300.0
 MAX_TOKENS = 8192
 REVIEW_MAX_TOKENS = 8192
 MAX_REPAIRS = 1
-REVIEW_GROUNDING_VERSION = "recap-owner-evidence-v2"
-REVIEW_GROUNDING_VERSIONS = ("recap-owner-evidence-v1", REVIEW_GROUNDING_VERSION)
+REVIEW_GROUNDING_VERSION = "recap-owner-evidence-v3"
+REVIEW_GROUNDING_VERSIONS = ("recap-owner-evidence-v1", "recap-owner-evidence-v2", REVIEW_GROUNDING_VERSION)
+TIMING_GUIDANCE = """
+Reports with unknown chronology are omitted from the writing packet. Do not
+reconstruct their injury claims, pregame advice, or manager blame from a zero
+score or a player's absence. Describe verified fantasy results instead.
+Even a dated report is not proof the manager saw it or could change a lineup.
+Audit every explicit and implied before-kickoff claim across the entire draft,
+including jokes such as 'they told you not to start him'. Unknown timing requires
+removing that assertion, never inventing a kickoff or treating an inactive label
+as timestamp evidence. Return all timing corrections together in the first review.
+"""
 # Append only for v2. The v1 prompt file and evidence layout are paid-receipt contracts.
 USAGE_UNIT_GUIDANCE = """
 The player_usage index labels the exact unit of each saved usage field.
@@ -171,7 +181,7 @@ def _claim_evidence(packet: dict, version: str) -> dict:
                 "published_at": published, "publication_relative_to_player_kickoff": relation,
             })
     evidence = {"version": version, "single_swaps": swaps, "player_news_timing": timing}
-    if version == "recap-owner-evidence-v2":
+    if version in ("recap-owner-evidence-v2", "recap-owner-evidence-v3"):
         evidence["player_usage"] = [
             {"source_id": f"/facts/player_context/players/{i}/usage/{field}",
              "player": player["player"], "field": field, "value": player["usage"][field], "unit": unit}
@@ -181,6 +191,23 @@ def _claim_evidence(packet: dict, version: str) -> dict:
             if (player.get("usage") or {}).get(field) is not None
         ]
     return evidence
+
+
+def _writing_packet(packet: dict, version: str) -> dict:
+    """Exclude unqualified news only from new writing; keep review/source intact."""
+    if version != "recap-owner-evidence-v3":
+        return packet
+    result = deepcopy(packet)
+    timing = {row["source_id"]: row for row in _claim_evidence(packet, version)["player_news_timing"]}
+    for i, player in enumerate(result["player_context"].get("players", [])):
+        reports = player.get("news", [])
+        # Keep list positions and timestamps so source IDs still address the
+        # same immutable report in the independent review packet.
+        player["news"] = [report if timing[f"/facts/player_context/players/{i}/news/{j}"]["publication_relative_to_player_kickoff"] != "unknown"
+            else {"published_at": report.get("published_at"),
+                  "news_omitted": "Unproven chronology; do not infer injury timing or pregame advice."}
+            for j, report in enumerate(reports)]
+    return result
 
 
 def _passage_spans(text: str) -> dict[str, tuple[int, int]]:
@@ -380,7 +407,8 @@ class RecapWriter:
         # Keeping this off preserves both literal- and passage-repair receipts.
         self._grounding_prompt = (
             self._grounding_version + "\n" + resources.files(_PROMPTS).joinpath("analyst_grounding.md").read_text()
-            + (USAGE_UNIT_GUIDANCE if self._grounding_version == "recap-owner-evidence-v2" else "")
+            + (USAGE_UNIT_GUIDANCE if self._grounding_version in ("recap-owner-evidence-v2", "recap-owner-evidence-v3") else "")
+            + (TIMING_GUIDANCE if self._grounding_version == "recap-owner-evidence-v3" else "")
             if grounded_review else None
         )
 
@@ -399,7 +427,7 @@ class RecapWriter:
             system.append({"type": "text", "text": self._grounding_prompt})
 
         user_parts = []
-        packet = editorial_facts(facts)
+        packet = _writing_packet(editorial_facts(facts), self._grounding_version) if self._grounding_prompt else editorial_facts(facts)
         if lore:
             user_parts.append("LEAGUE LORE (weave these in where relevant):\n\n" + lore)
         user_parts.append(

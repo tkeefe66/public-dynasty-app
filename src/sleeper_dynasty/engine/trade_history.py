@@ -46,7 +46,7 @@ def _identity_for(
     roster_id: int, roster_to_user: dict[int, str]
 ) -> str:
     """Return stable identity for a roster_id; fall back to a placeholder."""
-    if roster_id in roster_to_user:
+    if roster_to_user.get(roster_id):
         return roster_to_user[roster_id]
     log.warning(
         "No user mapping for roster_id=%d; using fallback identity",

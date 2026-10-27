@@ -17,6 +17,18 @@ OLD_A = PREVIOUS + ".t.2"
 OLD_B = PREVIOUS + ".t.1"
 
 
+def test_vacant_cached_rosters_never_become_null_owner_keys():
+    from sleeper_dynasty.api.owner_identity import resolve_owner_bundle
+    from sleeper_dynasty.engine.trade_history import _identity_for
+    raw = {"roster_to_user": {1: "real-owner", 2: None, 3: ""},
+           "matchups": {"preserved": True}}
+    resolved = resolve_owner_bundle(object(), raw)
+    assert resolved["roster_to_user"] == {1: "real-owner"}
+    assert resolved["matchups"] == raw["matchups"]
+    assert raw["roster_to_user"][2] is None
+    assert _identity_for(2, raw["roster_to_user"]) == "Owner #2"
+
+
 def identity():
     return OwnerIdentity(
         aliases={A: A, OLD_A: A, B: B, OLD_B: B},

@@ -210,6 +210,14 @@ def test_grounded_news_timing_uses_player_kickoff_without_inventing_missing_time
     assert timing == [{"source_id": "/facts/player_context/players/0/news/0", "player": "CeeDee Lamb",
                        "player_kickoff_at": kickoff, "published_at": published,
                        "publication_relative_to_player_kickoff": relation}]
+    # Unknown kickoff must not expose report prose for the writer to turn into
+    # actionable pregame advice. The reviewer still receives original evidence.
+    draft_input = requests[0]["messages"][0]["content"][0]["text"]
+    if relation == "unknown":
+        assert "CeeDee Lamb injured his quad" not in draft_input
+        assert "news_omitted" in draft_input
+    else:
+        assert "CeeDee Lamb injured his quad" in draft_input
 
 
 @pytest.mark.parametrize("approved", [True, False])
@@ -250,7 +258,7 @@ def test_usage_evidence_preserves_units_in_draft_repair_and_both_reviews(writer_
             writer.write(ArchivedPacket(packet))
     assert len(requests) == 4
     draft_index = json.loads(requests[0]["messages"][0]["content"][0]["text"].split("CLAIM EVIDENCE INDEX:\n```json\n")[1].split("\n```")[0])
-    assert draft_index["version"] == "recap-owner-evidence-v2"
+    assert draft_index["version"] == "recap-owner-evidence-v3"
     assert draft_index["player_usage"] == [
         {"source_id": "/facts/player_context/players/0/usage/offense_snaps", "player": "Juwan Johnson",
          "field": "offense_snaps", "value": 42, "unit": "offensive_snaps"},
@@ -264,7 +272,7 @@ def test_usage_evidence_preserves_units_in_draft_repair_and_both_reviews(writer_
     assert requests[2]["messages"][0] == requests[0]["messages"][0]
     for request in requests:
         prompt = request["system"][1]["text"]
-        assert prompt.startswith("recap-owner-evidence-v2\n")
+        assert prompt.startswith("recap-owner-evidence-v3\n")
         assert "never routes run, touches, targets, carries, or receptions" in prompt
         assert "Audit ALL usage claims in the first review" in prompt
 
@@ -620,8 +628,23 @@ def test_build_request_includes_outlook_when_present(writer_factory):
     assert json.loads(outlook_json)["week"] == 10
 
 
-def test_player_context_is_identical_in_draft_and_review(writer_factory):
-    # Mutation: leave news out of serialization or send it only to the writer.
+def test_news_filter_keeps_original_source_ids_and_saved_v2_requests():
+    from copy import deepcopy
+    from sleeper_dynasty.llm.recap_writer import _writing_packet, _claim_evidence
+    packet = {"bench_regret": [], "player_context": {"players": [{
+        "player": "Synthetic Player", "kickoff_at": "2026-10-25T17:00:00+00:00",
+        "news": [{"text": "Unqualified claim", "published_at": None},
+                 {"text": "Qualified report", "published_at": "2026-10-25T16:00:00+00:00"}]}]}}
+    original = deepcopy(packet)
+    filtered = _writing_packet(packet, "recap-owner-evidence-v3")
+    assert "Unqualified claim" not in str(filtered)
+    assert filtered["player_context"]["players"][0]["news"][1]["text"] == "Qualified report"
+    assert _claim_evidence(filtered, "recap-owner-evidence-v3") == _claim_evidence(packet, "recap-owner-evidence-v3")
+    assert _writing_packet(packet, "recap-owner-evidence-v2") == original == packet
+
+
+def test_unknown_news_is_omitted_from_writer_but_preserved_for_review(writer_factory):
+    # Mutation: leak unknown chronology to writing or discard immutable review evidence.
     facts = _facts()
     facts.lineups = [{"owner": "Team A", "starters": [{"player": "Test QB (QB, FA)", "points": 3}]}]
     facts.player_context = {"players": [{"player": "Test QB", "usage": {"offense_snaps": 3},
@@ -634,7 +657,10 @@ def test_player_context_is_identical_in_draft_and_review(writer_factory):
     draft_text = requests[0]["messages"][0]["content"][0]["text"]
     draft = json.loads(draft_text.split("```json\n")[1].split("\n```")[0])
     review = json.loads(requests[1]["messages"][0]["content"])
-    assert draft["player_context"] == facts.player_context == review["facts"]["player_context"]
+    assert "text" not in draft["player_context"]["players"][0]["news"][0]
+    assert "news_omitted" in draft["player_context"]["players"][0]["news"][0]
+    assert draft["player_context"]["players"][0]["usage"] == {"offense_snaps": 3}
+    assert facts.player_context == review["facts"]["player_context"]
 
 
 def test_editorial_packet_keeps_relevant_context_without_all_rostered_players(writer_factory):
@@ -663,7 +689,8 @@ def test_editorial_packet_keeps_relevant_context_without_all_rostered_players(wr
     review = json.loads(requests[1]["messages"][0]["content"])
     assert {p["player"] for p in draft["player_context"]["players"]} == {
         "Player 0", "Player 7", "Player 8", "Player 9", "Player 4", "Bench"}
-    assert draft == review["facts"]
+    from sleeper_dynasty.llm.recap_writer import _writing_packet
+    assert draft == _writing_packet(review["facts"], "recap-owner-evidence-v3")
     assert review["lore"] == "Team A is my brother."
     assert "sources" not in draft["player_context"]
     assert facts.to_dict() == before

@@ -174,7 +174,6 @@ async def describe(db, job, *, prepared=False, repair_job_id=""):
     if (
         job.kind != "generation"
         or job.feature != "analyst"
-        or is_repair(job)
         or (
             job.state != "cancelled" or job.reason != "owner_cancelled"
             if prepared
@@ -308,7 +307,9 @@ async def describe(db, job, *, prepared=False, repair_job_id=""):
         "max_calls": 2,
         "draft": evidence["draft"],
         "findings": findings,
-        "grounding_version": version,
+        # Repeat repairs were previously unsupported. Their new approvals can
+        # use the current writing contract; existing repair bindings stay exact.
+        "grounding_version": "recap-owner-evidence-v3" if is_repair(job) else version,
         "source": {
             "job_id": job.id,
             "generation": job.generation,

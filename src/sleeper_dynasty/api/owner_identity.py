@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import logging
 from dataclasses import dataclass, field, replace
 
 
@@ -105,4 +106,11 @@ def source_client(client):
 
 
 def resolve_owner_bundle(client, bundle):
+    # Vacant historical rosters have no owner identity. Keep their raw matchup
+    # and transaction evidence, but never turn null into a shared owner key.
+    mapping = bundle.get("roster_to_user", {})
+    vacant = [rid for rid, uid in mapping.items() if not uid]
+    if vacant:
+        logging.getLogger(__name__).warning("Owner mapping unavailable for roster slots %s; retaining raw evidence", vacant)
+        bundle = {**bundle, "roster_to_user": {rid: uid for rid, uid in mapping.items() if uid}}
     return client.bundle(bundle) if isinstance(client, OwnerIdentityClient) else bundle
