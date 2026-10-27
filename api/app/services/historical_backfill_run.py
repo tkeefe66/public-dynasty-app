@@ -230,24 +230,24 @@ def read_entry(path):
 def collect(
     client, entry, season, *, results_only=False, approved_points_resolutions=()
 ):
+    lids = {lid: y for lid, y in entry.league_season_by_id.items() if y <= season}
     approvals = {}
     for item in approved_points_resolutions:
         key = (item["season"], item["roster_id"], item["field"])
         if (
             key in approvals
             or item["field"] not in {"points_for", "points_against"}
-            or item["season"] != season
+            or item["season"] not in lids.values()
             or any(
                 not isinstance(item.get(k), (int, float)) or not math.isfinite(item[k])
                 for k in ("provider", "recomputed")
             )
         ):
             raise ValueError(
-                "Points resolutions must be unique exact selected-season PF/PA evidence."
+                "Points resolutions must be unique exact PF/PA evidence within the selected league history."
             )
         approvals[key] = item
     used_approvals = set()
-    lids = {lid: y for lid, y in entry.league_season_by_id.items() if y <= season}
     targets = [lid for lid, y in lids.items() if y == season]
     if len(targets) != 1:
         raise ValueError("Expected exactly one league for selected season.")
@@ -327,12 +327,13 @@ def collect(
                 points_against=source.get("fpts_against", 0)
                 + source.get("fpts_against_decimal", 0) / 100,
             )
-            if any(abs(getattr(row, k) - v) > 0.011 for k, v in record.items()):
-                differences = {
-                    k: {"recomputed": getattr(row, k), "provider": v}
-                    for k, v in record.items()
-                    if abs(getattr(row, k) - v) > 0.011
-                }
+            differences = {
+                k: {"recomputed": getattr(row, k), "provider": v}
+                for k, v in record.items()
+                if abs(getattr(row, k) - v)
+                > (1e-7 if (year, row.roster_id, k) in approvals else 0.011)
+            }
+            if differences:
                 unresolved = dict(differences)
                 for field, values in differences.items():
                     key = (year, row.roster_id, field)
@@ -362,7 +363,7 @@ def collect(
                     or any(k in unresolved for k in ("wins", "losses", "ties"))
                 ):
                     raise ValueError(
-                        f"Recomputed results disagree with provider records: {year}, roster {row.roster_id}: {differences}."
+                        f"Recomputed results disagree with provider records: {year}, roster {row.roster_id}: {unresolved}."
                     )
                 # Prior seasons' aggregate points do not enter the rating. The
                 # weekly scores establish all-play; provider W/L establishes

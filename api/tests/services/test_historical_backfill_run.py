@@ -574,6 +574,71 @@ def test_exact_approved_points_resolution_is_bound_to_observed_values(
             )
 
 
+@pytest.mark.parametrize("blocked", [None, "record", "postseason"])
+def test_prior_year_points_policy_preserves_hard_gates(tmp_path, season_source, blocked):
+    from app.services.historical_backfill_run import collect
+
+    entry, handler, _ = season_source
+    entry.league_season_by_id["prior"] = 2023
+    entry.roster_to_user_by_league["prior"] = {1: "a", 2: "b"}
+
+    def adjusted(request):
+        prior = "/prior" in request.url.path
+        data = handler(
+            httpx.Request("GET", str(request.url).replace("/prior", "/league"))
+        ).json()
+        if prior and request.url.path.endswith("/prior"):
+            data["season"] = "2023"
+        if prior and request.url.path.endswith("/rosters"):
+            data[0]["settings"]["fpts_decimal"] = 1
+            if blocked == "record":
+                data[0]["settings"]["wins"] -= 1
+        if (
+            prior
+            and blocked == "postseason"
+            and request.url.path.endswith("/winners_bracket")
+        ):
+            data = []
+        return httpx.Response(200, json=data)
+
+    approval = {
+        "season": 2023,
+        "roster_id": 1,
+        "field": "points_for",
+        "provider": 2040.01,
+        "recomputed": 2040,
+    }
+    with httpx.Client(transport=httpx.MockTransport(adjusted)) as http:
+        client = EvidenceClient(tmp_path / "receipts", http=http)
+        if blocked:
+            with pytest.raises(
+                ValueError, match="disagree|Missing postseason participants"
+            ):
+                collect(
+                    client,
+                    entry,
+                    2024,
+                    results_only=True,
+                    approved_points_resolutions=[approval],
+                )
+        else:
+            _, _, support = collect(
+                client,
+                entry,
+                2024,
+                results_only=True,
+                approved_points_resolutions=[approval],
+            )
+            assert support["roster_records_by_league"]["prior"][1]["points_for"] == 2040
+            audit = support["evidence_discrepancies"][0]
+            assert audit["season"] == 2023
+            assert audit["differences"]["points_for"] == {
+                "provider": 2040.01,
+                "recomputed": 2040,
+            }
+            assert audit["resolution"] == "approved_weekly_scores"
+
+
 def test_captured_median_season_reconciles_all_provider_records():
     # Mutation: count only H2H or add median totals to points against.
     # Sanitized full 2025 Sleeper archive: ten teams, thirteen regular-season weeks.
