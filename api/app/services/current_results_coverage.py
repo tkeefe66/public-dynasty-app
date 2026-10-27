@@ -1,4 +1,5 @@
 """Source-bound partial-history Results, with separately verified current assets."""
+import json
 from copy import deepcopy
 from dataclasses import replace
 
@@ -13,7 +14,9 @@ def binding(entry, snapshot):
         'membership': entry.roster_to_user_by_league,
         'format': entry.capabilities.get('format'),
         'raw_results': entry.outcome_signals, 'raw_records': entry.season_records,
-        'assets': entry.outlook_signals, 'snapshot': snapshot,
+        # Preserve unassigned assets while using their persisted key types.
+        # Keep other fields unchanged for compatibility with existing receipts.
+        'assets': json.loads(json.dumps(entry.outlook_signals)), 'snapshot': snapshot,
     })
 
 

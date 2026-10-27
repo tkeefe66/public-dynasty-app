@@ -119,3 +119,28 @@ def test_model_only_current_ratings_are_provisional_and_bound_to_assets():
     e = original
     e.current_rating_verification["pick_valuation"]["rounds"][0]["value"] += 1
     assert rating_scope(e, 2026)["status"] == "unavailable"
+
+
+def test_unassigned_asset_denominator_survives_json_receipt_roundtrip():
+    # Mutation: hash mixed None/string owner keys before JSON normalization.
+    import json
+
+    from app.services.full_player_pick_values import (
+        bind_pick_valuation,
+        current_pick_valuation,
+    )
+
+    from ._grader_fixtures import _v2_entry
+
+    league, draft, picks, support = inputs()
+    support = build(league, draft, picks, support)
+    rosters = [SimpleNamespace(roster_id=i, owner_id=f"u{i}", players=[str(i)]) for i in (1, 2)]
+    e = _v2_entry(capabilities={"format": "keeper"})
+    e.league_season_by_id = {"L": 2026}
+    e.outlook_signals[None] = {"roster_value": 2500, "draft_capital": 0}
+    e.current_rating_verification = verification.verify_current_assets(
+        league, rosters, support, picks_verified=True, draft_rounds=3)
+    bind_pick_valuation(e)
+    assert current_pick_valuation(e)
+    e.outlook_signals = json.loads(json.dumps(e.outlook_signals))
+    assert current_pick_valuation(e)

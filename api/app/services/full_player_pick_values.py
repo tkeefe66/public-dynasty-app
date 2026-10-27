@@ -8,6 +8,7 @@ flat across the existing three-year asset horizon, and mark ratings provisional.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
 from math import isfinite
@@ -97,10 +98,14 @@ def with_full_player_pick_values(league, drafts, picks_by_draft, supporting, *, 
 
 
 def _binding(entry):
-    return digest({"league_id": entry.league_id, "seasons": entry.league_season_by_id,
+    payload = {"league_id": entry.league_id, "seasons": entry.league_season_by_id,
                    "identity": entry.owner_identity_version, "format": entry.capabilities.get("format"),
                    "membership": {str(k): v for k, v in entry.roster_to_user_by_league.get(entry.league_id, {}).items()},
-                   "assets": entry.outlook_signals, "valuation": entry.current_rating_verification.get("pick_valuation")})
+                   "assets": entry.outlook_signals, "valuation": entry.current_rating_verification.get("pick_valuation")}
+    # Vacant rosters retain assets in shared denominators under a None owner.
+    # Hash the persisted JSON representation (None key -> "null") so both
+    # pre-write and post-read verification use identical key types and ordering.
+    return digest(json.loads(json.dumps(payload)))
 
 
 def bind_pick_valuation(entry):

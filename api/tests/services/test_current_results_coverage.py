@@ -73,3 +73,35 @@ def test_provisional_keeper_does_not_rank_former_owner_zero_asset_defaults():
     scoped = scoped_rating_entry(entry, 'all')
     assert set(scoped.owners) == {'u1'}
     assert 'u2' in entry.owners
+
+
+def test_vacant_team_assets_support_both_pick_and_results_receipts():
+    # Mutation: hash None/string asset keys directly in the Results receipt.
+    import json
+
+    from app.services.current_results_coverage import (
+        apply_current_results,
+        current_results,
+    )
+    from app.services.full_player_pick_values import (
+        bind_pick_valuation,
+        current_pick_valuation,
+    )
+    from app.services.season_ratings import rating_scope
+
+    from .test_full_player_pick_values import build, inputs
+
+    entry, support = prepared()
+    league, draft, picks, prices = inputs()
+    league.league_id = draft['league_id'] = entry.league_id
+    entry.capabilities['format'] = 'keeper'
+    entry.current_rating_verification['format'] = 'keeper'
+    entry.current_rating_verification['pick_valuation'] = build(league, draft, picks, prices)['full_player_pick_valuation']
+    entry.outlook_signals[None] = {'roster_value': 2500, 'draft_capital': 0}
+    bind_pick_valuation(entry)
+    apply_current_results(entry, support, policy(entry, support).model_dump(mode='json'))
+    assert rating_scope(entry, 'all')['status'] == 'provisional'
+    entry.outlook_signals = json.loads(json.dumps(entry.outlook_signals))
+    assert current_results(entry)
+    assert current_pick_valuation(entry)
+    assert rating_scope(entry, 'all')['status'] == 'provisional'
