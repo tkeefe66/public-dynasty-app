@@ -212,7 +212,7 @@ export interface RatingScope {
   label: string;
   as_of?: string | null;
   reason?: string | null;
-  valuation_source?: "stats_guy" | null;
+  valuation_source?: "stats_guy" | "dynasty_process" | null;
   prices_as_of?: string | null;
   valuation_note?: string | null;
   included_seasons?: number[];

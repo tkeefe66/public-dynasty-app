@@ -1898,6 +1898,7 @@ class GraderService:
         try:
             from app.services.historical_rating_assets import HistoricalAssetStore
             from app.services.historical_results_coverage import HistoricalResultsStore
+            from app.services.keeper_evidence import SeasonFormatStore
             from app.services.season_ratings import build_season_rating_inputs
             asset_store = HistoricalAssetStore(cache_dir, current_league_id) if cache_dir else None
             supporting["season_end_dates"] = {}
@@ -1919,6 +1920,7 @@ class GraderService:
             entry.season_rating_inputs = build_season_rating_inputs(
                 entry, supporting, asset_store=asset_store,
                 prior_snapshots=previous_rating_entry.season_rating_inputs if previous_rating_entry else {},
+                format_store=SeasonFormatStore(cache_dir) if cache_dir else None,
                 results_store=HistoricalResultsStore(cache_dir) if cache_dir else None)
             log.info("season rating inputs built league=%s ready=%s provisional=%s unavailable=%s", current_league_id,
                      sum(s["status"] == "ready" for s in entry.season_rating_inputs.values()),

@@ -67,6 +67,11 @@ def test_selected_snapshot_controls_both_rating_views(dynasty_entry, fmt):
         assert scope["valuation_source"] == "stats_guy"
         assert "No future-pick assets" in scope["valuation_note"]
         assert "Generic round" not in scope["valuation_note"]
+        entry.season_rating_inputs["2024"]["asset_source"]["valuation_policy"]["version"] = "dynasty-process-v1"
+        scope = build_dashboard(entry, year=2024, lens="ktc").rating_scope
+        assert scope.valuation_source == "dynasty_process"
+        assert scope.prices_as_of == "2025-01-06"
+        assert "2/2 offensive players priced" in scope.valuation_note
 
 
 def test_all_remains_current_career_rating(dynasty_entry):

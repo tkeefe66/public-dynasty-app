@@ -35,7 +35,7 @@ def test_verified_assets_use_historical_ages_holdings_and_pick_transfers():
     assert ranks["u1"] == {"rank": 1, "of": 2}
 
 
-@pytest.mark.parametrize("policy_version", ["stats-guy-v1", "stats-guy-offense-v2"])
+@pytest.mark.parametrize("policy_version", ["stats-guy-v1", "stats-guy-offense-v2", "dynasty-process-v1"])
 def test_keeper_dated_policy_accepts_verified_rosters_without_future_assets(
     policy_version,
 ):
@@ -51,7 +51,7 @@ def test_keeper_dated_policy_accepts_verified_rosters_without_future_assets(
     )
     data["valuation_policy"] = {
         "version": policy_version,
-        "source_url": "https://statsguyfantasy.com",
+        "source_url": "https://dynastyprocess.com" if policy_version == "dynasty-process-v1" else "https://statsguyfantasy.com",
         "excluded": (
             [{"player_id": "defender", "owner_id": "u1", "position": "LB"}]
             if policy_version == "stats-guy-offense-v2"
@@ -72,6 +72,11 @@ def test_keeper_dated_policy_accepts_verified_rosters_without_future_assets(
     signals, _ = assets.signals()
     assert signals["u1"]["roster_value_share"] == 0.9
     assert signals["u1"]["draft_capital"] == signals["u2"]["draft_capital"] == 0
+    if policy_version == "dynasty-process-v1":
+        invalid = deepcopy(data)
+        invalid['valuation_policy']['source_url'] = 'https://statsguyfantasy.com'
+        with pytest.raises(ValueError, match='source'):
+            HistoricalRatingAssets.model_validate(invalid)
     if policy_version == "stats-guy-offense-v2":
         invalid = deepcopy(data)
         invalid["valuation_policy"]["version"] = "stats-guy-v1"

@@ -33,13 +33,20 @@ class HistoricalPlayer(BaseModel):
 
 class HistoricalValuationPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    version: Literal["stats-guy-v1", "stats-guy-offense-v2"]
-    source_url: Literal["https://statsguyfantasy.com"]
+    version: Literal["stats-guy-v1", "stats-guy-offense-v2", "dynasty-process-v1"]
+    source_url: Literal["https://statsguyfantasy.com", "https://dynastyprocess.com"]
     excluded: list[dict]
     unranked_upper_bounds: dict[str, float]
     priced: int
     eligible: int
     evidence_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def source_matches_policy(self):
+        expected = "https://dynastyprocess.com" if self.version == "dynasty-process-v1" else "https://statsguyfantasy.com"
+        if self.source_url != expected:
+            raise ValueError("Valuation source does not match its versioned policy.")
+        return self
 
 
 class HistoricalValidation(BaseModel):

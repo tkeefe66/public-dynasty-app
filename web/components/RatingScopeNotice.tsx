@@ -21,9 +21,12 @@ export function RatingScopeNotice({ scope }: { scope?: RatingScope | null }) {
           </ul>
         </>}
       </>}
-      {scope.valuation_source === "stats_guy" && hasRating && <>
+      {scope.valuation_source && hasRating && <>
         {" · Historical values: "}
-        <a href="https://statsguyfantasy.com" className="underline" target="_blank" rel="noreferrer">Stats Guy Fantasy</a>
+        <a href={scope.valuation_source === "dynasty_process" ? "https://dynastyprocess.com" : "https://statsguyfantasy.com"}
+          className="underline" target="_blank" rel="noreferrer">
+          {scope.valuation_source === "dynasty_process" ? "DynastyProcess" : "Stats Guy Fantasy"}
+        </a>
         {scope.prices_as_of && <> ({scope.prices_as_of})</>}
         {scope.valuation_note && <span className="mt-1 block">{scope.valuation_note}</span>}
       </>}

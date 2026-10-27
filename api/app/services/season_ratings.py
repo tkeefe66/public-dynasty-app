@@ -105,6 +105,8 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     source = snapshot.get("asset_source") or {}
     policy = source.get("valuation_policy") or {}
     stats_guy = ready and year != "all" and policy.get("version") in {"stats-guy-v1", "stats-guy-offense-v2"}
+    dynasty_process = ready and year != "all" and policy.get("version") == "dynasty-process-v1"
+    dated_prices = stats_guy or dynasty_process
     return {
         "status": "provisional" if provisional else "ready" if ready else "unavailable", "basis": basis,
         "as_of": entry.cached_at if year == "all" else snapshot.get("as_of"),
@@ -116,8 +118,8 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
         "reason": reason,
         "included_seasons": coverage.get("included_seasons", []) if year != "all" else [],
         "excluded_seasons": coverage.get("excluded_seasons", []) if year != "all" else [],
-        "valuation_source": "stats_guy" if stats_guy else None,
-        "prices_as_of": source.get("prices_as_of") if stats_guy else None,
+        "valuation_source": "stats_guy" if stats_guy else "dynasty_process" if dynasty_process else None,
+        "prices_as_of": source.get("prices_as_of") if dated_prices else None,
         "valuation_note": (f"{policy['priced']}/{policy['eligible']} offensive players priced. "
                            "Unranked players use a zero replacement floor; "
                            + ("kickers, team defenses, and individual defensive players are excluded from assets. "
@@ -127,12 +129,13 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
                               if source.get("draft_rounds") == 0 else
                               "Generic round values price future picks. ")
                            + "Historical estimates use "
-                           "a different valuation source from current ratings.") if stats_guy else None,
+                           "a different valuation source from current ratings.") if dated_prices else None,
     }
 
 
 def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asset_store=None,
-                              results_store=None, results_coverage=None, prior_snapshots=None) -> dict:
+                              results_store=None, results_coverage=None, prior_snapshots=None,
+                              format_store=None) -> dict:
     """Build fresh inputs, including on incremental refresh and identity changes.
 
     Results are re-derived from bounded raw seasons. Historical Assets require
@@ -170,6 +173,20 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
         if not current and (prior.get("status") == "provisional" or prior.get("results_coverage")
                             or prior.get("requires_results_coverage")):
             snapshot["requires_results_coverage"] = True
+        if not current and (prior.get("format_evidence") or prior.get("requires_format_evidence")):
+            snapshot["requires_format_evidence"] = True
+        if not current and format_store is not None and len(lids) == 1:
+            try:
+                format_evidence = format_store.load(lids[0], year)
+                if format_evidence:
+                    fmt = format_evidence['format']
+                    snapshot.update(format=fmt, format_evidence=format_evidence, requires_format_evidence=True)
+            except (ValueError, OSError) as exc:
+                snapshot['reason'] = str(exc)
+                continue
+        if snapshot.get("requires_format_evidence") and not snapshot.get("format_evidence"):
+            snapshot["reason"] = "Reviewed season format evidence is missing. Restore its verified record."
+            continue
         if not owners or fmt is None:
             snapshot["reason"] = "Season membership or league format is unverified. Refresh league data."
             continue

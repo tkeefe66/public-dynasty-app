@@ -12,6 +12,13 @@ const missing = { status: "unavailable" as const, basis: "season_end" as const,
   label: "Historical data unavailable", reason: "Verified historical asset prices are missing." };
 
 describe("rating scope", () => {
+  it("attributes an older archive to its actual valuation provider", () => {
+    render(<RatingScopeNotice scope={{ status: "ready", basis: "season_end",
+      label: "Franchise rating at end of 2021", valuation_source: "dynasty_process",
+      prices_as_of: "2021-12-31" }} />);
+    expect(screen.getByRole("link", { name: "DynastyProcess" })).toHaveAttribute("href", "https://dynastyprocess.com");
+    expect(screen.queryByText("Stats Guy Fantasy")).not.toBeInTheDocument();
+  });
   it("discloses provisional coverage and excluded reasons at the standings call site", () => {
     // Mutation: suppress coverage disclosure for provisional ratings.
     render(<StandingsTable leagueId="L" rows={[]} year={2024} currentSeason={2026} ratingScope={{
