@@ -157,6 +157,7 @@ async def claim_operation(db, worker_id: str, *, now: int | None = None, capabil
     # other Yahoo refreshes quiet too, without blocking Sleeper or paid work.
     yahoo_cooldown = await db.scalar(select(func.max(GenerationOperation.next_attempt_at)).where(
         GenerationOperation.kind.in_(FREE_REFRESH_KINDS),
+        GenerationOperation.reason == "yahoo_rate_limited",
         GenerationOperation.league_id.contains(".l."))) or 0
     if yahoo_cooldown > now:
         query = query.where(or_(

@@ -16,8 +16,6 @@ async def recover(db, item, owner_id, now):
     out = dict(item)
     def help_needed(reason, action='Review saved work in Admin; additional calls require specific approval'):
         return {**out, 'status': 'help', 'reason': reason, 'action': action}
-    if item.get('recovery_attempts', 0) >= 2:
-        return help_needed('recovery_exhausted')
     job = await db.get(GenerationOperation, item.get('job_id', ''), populate_existing=True)
     if not job or job.actor_id != owner_id:
         return help_needed('job_authority_or_state_changed')
@@ -29,7 +27,20 @@ async def recover(db, item, owner_id, now):
             (payload.get('season'), payload.get('week')) != (item.get('season'), item.get('week')))):
         return help_needed('job_scope_changed')
     out.update(calls_used=job.calls, max_calls=job.max_calls,
+               job_kind=job.kind, job_reason=job.reason,
+               readiness_week=json.loads(job.progress_json).get('week'),
                remaining_calls=max(0, job.max_calls - job.calls))
+    if job.kind == 'analyst_refresh' and job.reason == 'results_not_ready':
+        if job.state == 'queued':
+            return {**out, 'status': 'waiting', 'gate': max(now + 60, job.next_attempt_at),
+                    'reason': job.reason, 'recoverable': False}
+        return help_needed(job.reason,
+            'Inspect provider scores and lineups for this week; the free import waited 48 hours. No AI call approval is needed to fix data readiness.')
+    if item.get('recovery_attempts', 0) >= 2:
+        return help_needed('recovery_exhausted',
+            'Inspect the data import failure in Admin and Railway logs before retrying. This import makes no paid AI calls.'
+            if job.kind in FREE_REFRESH_KINDS else
+            'Review saved work in Admin; additional calls require specific approval')
     if job.state == 'succeeded' and job.artifact_id:
         try:
             await require_actor(db, job)

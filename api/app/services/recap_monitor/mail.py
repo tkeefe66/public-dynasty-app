@@ -21,6 +21,12 @@ def message(item, recipient, sender):
               'last_progress_at', 'settled_microusd', 'unknown_cost_count',
               'calls_used', 'max_calls', 'remaining_calls', 'recovery_attempts')
     reason = str(item.get('reason', 'Review required')).replace('_', ' ')
+    cause = item.get('job_reason')
+    if cause == 'results_not_ready' or item.get('reason') == 'results_not_ready':
+        week = item.get('readiness_week') or item.get('week', '?')
+        reason = f"Week {week} results are incomplete. Provider scores or lineups are not ready; AI writing has not started."
+    elif cause:
+        reason += '. Job cause: ' + str(cause).replace('_', ' ')
     action = str(item.get('action', 'Review the recap monitor in the admin dashboard.'))
     labels = {'league_name': 'League', 'season': 'Season', 'week': 'Week',
               'job_id': 'Job ID', 'last_progress_at': 'Last progress',

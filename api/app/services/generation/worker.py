@@ -207,7 +207,10 @@ class Worker:
                     row.generation += 1
             raise
         except Exception as exc:
+            from app.services.generation.readiness import ResultsNotReady, defer_results
             code = exc.code if isinstance(exc, Held) else ("publication_failed" if publishing else "execution_failed")
+            if isinstance(exc, ResultsNotReady):
+                code = "results_not_ready"
             from app.services.generation.yahoo_backoff import (
                 defer_refresh,
                 throttle_error,
@@ -220,7 +223,9 @@ class Worker:
                 async with self.maker.begin() as db:
                     await lock_control(db)
                     row = await require_owner(db, job.id, job.generation)
-                    if throttled and await defer_refresh(db, row, throttled):
+                    if isinstance(exc, ResultsNotReady) and await defer_results(db, row, exc):
+                        pass
+                    elif throttled and await defer_refresh(db, row, throttled):
                         pass
                     elif code in ("concurrency_busy", "series_concurrency_busy", "provider_cooldown"):
                         row.state, row.reason = "queued", code

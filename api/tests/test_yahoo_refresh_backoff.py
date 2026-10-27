@@ -90,6 +90,7 @@ async def test_yahoo_cooldown_blocks_other_yahoo_jobs_until_exact_boundary(maker
     async with maker.begin() as db:
         job = await db.get(GenerationOperation, "job")
         job.league_id, job.next_attempt_at = "999.l.123", due
+        job.reason = "yahoo_rate_limited"
         db.add(GenerationOperation(id="other", kind="refresh", league_id="999.l.456",
                                    state="queued", created_at=stamp() - 1))
     async with maker.begin() as db:

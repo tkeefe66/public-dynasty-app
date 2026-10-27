@@ -152,7 +152,8 @@ completed weeks. Budget checks run per edition; page reads never invoke an LLM.
             for week in range(1, last_week + 1):
                 results = await client.get_matchup_results(league_id, week)
                 if not complete_results(results, rosters, week):
-                    raise ValueError(f"Week {week} results are incomplete; retry after the provider scores every matchup")
+                    from app.services.generation.readiness import ResultsNotReady
+                    raise ResultsNotReady(week)
                 before = rosters
                 rosters = advance_standings(rosters, results)
                 if correction_week is not None and week != correction_week:

@@ -88,12 +88,13 @@ async def test_yahoo_completed_week_stages_facts_and_candidate_without_paid_call
 async def test_partial_yahoo_week_cannot_be_staged_as_complete(tmp_path, monkeypatch):
     # Mutation: accept one side of a Yahoo matchup as a complete weekly recap.
     from app.services.analyst import generate_analyst
+    from app.services.generation.readiness import ResultsNotReady
     client, entry, writer = yahoo_fixture(monkeypatch)
     client.get_matchup_results.return_value = client.get_matchup_results.return_value[:1]
     @asynccontextmanager
     async def fence():
         yield None
-    with pytest.raises(ValueError, match="incomplete"):
+    with pytest.raises(ResultsNotReady, match="Week 1 results are incomplete"):
         await generate_analyst(client, entry, tmp_path, skip_llm=True, publication_fence=fence)
     assert AnalystStore(tmp_path).editions(YAHOO_ID) == []
     writer.write.assert_not_called()

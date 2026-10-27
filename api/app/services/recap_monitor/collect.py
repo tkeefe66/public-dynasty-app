@@ -1,4 +1,5 @@
 """Schedule-first inspection. All external calls are free provider reads."""
+import json
 import logging
 from datetime import datetime, time, timedelta
 
@@ -135,6 +136,8 @@ async def collect(config, maker, cache_dir, now, previous):
                     item.update(costs)
                     if job:
                         item.update(job_id=job.id, calls_used=job.calls, max_calls=job.max_calls,
+                                    job_kind=job.kind, job_reason=job.reason,
+                                    readiness_week=json.loads(job.progress_json).get('week'),
                                     remaining_calls=max(0, job.max_calls-job.calls),
                                     last_progress_at=job.updated_at,
                                     recoverable=await requires_recovery(db, job))
