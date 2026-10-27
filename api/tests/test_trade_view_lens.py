@@ -167,6 +167,11 @@ def _entry():
         current_holders={},
         league_name_by_id={"LG": "My League"},
         owners={"ua": {"owner_name": "A"}, "ub": {"owner_name": "B"}},
+        owner_aliases={},
+        league_season_by_id={},
+        chain=[],
+        roster_to_user_by_league={},
+        season_records={},
     )
 
 
