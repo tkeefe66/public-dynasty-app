@@ -2,8 +2,8 @@
 
 KTC publishes a 0-9999 integer "value" scale for dynasty players and
 rookie draft picks, updated daily. They don't expose a public JSON API,
-but the rankings page embeds the full player list as a ``playersArray``
-JavaScript variable in the HTML. That's by far the most reliable thing
+but the rankings page embeds the full player list as a
+JSON script element in the HTML (with legacy JavaScript support). That's by far the most reliable thing
 to scrape — far better than trying to read the DOM.
 
 We fetch both the Superflex (format=2) and 1QB (format=1) variants and
@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+from html.parser import HTMLParser
 from typing import Any
 
 import httpx
@@ -34,9 +36,7 @@ _KTC_URL = (
 # Regex to pluck the embedded JS array. Non-greedy match between the
 # assignment and the trailing semicolon on its own line. We use re.DOTALL
 # because the array spans many lines.
-_PLAYERS_ARRAY_RE = re.compile(
-    r"var\s+playersArray\s*=\s*(\[.*?\])\s*;", re.DOTALL
-)
+_PLAYERS_ARRAY_RE = re.compile(r"var\s+playersArray\s*=\s*(\[.*?\])\s*;", re.DOTALL)
 
 # Format identifiers KTC uses in their URL.
 _FORMAT_SUPERFLEX = 2
@@ -54,18 +54,14 @@ async def fetch_ktc_values() -> dict[str, KTCValue]:
     log.info("Fetching KTC dynasty values")
     merged: dict[str, KTCValue] = {}
 
-    async with httpx.AsyncClient(
-        timeout=30.0, follow_redirects=True
-    ) as client:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         for fmt in (_FORMAT_SUPERFLEX, _FORMAT_ONE_QB):
             url = _KTC_URL.format(fmt=fmt)
             try:
                 resp = await client.get(
                     url,
                     headers={
-                        "User-Agent": (
-                            "Mozilla/5.0 (compatible; sleeper-dynasty/0.1)"
-                        ),
+                        "User-Agent": ("Mozilla/5.0 (compatible; sleeper-dynasty/0.1)"),
                     },
                 )
             except httpx.HTTPError as e:
@@ -85,29 +81,128 @@ async def fetch_ktc_values() -> dict[str, KTCValue]:
                 )
             _merge_ktc(merged, parsed)
 
+        # Reviewed profile identities extend the provider's top-500 feed.
+        # Configuration contains identities, never manually supplied prices.
+        try:
+            profiles = json.loads(os.environ.get("KTC_SUPPLEMENTAL_PROFILES", "[]"))
+            if not isinstance(profiles, list):
+                raise TypeError("expected a list")
+        except (ValueError, TypeError):
+            log.error(
+                "KTC_SUPPLEMENTAL_PROFILES is invalid; configure a JSON list of slug/name/position identities"
+            )
+            profiles = []
+        for expected in profiles:
+            if (
+                not isinstance(expected, dict)
+                or not all(
+                    isinstance(expected.get(k), str) and expected[k]
+                    for k in ("slug", "name", "position")
+                )
+                or not re.fullmatch(r"[a-z0-9-]+", expected["slug"])
+            ):
+                log.error(
+                    "KTC supplemental profile identity is malformed; review configuration"
+                )
+                continue
+            key = normalize_player_name(expected["name"])
+            if key in merged:
+                continue
+            url = (
+                "https://keeptradecut.com/dynasty-rankings/players/" + expected["slug"]
+            )
+            try:
+                log.info("Fetching supplemental KTC profile %s", expected["slug"])
+                response = await client.get(url)
+                response.raise_for_status()
+                value = parse_ktc_profile(response.text, expected)
+                if value is not None:
+                    merged[key] = value
+            except httpx.HTTPError as exc:
+                log.warning(
+                    "KTC profile %s unavailable: %s; value remains unverified",
+                    expected["slug"],
+                    exc,
+                )
+
     log.info("KTC: %d unique players parsed", len(merged))
     return merged
 
 
+def parse_ktc_profile(html: str, expected: dict[str, str]) -> KTCValue | None:
+    """Accept a profile's current values only after exact identity matching."""
+    match = re.search(r"\bvar\s+player\s*=\s*(\{.*?\})\s*;", html, re.DOTALL)
+    try:
+        raw = json.loads(match.group(1)) if match else None
+        if (
+            not isinstance(raw, dict)
+            or raw.get("slug") != expected["slug"]
+            or raw.get("position") != expected["position"]
+            or normalize_player_name(raw.get("playerName") or "")
+            != normalize_player_name(expected["name"])
+        ):
+            raise ValueError("profile identity missing or mismatched")
+        return _build_ktc_value(raw)
+    except (ValueError, TypeError, KeyError):
+        log.warning(
+            "KTC profile identity/payload invalid for %s; value remains unverified",
+            expected.get("slug"),
+        )
+        return None
+
+
+class _PlayersPayload(HTMLParser):
+    """Read the provider's inert JSON without executing page JavaScript."""
+
+    def __init__(self):
+        super().__init__()
+        self.capture = False
+        self.chunks: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "script":
+            attributes = dict(attrs)
+            self.capture = (
+                attributes.get("id") == "ktc-players"
+                and attributes.get("type") == "application/json"
+            )
+
+    def handle_endtag(self, tag):
+        if tag == "script":
+            self.capture = False
+
+    def handle_data(self, data):
+        if self.capture:
+            self.chunks.append(data)
+
+
 def parse_ktc_html(html: str) -> dict[str, KTCValue]:
-    """Extract ``playersArray`` from KTC HTML and convert to KTCValue dict.
+    """Extract current/legacy rankings JSON and convert to a KTCValue dict.
 
     Returns dict keyed by normalized name. Empty if the JS array isn't
     present or fails to parse.
     """
-    m = _PLAYERS_ARRAY_RE.search(html)
-    if not m:
-        log.warning("KTC: playersArray JS variable not found")
+    parser = _PlayersPayload()
+    parser.feed(html)
+    m = _PLAYERS_ARRAY_RE.search(html) if not parser.chunks else None
+    payload = "".join(parser.chunks) if parser.chunks else m.group(1) if m else None
+    if payload is None:
+        log.warning("KTC: rankings JSON missing; verify provider page layout")
         return {}
 
     try:
-        raw_players: list[dict[str, Any]] = json.loads(m.group(1))
+        raw_players = json.loads(payload)
     except json.JSONDecodeError as e:
         log.warning("KTC: failed to parse playersArray JSON: %s", e)
         return {}
 
+    if not isinstance(raw_players, list):
+        log.warning("KTC: rankings payload is not a player list")
+        return {}
     out: dict[str, KTCValue] = {}
     for p in raw_players:
+        if not isinstance(p, dict):
+            continue
         ktc = _build_ktc_value(p)
         if ktc is None:
             continue
@@ -129,6 +224,11 @@ def _build_ktc_value(raw: dict[str, Any]) -> KTCValue | None:
 
     sf = raw.get("superflexValues") or {}
     one = raw.get("oneQBValues") or {}
+    if not isinstance(sf, dict) or not isinstance(one, dict):
+        log.warning(
+            "KTC: malformed value fields for %s; skipping unverified price", name
+        )
+        return None
 
     def _opt_int(d: dict[str, Any], key: str) -> int | None:
         v = d.get(key)
@@ -152,8 +252,14 @@ def _build_ktc_value(raw: dict[str, Any]) -> KTCValue | None:
 
 # Maps the ordinal word in a KTC pick name ("1st", "2nd", …) to a round number.
 _PICK_ORDINALS = {
-    "1st": 1, "2nd": 2, "3rd": 3, "4th": 4,
-    "5th": 5, "6th": 6, "7th": 7, "8th": 8,
+    "1st": 1,
+    "2nd": 2,
+    "3rd": 3,
+    "4th": 4,
+    "5th": 5,
+    "6th": 6,
+    "7th": 7,
+    "8th": 8,
 }
 # "2025 Early 1st", "2025 Mid 2nd", "2025 Late 3rd", or "2025 1st".
 _PICK_NAME_RE = re.compile(
