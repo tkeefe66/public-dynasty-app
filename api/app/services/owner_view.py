@@ -196,6 +196,8 @@ def build_owner_detail(
     from sleeper_dynasty.engine.capabilities import capabilities_from_dict
     league_format = capabilities_from_dict(entry.capabilities).format
     is_redraft = league_format == "redraft"
+    from app.services.current_rating_verification import current_rating_error
+    assets_unavailable = current_rating_error(entry) is not None
 
     # Same redraft gate aggregations.py and leaderboard.py apply to the
     # standings row and the /gm row: a redraft league carries no roster
@@ -203,7 +205,7 @@ def build_owner_detail(
     # showed "ROSTER #4 OF 12" while the standings table two clicks away
     # deliberately hid the same figure.
     roster_rank_view: RankView | None = None
-    raw_rank = None if is_redraft else (entry.roster_ranks or {}).get(user_id)
+    raw_rank = None if is_redraft or assets_unavailable else (entry.roster_ranks or {}).get(user_id)
     if raw_rank:
         roster_rank_view = RankView(rank=raw_rank["rank"], of=raw_rank["of"])
 
@@ -225,7 +227,7 @@ def build_owner_detail(
     # for redraft rather than shown next to a page that no longer has an
     # Outlook tab. Absence, not an empty state: the field is None and the
     # component renders nothing.
-    _fr_blurb = {} if is_redraft else (
+    _fr_blurb = {} if is_redraft or assets_unavailable else (
         (entry.franchise_blurbs or {}).get(user_id) or {})
     franchise_blurb = _fr_blurb.get("blurb") or None
     franchise_lead = _fr_blurb.get("lead") or None
@@ -274,6 +276,8 @@ def build_owner_detail(
     unrated_reason: str | None = None
     if user_id not in _rated:
         unrated_reason = "first_season" if not _rated else "new_franchise"
+    if assets_unavailable:
+        unrated_reason = "unverified_data"
 
     # --- Optional outlook block (null on pre-feature caches and for redraft).
     #
@@ -289,7 +293,7 @@ def build_owner_detail(
     # blob still carries both (no SCHEMA_VERSION bump) and a newly written one
     # carries neither, so a bracket read would KeyError rather than degrade.
     outlook_view: OutlookView | None = None
-    raw_ol = None if is_redraft else (entry.dynasty_outlooks or {}).get(user_id)
+    raw_ol = None if is_redraft or assets_unavailable else (entry.dynasty_outlooks or {}).get(user_id)
     if raw_ol:
         ol_sig = (entry.outlook_signals or {}).get(user_id, {})
         ap = raw_ol["age_profile"]

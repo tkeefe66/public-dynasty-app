@@ -82,6 +82,13 @@ describe("HeroBand — the letter stands alone", () => {
 });
 
 describe("HeroBand — an unrated franchise", () => {
+  it("labels unresolved data without calling an established owner new", () => {
+    const detail: OwnerDetailResp = { ...detailWithRating("C", 1500, null, 10),
+      franchise_rating: null, unrated_reason: "unverified_data" };
+    render(<HeroBand detail={detail} rivalNames={[]} />);
+    expect(screen.getByText("rating data unverified")).toBeTruthy();
+    expect(screen.queryByText("new franchise")).toBeNull();
+  });
   function unrated(reason: "first_season" | "new_franchise"): OwnerDetailResp {
     const d = detailWithRating("C", 1500, 4, 12);
     return { ...d, franchise_rating: null, unrated_reason: reason };

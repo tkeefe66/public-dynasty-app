@@ -41,9 +41,12 @@ def _complete_signals(owners, outcomes, assets, fmt):
 
 
 def scoped_rating_entry(entry: ChainCacheEntry, year) -> ChainCacheEntry | None:
+    from app.services.current_rating_verification import current_rating_error
     if year == "all":
-        return entry
+        return None if current_rating_error(entry) else entry
     snapshot = (entry.season_rating_inputs or {}).get(str(year), {})
+    if snapshot.get("basis") == "current" and current_rating_error(entry):
+        return None
     if snapshot.get("version") != INPUT_VERSION or snapshot.get("status") not in {"ready", "provisional"}:
         return None
     if (snapshot.get("status") == "provisional" or snapshot.get("results_coverage")
@@ -99,7 +102,8 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     coverage = snapshot.get("results_coverage") or {}
     reason = None
     if scoped is None:
-        reason = snapshot.get("reason") or (
+        from app.services.current_rating_verification import current_rating_error
+        reason = (current_rating_error(entry) if year == "all" or snapshot.get("basis") == "current" else None) or snapshot.get("reason") or (
             "Verified season inputs are missing. Refresh league data; historical assets require a verified backfill.")
     basis = "current" if year == "all" else snapshot.get("basis", "season_end")
     source = snapshot.get("asset_source") or {}
@@ -191,6 +195,11 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
             snapshot["reason"] = "Season membership or league format is unverified. Refresh league data."
             continue
         if current:
+            from app.services.current_rating_verification import current_rating_error
+            error = current_rating_error(entry)
+            if error:
+                snapshot["reason"] = error
+                continue
             snapshot.update(outcome_signals=deepcopy(entry.outcome_signals),
                             outlook_signals=deepcopy(entry.outlook_signals),
                             roster_ranks=deepcopy(entry.roster_ranks),

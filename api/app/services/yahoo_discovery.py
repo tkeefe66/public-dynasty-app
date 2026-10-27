@@ -1,20 +1,33 @@
 """Yahoo account discovery and verified access, separate from fantasy grading."""
 
 import re
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 from sqlalchemy import delete
 
 from app.db.models import YahooConnection, YahooLeagueGrant
+from app.services.keeper_evidence import resolve_season_formats
 from app.services.yahoo_connection import YahooConnectionService
 from sleeper_dynasty.api.yahoo import (
     YahooAdapter,
     YahooAuthenticationError,
     YahooDataError,
     YahooRateLimitError,
+    _format_evidence,
     child,
 )
 from sleeper_dynasty.api.yahoo_json import collection, merge_fragments
+
+
+def discovery_format(league_id, season, settings, store):
+    keeper = any(str(settings.get(k)).lower() in {"1", "true"}
+                 for k in ("uses_roster_import", "is_keeper_league"))
+    league = SimpleNamespace(league_id=league_id, season=season,
+                             format="keeper" if keeper else "redraft",
+                             format_verified=_format_evidence(settings))
+    resolved = resolve_season_formats([league], store)[0]
+    return resolved.format if resolved.effective_format_verified else "unverified"
 
 
 def league_resources(payload):
@@ -39,6 +52,9 @@ def league_resources(payload):
 
 
 async def discover(db, user_id) -> list[dict]:
+    from app.config import get_settings
+    from app.services.keeper_evidence import SeasonFormatStore
+    format_store = SeasonFormatStore(get_settings().cache_dir)
     service = YahooConnectionService(db)
     token = await service.access_token(user_id)
     # access_token retains the user row lock; account cannot change mid-discovery.
@@ -54,17 +70,13 @@ async def discover(db, user_id) -> list[dict]:
             settings = merge_fragments(
                 child(child(settings_payload["fantasy_content"], "league"), "settings")
             )
-            keeper = any(
-                str(settings.get(k)).lower() in {"1", "true"}
-                for k in ("uses_roster_import", "is_keeper_league")
-            )
             result.append(
                 {
                     "league_id": key,
                     "name": str(league.get("name") or "Yahoo league"),
                     "season": int(league["season"]),
                     "total_rosters": int(league["num_teams"]),
-                    "format": "keeper" if keeper else "redraft",
+                    "format": discovery_format(key, int(league["season"]), settings, format_store),
                 }
             )
     except YahooAuthenticationError:

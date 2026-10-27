@@ -62,6 +62,7 @@ class ChainCacheEntry:
     # Versioned as-of-season inputs. Missing/default is explicitly unavailable,
     # never used as zero/current math, so existing career caches stay readable.
     season_rating_inputs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    current_rating_verification: dict[str, Any] = field(default_factory=dict)
     # str(year) -> {uid: skill_score} — per-season rookie draft skill for Draft Ace card.
     draft_skill_by_season: dict[str, dict[str, float]] = field(default_factory=dict)
     # str(year) -> {uid -> season record dict}

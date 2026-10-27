@@ -91,7 +91,7 @@ function VerdictRail({ fr }: { fr: FranchiseRating }) {
 function AbsentVerdictRail({
   reason, rosterRank,
 }: { reason: string; rosterRank?: RankView | null }) {
-  const caption = reason === "first_season" ? "first season" : "new franchise";
+  const caption = reason === "unverified_data" ? "rating data unverified" : reason === "first_season" ? "first season" : "new franchise";
   return (
     <div className="shrink-0 text-right">
       <span

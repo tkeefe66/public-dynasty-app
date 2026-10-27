@@ -227,7 +227,7 @@ export interface SleeperLeague {
   season: number;
   total_rosters: number;
   already_imported: boolean;
-  format: "dynasty" | "keeper" | "redraft";
+  format: "dynasty" | "keeper" | "redraft" | "unverified";
 }
 
 /** The current user's imported leagues. */

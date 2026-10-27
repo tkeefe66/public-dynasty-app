@@ -8,12 +8,48 @@ import hashlib
 import json
 import logging
 import re
+from copy import copy
 from pathlib import Path
 
 from app.services.historical_backfill import digest
 from sleeper_dynasty.util.atomic import write_json_atomic
 
 log = logging.getLogger(__name__)
+
+
+def resolve_season_formats(chain, store, *, prior_chain=()):
+    """Resolve reviewed evidence before pricing, drafts, and capabilities.
+
+    Preserve provider verification separately; member evidence must never be
+    reported as a provider setting. Conflicts and lost records fail closed.
+    """
+    required = {(r.get("league_id"), r.get("season")) for r in prior_chain
+                if r.get("format_evidence") or r.get("requires_format_evidence")}
+    resolved = []
+    for source in chain:
+        league = copy(source)
+        league.effective_format_verified = getattr(source, "format_verified", False) is True
+        league.format_evidence = None
+        league.format_error = None
+        league.requires_format_evidence = (league.league_id, league.season) in required
+        try:
+            evidence = store.load(league.league_id, league.season) if store else None
+            if evidence:
+                league.requires_format_evidence = True
+                if league.effective_format_verified and league.format != evidence["format"]:
+                    raise ValueError("Provider and reviewed season format conflict; review both sources.")
+                league.format = evidence["format"]
+                league.format_evidence = evidence
+                league.effective_format_verified = True
+            elif league.requires_format_evidence:
+                raise ValueError("Reviewed season format evidence is missing; restore its verified record.")
+        except (ValueError, OSError) as exc:
+            league.effective_format_verified = False
+            league.format_error = str(exc)
+            log.error("season format unavailable league=%s season=%s: %s",
+                      league.league_id, league.season, exc)
+        resolved.append(league)
+    return resolved
 
 
 def detect_keepers(

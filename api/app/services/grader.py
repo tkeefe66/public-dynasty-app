@@ -492,6 +492,15 @@ class GraderService:
 
         await progress_cb("chain", "Walking league history")
         chain = await client.walk_league_history(current_league_id)
+        from app.services.keeper_evidence import SeasonFormatStore, resolve_season_formats
+
+        _format_prior = read_prior()
+        chain = resolve_season_formats(
+            chain, SeasonFormatStore(cache_dir) if cache_dir else None,
+            prior_chain=_format_prior.chain if _format_prior else (),
+        )
+        _current_format = next((lg for lg in chain if lg.league_id == current_league_id), None)
+        _no_future_picks = (getattr(_current_format, "format_evidence", None) or {}).get("future_picks_retained") is False
 
         # KtcSnapshotStore is one store per install (not per league), and it
         # holds dynasty KTC prices only. A redraft chain must never touch it —
@@ -538,6 +547,10 @@ class GraderService:
                 "name": lg.name, "total_rosters": lg.total_rosters,
                 "playoff_week_start": lg.playoff_week_start,
                 "format_verified": getattr(lg, "format_verified", False),
+                "effective_format_verified": lg.effective_format_verified,
+                "format_evidence": lg.format_evidence,
+                "requires_format_evidence": lg.requires_format_evidence,
+                "format_error": lg.format_error,
                 "format": getattr(lg, "format", None) if isinstance(getattr(lg, "format", None), str) else None,
                 "status": getattr(lg, "status", None) if isinstance(getattr(lg, "status", None), str) else None,
             }
@@ -814,6 +827,8 @@ class GraderService:
         scoring_bonuses = ()
         projected_by_player: dict[str, float] = {}
         num_draft_rounds = 4
+        _picks_verified = False
+        _verified_draft_rounds = None
         current_league_drafts: list = []  # for the league-phase draft window
         # Pre-initialized (not just declared inside the try below) because the
         # ADP block further down reads it across a separate try/except: if
@@ -828,6 +843,7 @@ class GraderService:
             from app.services.grader_io import is_redraft_chain
 
             traded_picks = await client.get_traded_picks(current_league_id)
+            _picks_verified = True
             origin_season = min(lg.season for lg in chain)
             latest = max(chain, key=lambda lg: lg.season)
             league_format = getattr(latest, "format", "dynasty") or "dynasty"
@@ -859,8 +875,14 @@ class GraderService:
                     if d.get("draft_id") == newest.draft_id:
                         num_draft_rounds = int(
                             (d.get("settings") or {}).get("rounds", 4))
+                        _verified_draft_rounds = (d.get("settings") or {}).get("rounds")
         except Exception:
+            _picks_verified = False
             log.exception("draft inputs fetch failed; draft signals will be 0")
+
+        if _no_future_picks:
+            num_draft_rounds = 0
+            traded_picks = []
 
         # ADP + projected points (best-effort: absent -> those columns drop).
         try:
@@ -1416,6 +1438,8 @@ class GraderService:
                 )
         except Exception:
             log.exception("capabilities derivation skipped; reads as full dynasty")
+        if _no_future_picks:
+            capabilities["future_picks"] = False
 
         # Draft needs ("Going in" panel): reconstructs each owner's roster as
         # it stood on the newest draft's day, decides which starting slots
@@ -1892,6 +1916,11 @@ class GraderService:
             bracket_watch=bracket_watch,
             llm_generated_at=_llm_generated_at,
         )
+
+        from app.services.current_rating_verification import verify_current_assets
+        entry.current_rating_verification = verify_current_assets(
+            _current_format, current_rosters, supporting, picks_verified=_picks_verified,
+            draft_rounds=_verified_draft_rounds)
 
         # Rebuild dated inputs on every free refresh, including the historical
         # rollup reuse path. New verified evidence and identity fixes must apply.

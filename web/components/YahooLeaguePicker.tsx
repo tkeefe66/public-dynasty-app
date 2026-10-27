@@ -94,7 +94,7 @@ export function YahooLeaguePicker() {
             <li key={league.league_id} className="flex items-center justify-between gap-4 py-5">
               <div className="min-w-0">
                 <p className="break-words font-display text-base font-bold text-ink">{league.name}</p>
-                <p className="mt-1 font-mono text-label text-dim">{league.season} · {league.total_rosters} teams · {league.format === "keeper" ? "Keeper" : "Redraft"}</p>
+                <p className="mt-1 font-mono text-label text-dim">{league.season} · {league.total_rosters} teams · {league.format === "keeper" ? "Keeper" : league.format === "redraft" ? "Redraft" : "Format unverified"}</p>
               </div>
               {league.already_imported ? (
                 <Link href={`/league/${league.league_id}`} aria-label={`Open ${league.name}`} className="inline-flex min-h-tap shrink-0 items-center py-3 font-mono text-label uppercase tracking-[0.1em] hover:text-ink">Open →</Link>

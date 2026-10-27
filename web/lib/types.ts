@@ -576,7 +576,7 @@ export interface OwnerDetailResp {
    *  `"first_season"` — the league has completed no season, so nobody is
    *  rated. `"new_franchise"` — the league has, this owner has not. Null
    *  when rated. The caption copy lives in HeroBand, not here. */
-  unrated_reason?: "first_season" | "new_franchise" | null;
+  unrated_reason?: "first_season" | "new_franchise" | "unverified_data" | null;
   track_record?: TrackRecord;
   head_to_head?: H2H[];
 }
