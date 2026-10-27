@@ -63,3 +63,18 @@ authorities. Existing public recap links remain governed independently.
 
 Validation: `npm ci`, `npm test`, and `npm run check` in this directory. Python
 bootstrap and worker-drain tests run with the API test suite.
+# Independent recap monitor watchdog
+
+The controller also checks the authenticated `/api/internal/media/recap-monitor-health`
+endpoint independently of media demand. Enable `RECAP_WATCHDOG_ENABLED=true` and set
+`RECAP_WATCHDOG_TO`, `RECAP_WATCHDOG_FROM`, and `RECAP_WATCHDOG_RESEND_API_KEY` on the
+controller service. The sender and mail credential can use Railway references to the
+API's existing verified sender and Resend key. Never put their values in the repository.
+
+Each five-minute cron checks API reachability, monitor configuration, heartbeat,
+stalled cycles, and overdue checks. Ten minutes of unsuccessful watchdog observations
+opens one email incident. Brief restarts and normal weekly idle remain silent.
+Incident state persists separately at `/state/recap-watchdog.json`; retries reuse the
+same email payload and idempotency key. Healthy observations silently rearm it.
+This watchdog runs separately from the API, but still depends on Railway and Resend;
+a simultaneous platform or mail-provider outage requires an external monitoring service.

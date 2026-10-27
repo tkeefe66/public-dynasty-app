@@ -3,6 +3,7 @@ import { reconcile, MAX_DAILY_LAUNCHES } from './controller.mjs';
 import { cloudAdapter } from './cloud.mjs';
 import { fileStore } from './store.mjs';
 import { failureEvent, observed } from './diagnostics.mjs';
+import { runWatchdog } from './watchdog.mjs';
 
 function required(name) {
   const value = process.env[name];
@@ -12,6 +13,8 @@ function required(name) {
 }
 
 async function main() {
+  // Independent of media demand, VM quotas, and worker configuration.
+  await runWatchdog();
   const config = {
     token: required('RAILWAY_TOKEN'), environmentId: required('RAILWAY_ENVIRONMENT_ID'),
     checkpoint: required('RECAP_WORKER_CHECKPOINT'), image: required('RECAP_WORKER_IMAGE'),
@@ -30,6 +33,7 @@ async function main() {
   const deadline = Date.now() + 70 * 60_000;
   while (Date.now() < deadline) {
     try {
+      await runWatchdog();
       let needed = null;
       try {
         context.operation = 'demand.fetch';

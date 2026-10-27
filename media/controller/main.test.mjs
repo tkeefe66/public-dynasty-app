@@ -6,6 +6,27 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+test('watchdog runs before missing media configuration can stop the controller', async () => {
+  // Mutation: run watchdog only after media setup or only while a paid VM is needed.
+  const dir = await mkdtemp(join(tmpdir(), 'recap-watchdog-entry-'));
+  try {
+    const preload = join(dir, 'preload.mjs');
+    await writeFile(preload, `
+      import { registerHooks } from 'node:module';
+      registerHooks({ load(url, context, next) {
+        if (url.endsWith('/watchdog.mjs')) return {format:'module',shortCircuit:true,
+          source:'export async function runWatchdog(){ console.log("watchdog_checked"); }'};
+        return next(url, context);
+      }});
+    `);
+    const result = spawnSync(process.execPath, ['--import', preload, fileURLToPath(new URL('./main.mjs', import.meta.url))], {
+      env: { ...process.env, RAILWAY_TOKEN: '' }, encoding: 'utf8', timeout: 5000,
+    });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout.trim(), 'watchdog_checked');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test('daily quota exits successfully with waiting status and next eligible time', async () => {
   // Mutation: throwing on daily_limit makes the real entrypoint exit 1 instead of waiting.
   const dir = await mkdtemp(join(tmpdir(), 'recap-main-'));

@@ -64,6 +64,13 @@ class RecoveryCompletion(Strict):
     status: int = Field(default=0,ge=0,le=599)
 
 
+@router.get('/recap-monitor-health')
+async def recap_monitor_health(worker=Depends(require_media_worker)):
+    from app.services.recap_monitor.health import health
+    async with get_sessionmaker()() as db:
+        return await health(db, stamp())
+
+
 @router.get('/demand')
 async def demand(worker=Depends(require_media_worker)):
     """Infrastructure hint only: no lease, payload, spending or publication grant."""
