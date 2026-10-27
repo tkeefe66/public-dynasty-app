@@ -1959,6 +1959,11 @@ class GraderService:
                      sum(s["status"] == "provisional" for s in entry.season_rating_inputs.values()),
                      sum(s["status"] == "unavailable" for s in entry.season_rating_inputs.values()))
         except Exception:
+            entry.season_rating_inputs = {
+                year: {**snapshot, "status": "unavailable",
+                       "reason": "Historical inputs could not be reverified during refresh."}
+                for year, snapshot in entry.season_rating_inputs.items()
+            }
             entry.current_rating_verification = {
                 **entry.current_rating_verification, "status": "unavailable",
                 "reason": "Historical Results verification failed during refresh. Retry league data refresh; cumulative ratings remain unavailable.",

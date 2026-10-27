@@ -122,6 +122,16 @@ def test_legacy_current_cache_requires_verification_even_with_provider_format():
     assert live_ratings(entry) == {}
 
 
+def test_all_does_not_zero_fill_missing_former_owner_assets():
+    from app.services.franchise_redesign import live_ratings
+
+    entry = _v2_entry(capabilities={"format": "keeper"})
+    entry.roster_to_user_by_league = {"L": {1: "u1"}}
+    del entry.outlook_signals["u2"]
+    assert "u2" not in live_ratings(entry)
+    assert "u1" in live_ratings(entry)
+
+
 def test_career_rating_cannot_reinclude_explicitly_excluded_results():
     from app.services.season_ratings import rating_scope
 

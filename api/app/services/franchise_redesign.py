@@ -15,8 +15,12 @@ from typing import Any
 from app.services.aggregations import Year
 from app.services.chain_cache import ChainCacheEntry
 from sleeper_dynasty.engine.gm_rating import (
-    STAGE_SD_FLOOR, V2_KEEPER_SIGNAL_WEIGHTS, V2_PILLAR_WEIGHTS,
-    V2_REDRAFT_SIGNAL_WEIGHTS, V2_SIGNAL_WEIGHTS, compute_gm_ratings,
+    STAGE_SD_FLOOR,
+    V2_KEEPER_SIGNAL_WEIGHTS,
+    V2_PILLAR_WEIGHTS,
+    V2_REDRAFT_SIGNAL_WEIGHTS,
+    V2_SIGNAL_WEIGHTS,
+    compute_gm_ratings,
     rating_to_stage,
 )
 from sleeper_dynasty.engine.results_signals import owners_with_completed_season
@@ -117,6 +121,12 @@ def live_ratings(entry: ChainCacheEntry, *, year: Year = "all") -> dict[str, dic
     if not (entry.outcome_signals or entry.outlook_signals):
         return {}
     owners = rated_owners(entry)
+    # Former owners may have Results but no verified current holdings. Do not
+    # invent zero assets or let those zeros alter the active owners' population.
+    from app.services.season_ratings import _complete_signals
+    owners = [uid for uid in owners if _complete_signals(
+        [uid], entry.outcome_signals, entry.outlook_signals,
+        entry.capabilities.get("format"))]
     if not owners:
         return {}
     model = model_for(entry)
