@@ -58,7 +58,8 @@ def current_scoped_entry(entry):
     snapshot = current_results(entry)
     from app.services.current_rating_verification import current_owner_coverage
     owner_coverage = current_owner_coverage(entry)
-    if snapshot is None and owner_coverage is None:
+    from app.services.full_player_pick_values import current_pick_valuation
+    if snapshot is None and owner_coverage is None and current_pick_valuation(entry) is None:
         return entry
     owners = entry.owners
     if owner_coverage or entry.capabilities.get('format') != 'redraft':

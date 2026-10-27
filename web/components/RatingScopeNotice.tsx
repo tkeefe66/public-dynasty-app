@@ -11,6 +11,7 @@ export function RatingScopeNotice({ scope }: { scope?: RatingScope | null }) {
       </span>
       {scope.as_of && hasRating && <> · As of {scope.as_of.slice(0, 10)}</>}
       {scope.reason && <>. {scope.reason}</>}
+      {hasRating && scope.current_valuation_note && <p className="mt-1">{scope.current_valuation_note}</p>}
       {!!scope.excluded_rosters?.length && <>
         <p className="mt-1">Owner coverage: {scope.verified_owner_count} verified owners. Ratings exclude unassigned teams.</p>
         <ul className="list-disc pl-5">

@@ -215,6 +215,7 @@ export interface RatingScope {
   valuation_source?: "stats_guy" | "dynasty_process" | null;
   prices_as_of?: string | null;
   valuation_note?: string | null;
+  current_valuation_note?: string | null;
   included_seasons?: number[];
   excluded_seasons?: { season: number; reason: string }[];
   verified_owner_count?: number | null;

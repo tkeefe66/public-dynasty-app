@@ -294,6 +294,7 @@ async def pull_supporting_data(
 
     raw_players = players if players is not None else await client.get_players()
     ktc_by_player_id: dict[str, KTCValue] = resolve_ktc_to_player_id(ktc_values, raw_players)
+    player_value_sources = {pid: "KeepTradeCut" for pid in ktc_by_player_id}
 
     fc_filled = 0
     for pid, fc in fc_values.items():
@@ -311,6 +312,7 @@ async def pull_supporting_data(
             superflex_value=sf, one_qb_value=one_qb,
         )
         fc_filled += 1
+        player_value_sources[pid] = "FantasyCalc"
 
     if redraft:
         # Start accruing redraft price history. The dynasty capture above is a
@@ -441,6 +443,7 @@ async def pull_supporting_data(
     return {
         "matchups": matchups,
         "ktc_by_player_id": ktc_by_player_id,
+        "player_value_sources": player_value_sources,
         "pick_value_table": pick_value_table,
         "pick_value_table_tiered": pick_value_table_tiered,
         "playoff_weeks_by_league": playoff_weeks_by_league,

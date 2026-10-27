@@ -22,6 +22,7 @@ class RatingScope(BaseModel):
     valuation_source: Literal["stats_guy", "dynasty_process"] | None = None
     prices_as_of: str | None = None
     valuation_note: str | None = None
+    current_valuation_note: str | None = None
     included_seasons: list[int] = Field(default_factory=list)
     excluded_seasons: list[ExcludedRatingSeason] = Field(default_factory=list)
     verified_owner_count: int | None = None

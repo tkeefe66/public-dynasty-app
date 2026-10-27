@@ -45,6 +45,13 @@ def verify_current_assets(league, rosters, supporting, *, picks_verified, draft_
             if type(draft_rounds) is not int or draft_rounds <= 0:
                 return {**result, "reason": "Future draft rounds are unverified. Verify the season's draft settings."}
             table = supporting.get("pick_value_table") or {}
+            if result["format"] == "keeper":
+                receipt = supporting.get("full_player_pick_valuation") or {}
+                if (receipt.get("status") != "ready" or receipt.get("league_id") != league.league_id
+                        or receipt.get("season") != league.season or receipt.get("draft_rounds") != draft_rounds):
+                    return {**result, "reason": receipt.get("reason") or
+                            "Full-player pick prices require a verified completed draft and public player prices."}
+                result["pick_valuation"] = receipt
             for year in range(league.season + 1, league.season + 4):
                 for round_number in range(1, draft_rounds + 1):
                     value = getattr(table.get((year, round_number)), "superflex_value", None)
@@ -84,6 +91,10 @@ def current_rating_error(entry):
         details = "; ".join(f"{year}: {reason}" for year, reason in sorted(excluded.items()))
         return f"Cumulative Results include unverified history ({details}). Current and All ratings remain unavailable until that history is verified or explicitly excluded from the career calculation."
     audit = entry.current_rating_verification
+    if audit.get("pick_valuation"):
+        from app.services.full_player_pick_values import current_pick_valuation
+        if current_pick_valuation(entry) is None:
+            return "Current full-player pick valuation is stale. Refresh draft and player data before publishing ratings."
     if audit.get("owner_coverage") and current_owner_coverage(entry) is None:
         return "Current owner verification is stale. Refresh league data before publishing ratings."
     if audit.get('requires_results_coverage') and scoped is None:

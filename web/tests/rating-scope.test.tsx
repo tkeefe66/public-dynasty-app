@@ -12,6 +12,15 @@ const missing = { status: "unavailable" as const, basis: "season_end" as const,
   label: "Historical data unavailable", reason: "Verified historical asset prices are missing." };
 
 describe("rating scope", () => {
+  it("discloses current full-player estimates without implying missing history", () => {
+    // Mutation: only show valuation notes when a historical source is present.
+    render(<StandingsTable leagueId="L" rows={[]} year={2026} currentSeason={2026} ratingScope={{
+      status: "provisional", basis: "current", label: "Provisional current career rating",
+      current_valuation_note: "Estimated full-player keeper picks: 18 rounds. Future keepers are unknown.",
+    }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Estimated full-player keeper picks: 18 rounds");
+    expect(screen.getByRole("status")).not.toHaveTextContent("Incomplete history");
+  });
   it("separates unassigned teams from missing history and discloses shared asset blockers", () => {
     const { rerender } = render(<RatingScopeNotice scope={{
       status: "provisional", basis: "current", label: "Provisional current career rating",

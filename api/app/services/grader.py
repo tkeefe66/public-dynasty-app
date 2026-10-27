@@ -833,6 +833,7 @@ class GraderService:
         _picks_verified = False
         _verified_draft_rounds = None
         current_league_drafts: list = []  # for the league-phase draft window
+        picks_by_draft_id: dict[str, list] = {}
         # Pre-initialized (not just declared inside the try below) because the
         # ADP block further down reads it across a separate try/except: if
         # this block raises before its own assignment (e.g. get_traded_picks
@@ -1186,6 +1187,9 @@ class GraderService:
             current_rosters=current_rosters,
         )
         outcome_signals, outlook_signals, draft_skill_by_season, season_records_from_signals = {}, {}, {}, {}
+        from app.services.full_player_pick_values import with_full_player_pick_values
+        rating_supporting = with_full_player_pick_values(
+            _current_format, current_league_drafts, picks_by_draft_id, supporting)
         try:
             from app.services.rating_signals import compute_rating_signals
             # DraftClass already answered "what does this format grade
@@ -1196,7 +1200,7 @@ class GraderService:
             # is the dynasty default when the draft stage produced nothing.
             _draft_axis = draft_classes[0].axis if draft_classes else "blend"
             outcome_signals, outlook_signals, draft_skill_by_season, season_records_from_signals = compute_rating_signals(
-                supporting, current_holders,
+                rating_supporting, current_holders,
                 traded_picks=traded_picks, rookie_picks=rookie_picks,
                 num_draft_rounds=num_draft_rounds, axis=_draft_axis)
         except Exception as e:
@@ -1922,8 +1926,10 @@ class GraderService:
 
         from app.services.current_rating_verification import verify_current_assets
         entry.current_rating_verification = verify_current_assets(
-            _current_format, current_rosters, supporting, picks_verified=_picks_verified,
+            _current_format, current_rosters, rating_supporting, picks_verified=_picks_verified,
             draft_rounds=_verified_draft_rounds)
+        from app.services.full_player_pick_values import bind_pick_valuation
+        bind_pick_valuation(entry)
 
         # Rebuild dated inputs on every free refresh, including the historical
         # rollup reuse path. New verified evidence and identity fixes must apply.

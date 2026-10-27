@@ -51,7 +51,9 @@ def scoped_rating_entry(entry: ChainCacheEntry, year) -> ChainCacheEntry | None:
     if snapshot.get("version") != INPUT_VERSION or snapshot.get("status") not in {"ready", "provisional"}:
         return None
     owner_only = snapshot.get("basis") == "current" and bool(entry.current_rating_verification.get("owner_coverage"))
-    if ((snapshot.get("status") == "provisional" and not owner_only) or snapshot.get("results_coverage")
+    from app.services.full_player_pick_values import current_pick_valuation
+    model_only = snapshot.get("basis") == "current" and bool(current_pick_valuation(entry))
+    if ((snapshot.get("status") == "provisional" and not (owner_only or model_only)) or snapshot.get("results_coverage")
             or snapshot.get("requires_results_coverage")):
         from app.services.historical_results_coverage import ResultsCoverage
         try:
@@ -110,7 +112,12 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     coverage = (current_snapshot or {}).get("coverage", {}) if year == "all" else snapshot.get("results_coverage") or {}
     from app.services.current_rating_verification import current_owner_coverage
     owner_coverage = current_owner_coverage(entry) if year == "all" or snapshot.get("basis") == "current" else None
-    provisional = ready and bool(coverage or owner_coverage)
+    from app.services.full_player_pick_values import (
+        current_pick_valuation,
+        valuation_note,
+    )
+    pick_valuation = current_pick_valuation(entry) if year == "all" or snapshot.get("basis") == "current" else None
+    provisional = ready and bool(coverage or owner_coverage or pick_valuation)
     reason = None
     if scoped is None:
         from app.services.current_rating_verification import current_rating_error
@@ -132,6 +139,7 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
                   f"Franchise rating at end of {year}") if ready else
                  "Historical data unavailable" if year != "all" else "Rating unavailable",
         "reason": reason,
+        "current_valuation_note": valuation_note(pick_valuation) if ready and pick_valuation else None,
         "included_seasons": coverage.get("included_seasons", []),
         "excluded_seasons": coverage.get("excluded_seasons", []),
         "verified_owner_count": len(owner_coverage["roster_to_owner"]) if owner_coverage else None,
@@ -304,5 +312,6 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
             snapshot["reason"] = "Rating inputs are incomplete. Refresh league data."
             continue
         snapshot["status"] = "provisional" if (snapshot.get("results_coverage") or
-            (current and entry.current_rating_verification.get("owner_coverage"))) else "ready"
+            (current and (entry.current_rating_verification.get("owner_coverage") or
+                          entry.current_rating_verification.get("pick_valuation")))) else "ready"
     return out
