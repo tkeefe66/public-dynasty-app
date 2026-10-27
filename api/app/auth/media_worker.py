@@ -1,5 +1,6 @@
 """Dedicated service principal. Identity and capabilities are server-owned."""
 import secrets
+import os
 from dataclasses import dataclass
 
 from fastapi import HTTPException, Request
@@ -29,3 +30,12 @@ async def require_media_worker(request: Request):
     if not capabilities or not capabilities <= MEDIA_KINDS:
         raise HTTPException(503, "Media worker capabilities are not configured")
     return MediaWorkerPrincipal(settings.media_worker_id, capabilities)
+
+
+async def require_monitor_probe(request: Request):
+    """Read-only external credential, accepted only by monitor health."""
+    configured = os.getenv('RECAP_MONITOR_PROBE_TOKEN', '')
+    header = request.headers.get('authorization', '')
+    if len(configured) >= 32 and secrets.compare_digest(header, 'Bearer ' + configured):
+        return 'external-monitor-probe'
+    return await require_media_worker(request)

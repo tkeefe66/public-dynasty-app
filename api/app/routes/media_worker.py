@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select, or_, and_
 from sqlalchemy.orm import aliased
 
-from app.auth.media_worker import require_media_worker
+from app.auth.media_worker import require_media_worker, require_monitor_probe
 from app.db.engine import get_sessionmaker
 from app.services.generation.models import stamp
 from app.services.generation.recap_models import RecapAsset
@@ -65,7 +65,7 @@ class RecoveryCompletion(Strict):
 
 
 @router.get('/recap-monitor-health')
-async def recap_monitor_health(worker=Depends(require_media_worker)):
+async def recap_monitor_health(worker=Depends(require_monitor_probe)):
     from app.services.recap_monitor.health import health
     async with get_sessionmaker()() as db:
         return await health(db, stamp())

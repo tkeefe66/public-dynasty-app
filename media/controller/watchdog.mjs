@@ -62,7 +62,10 @@ export async function checkWatchdog({ store, probe, send, now, recipient, sender
   console.log(JSON.stringify({ event: 'recap_watchdog', status: 'alert_accepted', reason }));
 }
 
-export async function runWatchdog(env = process.env) {
+export async function runWatchdog(env = process.env, {
+  store = watchdogStore('/state/recap-watchdog.json'),
+  healthPath = '/api/internal/media/recap-monitor-health',
+} = {}) {
   if (env.RECAP_WATCHDOG_ENABLED !== 'true') return;
   for (const key of ['MEDIA_CONTROL_API_URL', 'MEDIA_WORKER_TOKEN', 'RECAP_WATCHDOG_RESEND_API_KEY',
     'RECAP_WATCHDOG_TO', 'RECAP_WATCHDOG_FROM']) {
@@ -73,10 +76,10 @@ export async function runWatchdog(env = process.env) {
       || !(api.protocol === 'https:' || api.protocol === 'http:' && api.hostname.endsWith('.railway.internal'))) {
     throw new Error('Watchdog requires HTTPS or Railway private API origin');
   }
-  await checkWatchdog({ store: watchdogStore('/state/recap-watchdog.json'),
+  await checkWatchdog({ store,
     now: Math.floor(Date.now() / 1000), recipient: env.RECAP_WATCHDOG_TO, sender: env.RECAP_WATCHDOG_FROM,
     probe: async () => {
-      const response = await fetch(new URL('/api/internal/media/recap-monitor-health', api), {
+      const response = await fetch(new URL(healthPath, api), {
         headers: { authorization: 'Bearer ' + env.MEDIA_WORKER_TOKEN }, redirect: 'error',
         signal: AbortSignal.timeout(20_000),
       });

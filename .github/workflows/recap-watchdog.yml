@@ -1,0 +1,39 @@
+name: External recap watchdog
+on:
+  schedule:
+    - cron: '2-57/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: external-recap-watchdog
+  cancel-in-progress: false
+jobs:
+  monitor:
+    if: vars.RECAP_EXTERNAL_WATCHDOG_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/cache/restore@v4
+        with:
+          path: .watchdog-state/state.enc
+          key: recap-watchdog-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: recap-watchdog-v1-
+      - name: Check Railway independently and alert only for sustained failures
+        run: node scripts/external-recap-watchdog.mjs
+        env:
+          WATCHDOG_ORIGIN: ${{ vars.RECAP_WATCHDOG_ORIGIN }}
+          WATCHDOG_PROBE_TOKEN: ${{ secrets.RECAP_WATCHDOG_PROBE_TOKEN }}
+          WATCHDOG_TO: ${{ secrets.RECAP_WATCHDOG_TO }}
+          WATCHDOG_FROM: ${{ secrets.RECAP_WATCHDOG_FROM }}
+          WATCHDOG_RESEND_API_KEY: ${{ secrets.RECAP_WATCHDOG_RESEND_API_KEY }}
+          WATCHDOG_STATE_KEY: ${{ secrets.RECAP_WATCHDOG_STATE_KEY }}
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .watchdog-state/state.enc
+          key: recap-watchdog-v1-${{ github.run_id }}-${{ github.run_attempt }}

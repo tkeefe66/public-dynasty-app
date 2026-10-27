@@ -47,3 +47,10 @@ async def test_watchdog_endpoint_requires_worker_auth(app, maker, tmp_path, monk
         assert response.status_code == 200
         assert response.json()['healthy'] is False
         assert set(response.json()) == {'healthy', 'reason', 'checked_at', 'heartbeat_at'}
+        # The external probe credential must never authorize media work.
+        probe = 'synthetic-read-only-probe-' * 3
+        monkeypatch.setenv('RECAP_MONITOR_PROBE_TOKEN', probe)
+        probe_headers = {'Authorization': 'Bearer ' + probe}
+        assert (await client.get(path, headers=probe_headers)).status_code == 200
+        assert (await client.get('/api/internal/media/demand', headers=probe_headers)).status_code == 403
+        assert (await client.post('/api/internal/media/claim', headers=probe_headers, json={})).status_code == 403

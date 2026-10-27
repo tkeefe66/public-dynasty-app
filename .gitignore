@@ -33,3 +33,4 @@ node_modules/
 !.design/
 
 # Throwaway QA session-minting script (local only)
+.watchdog-state/

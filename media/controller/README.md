@@ -78,3 +78,14 @@ Incident state persists separately at `/state/recap-watchdog.json`; retries reus
 same email payload and idempotency key. Healthy observations silently rearm it.
 This watchdog runs separately from the API, but still depends on Railway and Resend;
 a simultaneous platform or mail-provider outage requires an external monitoring service.
+
+The external GitHub Actions workflow `recap-watchdog.yml` provides the Railway-independent
+backup. It probes the public Web health gateway using a read-only token and sends mail
+directly from GitHub via Resend. It never calls Railway control-plane APIs or starts AI
+work. Configure repository variables `RECAP_EXTERNAL_WATCHDOG_ENABLED=true` and
+`RECAP_WATCHDOG_ORIGIN`, plus the secrets referenced in the workflow. The probe token
+must match `RECAP_MONITOR_PROBE_TOKEN` on API and Web. The state key is a separate
+32-byte hex encryption key; only AES-GCM ciphertext is retained in GitHub's cache.
+The same ten-minute grace and outage deduplication apply across scheduled runners.
+Schedules target every five minutes away from minute zero; GitHub can delay or drop
+scheduled runs, so this is best-effort monitoring, not a guaranteed paging SLA.
