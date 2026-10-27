@@ -51,6 +51,10 @@ def current_rating_error(entry):
             return audit.get("reason") or "Current rating inputs are unverified. Refresh league data."
         if audit.get("format") != entry.capabilities.get("format"):
             return "Current rating inputs use a different league format. Refresh league data."
+        from app.services.season_ratings import _complete_signals
+        owners = set(entry.roster_to_user_by_league.get(entry.league_id, {}).values()) or set(entry.owners)
+        if not _complete_signals(owners, entry.outcome_signals, entry.outlook_signals, audit["format"]):
+            return "Current rating signals are incomplete. Refresh league data; missing inputs are not scored as zero."
     else:
         current = next((r for r in entry.chain if r.get("league_id") == entry.league_id), {})
         if current.get("format_verified") is False or current.get("requires_format_evidence"):

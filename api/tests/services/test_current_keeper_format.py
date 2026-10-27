@@ -101,3 +101,12 @@ def test_sleeper_pick_prices_and_round_count_are_required():
     rosters = [SimpleNamespace(owner_id="u", players=["p"])]
     support = {"positions": {"p": "RB"}, "ktc_by_player_id": {"p": SimpleNamespace(superflex_value=100)}}
     assert verify_current_assets(league, rosters, support, picks_verified=True)["status"] == "unavailable"
+
+
+def test_asset_verification_does_not_hide_missing_current_results():
+    from app.services.franchise_redesign import live_ratings
+
+    entry = _v2_entry(capabilities={"format": "keeper"})
+    entry.current_rating_verification = {"status": "ready", "format": "keeper"}
+    entry.outcome_signals = {}
+    assert live_ratings(entry) == {}
