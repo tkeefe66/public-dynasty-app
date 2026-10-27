@@ -78,6 +78,29 @@ async def test_completed_receipt_replays_without_second_call(maker):
 
 
 @pytest.mark.asyncio
+async def test_shutdown_settles_inflight_receipt_and_blocks_next_dispatch(maker):
+    # Mutation: ignoring the drain event buys another call during shutdown.
+    job = await seed_job(maker)
+    stop = asyncio.Event()
+    transport = FakeTransport(blocked=True)
+    gateway = Gateway(maker, transport, epoch="test-epoch", stop_event=stop)
+    pending = asyncio.create_task(gateway.invoke(job, 1, 1, REQUEST))
+    await transport.started.wait()
+    stop.set()
+    transport.release.set()
+    assert await pending == BODY
+    assert await gateway.invoke(job, 1, 1, REQUEST) == BODY
+    with pytest.raises(Held, match="worker_draining"):
+        await gateway.invoke(job, 1, 2, REQUEST)
+    async with maker() as db:
+        from sqlalchemy import select
+        attempts = list((await db.scalars(select(ProviderAttempt))).all())
+        assert len(attempts) == 1
+        assert attempts[0].usage_state == "known"
+    assert transport.sends == 1
+
+
+@pytest.mark.asyncio
 async def test_lost_response_stays_unknown_across_recovery(maker):
     job = await seed_job(maker)
     transport = FakeTransport(lost=True)

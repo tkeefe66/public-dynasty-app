@@ -54,7 +54,9 @@ def create_app() -> FastAPI:
         install_qualification()
         # Create the identity DB engine eagerly (one pool, no first-request race).
         init_engine()
-        tasks = [asyncio.create_task(worker_loop(settings.cache_dir))]
+        worker_stop = asyncio.Event()
+        worker_task = asyncio.create_task(worker_loop(settings.cache_dir, stop_event=worker_stop))
+        tasks = []
         if settings.recap_monitor_enabled:
             from app.services.recap_monitor.runner import monitor_loop
             tasks.append(asyncio.create_task(monitor_loop(settings.cache_dir)))
@@ -75,6 +77,8 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
+            worker_stop.set()
+            log.info("Generation worker draining; saving in-flight receipt before exit")
             for task in tasks:
                 task.cancel()
             for task in tasks:
@@ -82,6 +86,14 @@ def create_app() -> FastAPI:
                     await task
                 except asyncio.CancelledError:
                     pass
+            try:
+                # Transport has a 330-second hard deadline. Keep the database
+                # alive through receipt settlement; no next paid stage is sent.
+                await asyncio.wait_for(worker_task, timeout=360)
+            except TimeoutError:
+                log.error("Generation worker drain exceeded 360 seconds; inspect unresolved attempts")
+            except asyncio.CancelledError:
+                pass
             # Tear down the identity DB engine's connection pool.
             await dispose_engine()
 

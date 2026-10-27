@@ -33,10 +33,11 @@ log = logging.getLogger(__name__)
 
 
 class Gateway:
-    def __init__(self, maker, transport, *, epoch: str):
+    def __init__(self, maker, transport, *, epoch: str, stop_event=None):
         self.maker = maker
         self.transport = transport
         self.epoch = epoch
+        self.stop_event = stop_event
 
     async def invoke(self, operation_id: str, generation: int, stage: int, request: dict) -> dict:
         request_hash = digest(request)
@@ -53,6 +54,8 @@ class Gateway:
                 if previous.state != "received" or previous.usage_state != "known":
                     raise Held(previous.error_code or "provider_outcome_unknown")
                 return self._parse_receipt(previous.receipt_json)
+            if self.stop_event is not None and self.stop_event.is_set():
+                raise Held("worker_draining")
             config = await resolve_policy(db, job.series_id)
             if config["blocked_by"]:
                 raise Held(config["blocked_by"][0])

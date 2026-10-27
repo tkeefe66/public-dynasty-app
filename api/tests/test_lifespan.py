@@ -110,10 +110,13 @@ def test_lifespan_starts_and_shuts_down_cleanly_with_both_schedulers(
 
 def test_manual_jobs_have_a_worker_when_scheduling_is_disabled(monkeypatch, tmp_path):
     events = []
-    async def worker(cache_dir):
+    async def worker(cache_dir, *, stop_event):
+        # Mutation: cancelling the worker loses its in-flight receipt.
         events.append("worker:start")
         try:
-            await asyncio.Event().wait()
+            await stop_event.wait()
+            await asyncio.sleep(0)
+            events.append("worker:receipt_saved")
         finally:
             events.append("worker:stop")
     async def dispose():
@@ -125,4 +128,4 @@ def test_manual_jobs_have_a_worker_when_scheduling_is_disabled(monkeypatch, tmp_
     monkeypatch.setattr("app.main.dispose_engine", dispose)
     with TestClient(create_app()) as client:
         assert client.get("/api/health").status_code == 200
-    assert events == ["worker:start", "worker:stop", "dispose"]
+    assert events == ["worker:start", "worker:receipt_saved", "worker:stop", "dispose"]

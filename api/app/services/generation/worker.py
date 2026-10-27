@@ -117,10 +117,11 @@ async def admit_automatic(maker):
 
 
 class Worker:
-    def __init__(self, maker, cache_dir, *, transport=None, epoch=""):
+    def __init__(self, maker, cache_dir, *, transport=None, epoch="", stop_event=None):
         self.maker, self.cache_dir = maker, cache_dir
         self.id = str(uuid.uuid4())
-        self.gateway = Gateway(maker, transport or AnthropicTransport(), epoch=epoch)
+        self.gateway = Gateway(maker, transport or AnthropicTransport(), epoch=epoch,
+                               stop_event=stop_event)
 
     async def heartbeat(self, job):
         while True:
@@ -227,7 +228,7 @@ class Worker:
                         pass
                     elif throttled and await defer_refresh(db, row, throttled):
                         pass
-                    elif code in ("concurrency_busy", "series_concurrency_busy", "provider_cooldown"):
+                    elif code in ("concurrency_busy", "series_concurrency_busy", "provider_cooldown", "worker_draining"):
                         row.state, row.reason = "queued", code
                     elif code == "publication_failed" or isinstance(exc, Held) and code not in (
                             "provider_outcome_unknown", "response_invalid", "pricing_unknown",
@@ -244,17 +245,24 @@ class Worker:
         return True
 
 
-async def worker_loop(cache_dir):
+async def worker_loop(cache_dir, *, stop_event=None):
     from app.config import get_settings
     from app.db.engine import get_sessionmaker
-    worker = Worker(get_sessionmaker(), cache_dir, epoch=get_settings().generation_execution_epoch)
-    while True:
+    stop_event = stop_event or asyncio.Event()
+    worker = Worker(get_sessionmaker(), cache_dir, epoch=get_settings().generation_execution_epoch,
+                    stop_event=stop_event)
+    while not stop_event.is_set():
         try:
             await admit_automatic(worker.maker)
+            if stop_event.is_set():
+                break
             worked = await worker.tick()
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("generation worker cycle failed; work remains durable")
             worked = False
-        await asyncio.sleep(1 if worked else 5)
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=1 if worked else 5)
+        except TimeoutError:
+            pass
