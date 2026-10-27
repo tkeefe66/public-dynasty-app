@@ -114,6 +114,10 @@ async def require_recovery(db, job):
 
 
 async def dispositioned(db, job):
+    from app.services.generation.analyst_saved_draft import is_repair, require_source
+    if is_repair(job):
+        proposal = await require_source(db, job, job.actor_id, repair_job_id=job.id)
+        return set(proposal["source"].get("unknown_attempt_ids", []))
     recovery = await require_recovery(db, job)
     return {recovery[0]["source"]["lost_id"]} if recovery else set()
 
@@ -129,7 +133,11 @@ async def generate_recovery(job, gateway):
         current = await db.get(GenerationOperation, job.id)
         _, _, attempts = await require_recovery(db, current)
         settled(attempts[-1])
-        verdict(attempts[-1].receipt_json, approved=True)
+        try:
+            verdict(attempts[-1].receipt_json, approved=True)
+        except Held:
+            verdict(attempts[-1].receipt_json, approved=False)
+            raise Held("factual_review_rejected") from None
     saved = json.loads(job.payload_json)
     edition = saved["edition"]
     from sleeper_dynasty.llm.recap_packet import ArchivedPacket

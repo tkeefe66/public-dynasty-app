@@ -125,7 +125,7 @@ async def test_rejected_replacement_review_never_publishes_or_retries(maker):
     job = await running(maker, "job")
     transport = FakeTransport(body=json.dumps(fixture["responses"][1]))
     gateway = Gateway(maker, transport, epoch="test-epoch")
-    with pytest.raises(Held, match="saved_repair_valid_verdict_required"):
+    with pytest.raises(Held, match="factual_review_rejected"):
         await generate(job, gateway)
     async with maker() as db:
         job = await db.get(GenerationOperation, "job")
@@ -157,3 +157,43 @@ async def test_recovery_authorization_cannot_buy_other_work(maker, change):
         await Gateway(maker, transport, epoch="test-epoch").invoke(
             job.id, job.generation, 4 if change == "next_stage" else 3, request)
     assert transport.sends == 0
+
+
+@pytest.mark.asyncio
+async def test_rejected_replacement_can_have_separately_approved_repair(maker):
+    # Mutation: bypass unknown charges or make the rejected review automatically buy repairs.
+    from types import SimpleNamespace
+    from app.services.generation.resolution import prepare_replacement
+    from tests.test_generation_saved_draft_repair import apply, RepairTransport
+    fixture = await interrupted(maker)
+    await approve(maker)
+    job = await running(maker, "job")
+    with pytest.raises(Held):
+        await generate(job, Gateway(maker, FakeTransport(body=json.dumps(fixture["responses"][1])), epoch="test-epoch"))
+    async with maker.begin() as db:
+        source = await db.get(GenerationOperation, "job")
+        source.state, source.reason = "held", "saved_repair_valid_verdict_required"
+        preview = await prepare_replacement(db, source.id, SimpleNamespace(
+            expected_generation=source.generation, expected_state=source.state,
+            reason="Explicit two-call repair approval after rejected review"), "owner")
+    ident = await apply(maker, preview)
+    repair = await running(maker, ident)
+    # Existing repair transport edits the default fixture draft. For this saved
+    # draft, return no changes and approve the exact original text instead.
+    transport = RepairTransport()
+    original_send = transport.send
+    async def send(request):
+        receipt = await original_send(request)
+        if request["tool_choice"]["name"] == "submit_recap_passage_edits":
+            body = json.loads(receipt.body)
+            body["content"][0]["input"]["edits"] = []
+            from app.services.generation.transport import Receipt
+            return Receipt(receipt.status, json.dumps(body), receipt.headers)
+        return receipt
+    transport.send = send
+    result = await generate(repair, Gateway(maker, transport, epoch="test-epoch"))
+    async with maker.begin() as db:
+        await save_artifact(db, repair.id, repair.generation, result)
+        lost = await db.get(ProviderAttempt, "source-2")
+        assert lost.cost_microusd is None and lost.state == "abandoned"
+        assert len(list((await db.scalars(select(ProviderAttempt))).all())) == 5

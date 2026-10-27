@@ -91,7 +91,7 @@ async def resolution(db, job):
                 "The script exhausted its request allowance and every previous charge is settled. Review a fresh script proposal using the current saved article and evidence. This preserves the old receipts.",
                 "Preparing the proposal sends no AI request. Separate approval starts new paid script writing; narration is not included in this preview.")
         return result("episode", "Recap needs attention", "Open the recap episode for its next action and spending limits.")
-    if job.feature == "analyst" and job.reason in ("execution_failed", "attempt_allowance_exhausted"):
+    if job.feature == "analyst" and job.reason in ("execution_failed", "attempt_allowance_exhausted", "saved_repair_valid_verdict_required", "factual_review_rejected"):
         from app.services.generation.analyst_saved_draft import describe
         try:
             await describe(db, job)

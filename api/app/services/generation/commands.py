@@ -275,7 +275,16 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
             GenerationOperation.subject == candidate.subject,
             ProviderAttempt.state.in_(UNRESOLVED_OUTCOMES)).limit(1))
     if unresolved:
-        raise Held("provider_outcome_unknown")
+        from app.services.generation.analyst_saved_draft import is_repair, require_source
+        if not is_repair(candidate):
+            raise Held("provider_outcome_unknown")
+        proposal = await require_source(db, candidate, actor_id)
+        unknown_ids = set((await db.scalars(select(ProviderAttempt.id).join(
+            GenerationOperation, GenerationOperation.id == ProviderAttempt.operation_id).where(
+                GenerationOperation.subject == candidate.subject,
+                ProviderAttempt.state.in_(UNRESOLVED_OUTCOMES)))).all())
+        if unknown_ids != set(proposal["source"].get("unknown_attempt_ids", [])):
+            raise Held("provider_outcome_unknown")
     from app.services.generation.models import ArtifactHead
     head = await db.get(ArtifactHead, candidate.subject)
     if head and head.hold:

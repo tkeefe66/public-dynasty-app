@@ -470,7 +470,10 @@ async def admit_provider_allocation(db, job, stage, request, saved, current, now
                 max_output_tokens=request["max_tokens"], wrapper_tokens=WRAPPER_TOKEN_ALLOWANCE)
             allocations = [dict(key=str(stage), category="managed", operation_id=job.id,
                 max_microusd=maximum, rate_snapshot=rate)]
-        plan_id = await _reserve(db, episode, job.series_id, plan_key, allocations, now, managed=not recap)
+        from app.services.generation.analyst_review_recovery import dispositioned
+        approved_unknown = await dispositioned(db, job) if job.feature == "analyst" else set()
+        plan_id = await _reserve(db, episode, job.series_id, plan_key, allocations, now, managed=not recap,
+                                 allow_bounded_unknown=bool(approved_unknown))
     else:
         plan_id = plan.id
     if job.feature == 'recap_video':

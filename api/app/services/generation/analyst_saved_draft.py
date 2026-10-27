@@ -178,7 +178,7 @@ async def describe(db, job, *, prepared=False, repair_job_id=""):
             job.state != "cancelled" or job.reason != "owner_cancelled"
             if prepared
             else job.state not in ("held", "needs_attention")
-            or job.reason not in ("execution_failed", "attempt_allowance_exhausted")
+            or job.reason not in ("execution_failed", "attempt_allowance_exhausted", "saved_repair_valid_verdict_required", "factual_review_rejected")
         )
         or job.calls < 2
         or job.calls > job.max_calls
@@ -290,12 +290,17 @@ async def describe(db, job, *, prepared=False, repair_job_id=""):
             )
         ).all()
     )
-    snapshots = [settled(attempt) for attempt in attempts]
+    from app.services.generation.analyst_review_recovery import require_recovery
+    recovery = await require_recovery(db, job)
+    excluded = {recovery[0]["source"]["lost_id"]} if recovery else set()
+    snapshots = [({column.name: getattr(attempt, column.name)
+                   for column in ProviderAttempt.__table__.columns}
+                  if attempt.id in excluded else settled(attempt)) for attempt in attempts]
     own = [attempt for attempt in attempts if attempt.operation_id == job.id]
     if (
         len(own) != job.calls
         or [attempt.stage for attempt in own] != list(range(1, job.calls + 1))
-        or any(attempt.generation != job.generation - int(prepared) for attempt in own)
+        or (not recovery and any(attempt.generation != job.generation - int(prepared) for attempt in own))
     ):
         raise Held("saved_repair_source_generation_changed")
     last = own[-1]
@@ -330,7 +335,9 @@ async def describe(db, job, *, prepared=False, repair_job_id=""):
             "receipts_digest": digest(snapshots),
             "draft_digest": digest(evidence["draft"]),
             "findings_digest": digest(findings),
-            "prior_cost_microusd": sum(attempt.cost_microusd for attempt in own),
+            "prior_cost_microusd": sum(attempt.cost_microusd or 0 for attempt in own),
+            **({"unknown_attempt_ids": sorted(excluded),
+                "unknown_ceiling_microusd": recovery[0]["source"]["unknown_ceiling_microusd"]} if recovery else {}),
         },
     }
 
@@ -445,6 +452,10 @@ async def campaign_details(db, row, actor):
         "max_calls": 2,
         "pricing_plan": plan,
         "maximum_additional_microusd": sum(item["max_microusd"] for item in plan),
+        **({"maximum_total_microusd": proposal["source"]["prior_cost_microusd"]
+             + proposal["source"]["unknown_ceiling_microusd"]
+             + sum(item["max_microusd"] for item in plan)}
+           if "unknown_ceiling_microusd" in proposal["source"] else {}),
     }
 
 
