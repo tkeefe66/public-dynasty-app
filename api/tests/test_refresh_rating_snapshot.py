@@ -3,13 +3,15 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from app.services import refresh_service
 from app.services.chain_cache import ChainCacheEntry
 from app.services.rating_snapshot_store import RatingSnapshotStore
-from app.services import refresh_service
 
 
 def _entry() -> ChainCacheEntry:
     return ChainCacheEntry(
+        capabilities={"format": "dynasty"},
+        current_rating_verification={"status": "ready", "format": "dynasty"},
         league_id="L1",
         chain=[{"league_id": "L1", "season": 2024, "name": "Bros",
                 "total_rosters": 3, "playoff_week_start": 15}],

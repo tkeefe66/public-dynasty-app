@@ -1,11 +1,13 @@
-import pytest
 from unittest.mock import patch
 
+import pytest
 from app.services.chain_cache import ChainCache, ChainCacheEntry
 
 
 def _seed(tmp_path):
     entry = ChainCacheEntry(
+        capabilities={"format": "dynasty"},
+        current_rating_verification={"status": "ready", "format": "dynasty"},
         league_id="L",
         chain=[
             {"league_id": "L", "season": 2024, "name": "Bros",
@@ -188,11 +190,11 @@ def test_owner_detail_includes_franchise_rating(client, tmp_path):
 def test_build_owner_detail_track_record_without_gm_row():
     # The direct (non-route) call still fills track_record + h2h; franchise_rating
     # is None until a leaderboard row is supplied.
-    from app.services.owner_view import build_owner_detail
-    from app.services.chain_cache import ChainCache as _CC  # noqa: F401
-
     import tempfile
     from pathlib import Path
+
+    from app.services.chain_cache import ChainCache as _CC  # noqa: F401
+    from app.services.owner_view import build_owner_detail
     with tempfile.TemporaryDirectory() as d:
         _seed(Path(d))
         entry = ChainCache(cache_dir=Path(d)).read("L")

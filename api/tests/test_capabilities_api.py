@@ -1,8 +1,19 @@
 from app.models.league import DashboardResp, LeagueCapabilitiesResp
 from app.services.aggregations import build_dashboard
 from app.services.owner_view import build_owner_detail
+
 from tests.helpers import minimal_chain_cache_entry
 
+
+def verified_entry(**over):
+    entry = minimal_chain_cache_entry(**over)
+    entry.capabilities = entry.capabilities or {"format": "dynasty"}
+    entry.current_rating_verification = {"status": "ready", "format": entry.capabilities["format"]}
+    if not entry.outcome_signals:
+        entry.outcome_signals = {uid: {"expected_wins": 0.5, "playoff_success": 0, "luck": 0} for uid in entry.owners}
+    if not entry.outlook_signals:
+        entry.outlook_signals = {uid: {"roster_value_share": 0.5, "young_core_share": 0.5, "draft_capital": 0} for uid in entry.owners}
+    return entry
 
 def test_capabilities_defaults_to_full_dynasty():
     """A response built without capabilities must not demote a dynasty league."""
@@ -42,7 +53,7 @@ _OUTLOOK = {
 
 
 def test_owner_view_omits_outlook_for_redraft():
-    entry = minimal_chain_cache_entry(
+    entry = verified_entry(
         league_id="L1",
         owners={"uA": {"owner_name": "Alice"}},
         dynasty_outlooks={"uA": _OUTLOOK},
@@ -57,7 +68,7 @@ def test_owner_view_omits_outlook_for_redraft():
 def test_owner_view_keeps_outlook_for_dynasty():
     """Regression: the redraft gate must not swallow outlook for a dynasty
     league (including pre-feature caches with no capabilities dict at all)."""
-    entry = minimal_chain_cache_entry(
+    entry = verified_entry(
         league_id="L1",
         owners={"uA": {"owner_name": "Alice"}},
         dynasty_outlooks={"uA": _OUTLOOK},
@@ -73,7 +84,7 @@ def test_owner_view_omits_franchise_blurb_for_redraft():
     """The franchise blurb is the Outlook prose ("Writing franchise outlooks").
     Surfacing it on a page that no longer has an Outlook tab is the same
     defect the tab gate fixed, one surface over."""
-    entry = minimal_chain_cache_entry(
+    entry = verified_entry(
         league_id="L1",
         owners={"uA": {"owner_name": "Alice"}},
         franchise_blurbs={"uA": {"blurb": "Pick-rich and dangerous.",
@@ -85,7 +96,7 @@ def test_owner_view_omits_franchise_blurb_for_redraft():
 
 
 def test_owner_view_keeps_franchise_blurb_for_dynasty():
-    entry = minimal_chain_cache_entry(
+    entry = verified_entry(
         league_id="L1",
         owners={"uA": {"owner_name": "Alice"}},
         franchise_blurbs={"uA": {"blurb": "Pick-rich and dangerous.",
@@ -131,28 +142,28 @@ def _two_completed_seasons():
 
 def _standings_entry(**over):
     """Two owners, a full dynasty outlook + the v2 signals both pillars read."""
-    base = dict(
-        league_id="L1",
-        chain=[{"league_id": "L1", "season": 2026, "name": "Bros",
+    base = {
+        "league_id": "L1",
+        "chain": [{"league_id": "L1", "season": 2026, "name": "Bros",
                 "total_rosters": 2, "playoff_week_start": 15}],
-        owners={"uA": {"owner_name": "Alice"}, "uB": {"owner_name": "Bob"}},
-        league_season_by_id={"L1": 2026},
-        league_name_by_id={"L1": "Bros"},
-        dynasty_outlooks={"uA": _OUTLOOK},
-        season_records=_two_completed_seasons(),
-        outcome_signals={
+        "owners": {"uA": {"owner_name": "Alice"}, "uB": {"owner_name": "Bob"}},
+        "league_season_by_id": {"L1": 2026},
+        "league_name_by_id": {"L1": "Bros"},
+        "dynasty_outlooks": {"uA": _OUTLOOK},
+        "season_records": _two_completed_seasons(),
+        "outcome_signals": {
             "uA": {"expected_wins": 0.66, "playoff_success": 3.0, "luck": 0.05},
             "uB": {"expected_wins": 0.34, "playoff_success": 0.5, "luck": -0.05},
         },
-        outlook_signals={
+        "outlook_signals": {
             "uA": {"roster_value_share": 0.62, "young_core_share": 0.44,
                    "draft_capital": 1200.0, "draft_skill": 0.4},
             "uB": {"roster_value_share": 0.38, "young_core_share": 0.21,
                    "draft_capital": 400.0, "draft_skill": -0.2},
         },
-    )
+    }
     base.update(over)
-    return minimal_chain_cache_entry(**base)
+    return verified_entry(**base)
 
 
 def _row(entry):

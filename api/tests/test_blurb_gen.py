@@ -1,6 +1,7 @@
 import asyncio
 
 from app.services.blurb_gen import BLURB_PROMPT_VERSION, generate_owner_rating_blurbs
+
 from sleeper_dynasty.models.gm_rating_blurb import OwnerRatingFacts, rating_facts_hash
 
 
@@ -55,6 +56,8 @@ def _multi_season_entry():
     from app.services.chain_cache import ChainCacheEntry
 
     return ChainCacheEntry(
+        capabilities={"format": "dynasty"},
+        current_rating_verification={"status": "ready", "format": "dynasty"},
         league_id="L", chain=[], resolved_trades=[], grades={},
         owners={"u1": {"owner_name": "Alice"}, "u2": {"owner_name": "Bob"}},
         playoff_weeks_by_league={}, roster_to_user_by_league={},

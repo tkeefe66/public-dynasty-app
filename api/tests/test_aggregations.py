@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from app.models.league import DashboardResp
 from app.services.aggregations import build_dashboard
 from app.services.chain_cache import ChainCacheEntry
@@ -9,6 +8,8 @@ from app.services.chain_cache import ChainCacheEntry
 
 def _sample_entry() -> ChainCacheEntry:
     return ChainCacheEntry(
+        capabilities={"format": "dynasty"},
+        current_rating_verification={"status": "ready", "format": "dynasty"},
         league_id="L_current",
         chain=[
             {"league_id": "L_current", "season": 2026, "name": "Bros", "total_rosters": 2, "playoff_week_start": 15},
@@ -82,15 +83,19 @@ def _sample_entry() -> ChainCacheEntry:
         league_name_by_id={"L_current": "Bros", "L_prev": "Bros"},
         league_season_by_id={"L_current": 2026, "L_prev": 2024},
         outcome_signals={
-            "u_alice": {"championships": 2, "playoff_depth": 4, "made_playoffs": 1.0,
+            "u_alice": {"expected_wins": 0.7, "playoff_success": 0.8, "luck": 0.1,
+                        "championships": 2, "playoff_depth": 4, "made_playoffs": 1.0,
                         "final_seed": 3.0, "points_for_rank": 3.0},
-            "u_bob":   {"championships": 0, "playoff_depth": 0, "made_playoffs": 0.0,
+            "u_bob":   {"expected_wins": 0.3, "playoff_success": 0.2, "luck": -0.1,
+                        "championships": 0, "playoff_depth": 0, "made_playoffs": 0.0,
                         "final_seed": 1.0, "points_for_rank": 1.0},
         },
         outlook_signals={
-            "u_alice": {"roster_value": 60000.0, "draft_capital": 3200.0,
+            "u_alice": {"roster_value_share": 0.67, "young_core_share": 0.6,
+                        "roster_value": 60000.0, "draft_capital": 3200.0,
                         "draft_skill": 0.82, "youth": -25.0},
-            "u_bob":   {"roster_value": 30000.0, "draft_capital": 800.0,
+            "u_bob":   {"roster_value_share": 0.33, "young_core_share": 0.2,
+                        "roster_value": 30000.0, "draft_capital": 800.0,
                         "draft_skill": 0.10, "youth": -29.0},
         },
         # No `window` / `trajectory` / axis-score keys: the standings' Window

@@ -1,5 +1,4 @@
 import pytest
-
 from app.models.common import OwnerRef
 from app.models.leaderboard import GMRow, PillarBreakdown, SignalBreakdown
 from app.services.chain_cache import ChainCacheEntry
@@ -7,12 +6,16 @@ from app.services.owner_view import build_owner_detail
 
 
 def _entry(**over):
-    base = dict(
-        league_id="L", chain=[], resolved_trades=[], grades={},
-        owners={"uA": {"owner_name": "Alice"}, "uB": {"owner_name": "Bob"}},
-        playoff_weeks_by_league={}, roster_to_user_by_league={},
-        league_name_by_id={}, league_season_by_id={}, cached_at="2026-01-01",
-    )
+    base = {
+        "capabilities": {"format": "dynasty"},
+        "current_rating_verification": {"status": "ready", "format": "dynasty"},
+        "outcome_signals": {uid: {"expected_wins": 0.5, "playoff_success": 0, "luck": 0} for uid in ("uA", "uB")},
+        "outlook_signals": {uid: {"roster_value_share": 0.5, "young_core_share": 0.5, "draft_capital": 0} for uid in ("uA", "uB")},
+        "league_id": "L", "chain": [], "resolved_trades": [], "grades": {},
+        "owners": {"uA": {"owner_name": "Alice"}, "uB": {"owner_name": "Bob"}},
+        "playoff_weeks_by_league": {}, "roster_to_user_by_league": {},
+        "league_name_by_id": {}, "league_season_by_id": {}, "cached_at": "2026-01-01",
+    }
     base.update(over)
     return ChainCacheEntry(**base)
 
@@ -47,9 +50,9 @@ _OUTLOOK_PRE_FEATURE = {
                      "reason": "thin at TE"}],
 }
 
-_SIGNALS = {"uA": {"roster_value": 900.0, "draft_capital": 1200.0,
+_SIGNALS = {"uA": {"roster_value_share": 0.9, "young_core_share": 0.6, "roster_value": 900.0, "draft_capital": 1200.0,
                    "draft_skill": 0.4, "youth": -24.0},
-            "uB": {"roster_value": 100.0, "draft_capital": 0.0,
+            "uB": {"roster_value_share": 0.1, "young_core_share": 0.2, "roster_value": 100.0, "draft_capital": 0.0,
                    "draft_skill": -0.2, "youth": -27.0}}
 
 

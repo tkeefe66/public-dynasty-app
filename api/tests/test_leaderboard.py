@@ -23,6 +23,8 @@ def _grade(ktc, regular, playoff, toilet=None):
 def _sample_entry() -> ChainCacheEntry:
     # Three owners; alice clearly best, carol clearly worst.
     return ChainCacheEntry(
+        capabilities={"format": "dynasty"},
+        current_rating_verification={"status": "ready", "format": "dynasty"},
         league_id="L_current",
         chain=[
             {"league_id": "L_current", "season": 2026, "name": "Bros",
