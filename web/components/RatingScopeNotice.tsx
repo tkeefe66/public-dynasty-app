@@ -11,7 +11,13 @@ export function RatingScopeNotice({ scope }: { scope?: RatingScope | null }) {
       </span>
       {scope.as_of && hasRating && <> · As of {scope.as_of.slice(0, 10)}</>}
       {scope.reason && <>. {scope.reason}</>}
-      {provisional && <>
+      {!!scope.excluded_rosters?.length && <>
+        <p className="mt-1">Owner coverage: {scope.verified_owner_count} verified owners. Ratings exclude unassigned teams.</p>
+        <ul className="list-disc pl-5">
+          {scope.excluded_rosters.map(({ roster_id, reason }) => <li key={roster_id}>Team {roster_id}: {reason}</li>)}
+        </ul>
+      </>}
+      {provisional && (!!scope.included_seasons?.length || !!scope.excluded_seasons?.length) && <>
         <p className="mt-1">Incomplete history. Do not compare directly with ratings based on complete history.</p>
         <p className="mt-1">Included seasons: {scope.included_seasons?.length ? scope.included_seasons.join(", ") : "Not reported"}.</p>
         {!!scope.excluded_seasons?.length && <>

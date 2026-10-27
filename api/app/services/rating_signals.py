@@ -132,13 +132,17 @@ def compute_rating_signals(
     roster_value_by_id = {
         rid: roster_value.get(uid, 0.0) for rid, uid in r2u_current.items()
     }
+    if supporting.get("current_roster_players"):
+        roster_value_by_id = {
+            int(rid): sum(_ktc_value(ktc.get(pid)) for pid in players)
+            for rid, players in supporting["current_roster_players"].items()}
     tier_by_roster = strength_tiers(roster_value_by_id)
     tiered_pick_values = {
         k: _ktc_value(v)
         for k, v in (supporting.get("pick_value_table_tiered") or {}).items()
     }
     holdings = pick_holdings_value(
-        traded_picks=traded_picks or [], roster_ids=list(r2u_current),
+        traded_picks=traded_picks or [], roster_ids=list(roster_value_by_id),
         seasons=outlook_seasons, num_rounds=num_draft_rounds, pick_values=pick_values,
         tier_by_roster=tier_by_roster, tiered_values=tiered_pick_values)
     draft_capital_by_uid: dict[str, float] = {}

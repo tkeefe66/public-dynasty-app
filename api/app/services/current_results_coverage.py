@@ -56,13 +56,16 @@ def current_results(entry):
 
 def current_scoped_entry(entry):
     snapshot = current_results(entry)
-    if snapshot is None:
+    from app.services.current_rating_verification import current_owner_coverage
+    owner_coverage = current_owner_coverage(entry)
+    if snapshot is None and owner_coverage is None:
         return entry
     owners = entry.owners
-    if entry.capabilities.get('format') != 'redraft':
+    if owner_coverage or entry.capabilities.get('format') != 'redraft':
         # A departed owner has no verified current holdings. The signal builder
         # may have emitted numeric zero defaults for them; those are not assets.
         active = set(entry.roster_to_user_by_league.get(entry.league_id, {}).values())
         owners = {uid: owner for uid, owner in owners.items() if uid in active}
-    return replace(entry, owners=owners, outcome_signals=deepcopy(snapshot['outcome_signals']),
-                   season_records=deepcopy(snapshot['season_records']))
+    return replace(entry, owners=owners,
+                   outcome_signals=deepcopy(snapshot['outcome_signals']) if snapshot else entry.outcome_signals,
+                   season_records=deepcopy(snapshot['season_records']) if snapshot else entry.season_records)

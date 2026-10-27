@@ -12,6 +12,22 @@ const missing = { status: "unavailable" as const, basis: "season_end" as const,
   label: "Historical data unavailable", reason: "Verified historical asset prices are missing." };
 
 describe("rating scope", () => {
+  it("separates unassigned teams from missing history and discloses shared asset blockers", () => {
+    const { rerender } = render(<RatingScopeNotice scope={{
+      status: "provisional", basis: "current", label: "Provisional current career rating",
+      verified_owner_count: 9, excluded_rosters: [{ roster_id: 7, reason: "Current owner is unassigned." }],
+    }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("9 verified owners");
+    expect(screen.getByRole("status")).toHaveTextContent("Team 7: Current owner is unassigned.");
+    expect(screen.getByRole("status")).not.toHaveTextContent("Incomplete history");
+    rerender(<RatingScopeNotice scope={{
+      status: "unavailable", basis: "current", label: "Rating unavailable",
+      reason: "Future-pick prices are incomplete.", verified_owner_count: 9,
+      excluded_rosters: [{ roster_id: 7, reason: "Current owner is unassigned." }],
+    }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Future-pick prices are incomplete.");
+    expect(screen.getByRole("status")).toHaveTextContent("Team 7: Current owner is unassigned.");
+  });
   it("attributes an older archive to its actual valuation provider", () => {
     render(<RatingScopeNotice scope={{ status: "ready", basis: "season_end",
       label: "Franchise rating at end of 2021", valuation_source: "dynasty_process",

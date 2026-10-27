@@ -10,8 +10,8 @@ class _Client:
         return [SimpleNamespace(league_id="L", season=2024, name="Bros", total_rosters=2, playoff_week_start=15)]
     async def get_players(self): return {}
     async def get_rosters(self, lid):
-        return [SimpleNamespace(owner_id="u_a", players=["4866", "12493"]),
-                SimpleNamespace(owner_id="u_b", players=["777"])]
+        return [SimpleNamespace(roster_id=1, owner_id="u_a", players=["4866", "12493"]),
+                SimpleNamespace(roster_id=2, owner_id="u_b", players=["777"])]
     async def close(self): ...
 
 

@@ -50,7 +50,8 @@ def scoped_rating_entry(entry: ChainCacheEntry, year) -> ChainCacheEntry | None:
         return None
     if snapshot.get("version") != INPUT_VERSION or snapshot.get("status") not in {"ready", "provisional"}:
         return None
-    if (snapshot.get("status") == "provisional" or snapshot.get("results_coverage")
+    owner_only = snapshot.get("basis") == "current" and bool(entry.current_rating_verification.get("owner_coverage"))
+    if ((snapshot.get("status") == "provisional" and not owner_only) or snapshot.get("results_coverage")
             or snapshot.get("requires_results_coverage")):
         from app.services.historical_results_coverage import ResultsCoverage
         try:
@@ -64,6 +65,11 @@ def scoped_rating_entry(entry: ChainCacheEntry, year) -> ChainCacheEntry | None:
                 or (snapshot.get("basis") != "current" and snapshot.get("format") != "redraft" and not snapshot.get("asset_source"))):
             return None
     owners = snapshot.get("owners") or []
+    if owner_only:
+        from app.services.current_rating_verification import current_owner_coverage
+        coverage = current_owner_coverage(entry)
+        if coverage is None or set(owners) != set(coverage["roster_to_owner"].values()):
+            return None
     if any(uid not in entry.owners for uid in owners):
         return None
     from app.services.owner_membership import season_membership
@@ -102,7 +108,9 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     from app.services.current_results_coverage import current_results
     current_snapshot = current_results(entry) if year == "all" else None
     coverage = (current_snapshot or {}).get("coverage", {}) if year == "all" else snapshot.get("results_coverage") or {}
-    provisional = ready and bool(coverage)
+    from app.services.current_rating_verification import current_owner_coverage
+    owner_coverage = current_owner_coverage(entry) if year == "all" or snapshot.get("basis") == "current" else None
+    provisional = ready and bool(coverage or owner_coverage)
     reason = None
     if scoped is None:
         from app.services.current_rating_verification import current_rating_error
@@ -126,6 +134,8 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
         "reason": reason,
         "included_seasons": coverage.get("included_seasons", []),
         "excluded_seasons": coverage.get("excluded_seasons", []),
+        "verified_owner_count": len(owner_coverage["roster_to_owner"]) if owner_coverage else None,
+        "excluded_rosters": owner_coverage["excluded_rosters"] if owner_coverage else [],
         "valuation_source": "stats_guy" if stats_guy else "dynasty_process" if dynasty_process else None,
         "prices_as_of": source.get("prices_as_of") if dated_prices else None,
         "valuation_note": (f"{policy['priced']}/{policy['eligible']} offensive players priced. "
@@ -209,6 +219,8 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
                 snapshot["reason"] = error
                 continue
             scoped_current = current_scoped_entry(entry)
+            owners = [uid for uid in owners if uid in scoped_current.owners]
+            snapshot["owners"] = owners
             receipt = current_results(entry)
             if receipt:
                 snapshot.update(results_coverage=receipt['coverage'], requires_results_coverage=True)
@@ -291,5 +303,6 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
         if not _complete_signals(owners, outcomes, assets, fmt):
             snapshot["reason"] = "Rating inputs are incomplete. Refresh league data."
             continue
-        snapshot["status"] = "provisional" if snapshot.get("results_coverage") else "ready"
+        snapshot["status"] = "provisional" if (snapshot.get("results_coverage") or
+            (current and entry.current_rating_verification.get("owner_coverage"))) else "ready"
     return out

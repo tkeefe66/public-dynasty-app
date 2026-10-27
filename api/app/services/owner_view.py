@@ -196,8 +196,10 @@ def build_owner_detail(
     from sleeper_dynasty.engine.capabilities import capabilities_from_dict
     league_format = capabilities_from_dict(entry.capabilities).format
     is_redraft = league_format == "redraft"
-    from app.services.current_rating_verification import current_rating_error
-    assets_unavailable = current_rating_error(entry) is not None
+    from app.services.current_rating_verification import current_owner_coverage, current_rating_error
+    owner_coverage = current_owner_coverage(entry)
+    owner_excluded = bool(owner_coverage and user_id not in owner_coverage["roster_to_owner"].values())
+    assets_unavailable = current_rating_error(entry) is not None or owner_excluded
 
     # Same redraft gate aggregations.py and leaderboard.py apply to the
     # standings row and the /gm row: a redraft league carries no roster
@@ -371,8 +373,12 @@ def build_owner_detail(
         rows_.sort(key=lambda r: r.current_value - r.avg_slot_value, reverse=True)
 
     from app.services.season_ratings import rating_scope
+    owner_scope = rating_scope(entry, "all")
+    if owner_excluded:
+        owner_scope.update(status="unavailable", label="Rating unavailable",
+                           reason="This owner has no verified current team. Historical results remain available.")
     return OwnerDetailResp(
-        rating_scope=rating_scope(entry, "all"),
+        rating_scope=owner_scope,
         league_id=entry.league_id, user_id=user_id,
         owner=owner_ref(entry, user_id),
         format=league_format,

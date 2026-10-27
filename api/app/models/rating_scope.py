@@ -8,6 +8,11 @@ class ExcludedRatingSeason(BaseModel):
     reason: str
 
 
+class ExcludedRatingRoster(BaseModel):
+    roster_id: int
+    reason: str
+
+
 class RatingScope(BaseModel):
     status: Literal["ready", "provisional", "unavailable"]
     basis: Literal["current", "season_end"]
@@ -19,3 +24,5 @@ class RatingScope(BaseModel):
     valuation_note: str | None = None
     included_seasons: list[int] = Field(default_factory=list)
     excluded_seasons: list[ExcludedRatingSeason] = Field(default_factory=list)
+    verified_owner_count: int | None = None
+    excluded_rosters: list[ExcludedRatingRoster] = Field(default_factory=list)

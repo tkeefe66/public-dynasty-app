@@ -7,10 +7,19 @@ def verify_current_assets(league, rosters, supporting, *, picks_verified, draft_
     if not getattr(league, "effective_format_verified", False):
         return {**result, "reason": getattr(league, "format_error", None) or
                 "Current league format is unverified. Verify this season's keeper/redraft settings."}
+    assigned = [r for r in rosters if r.owner_id]
     if (not rosters or len(rosters) != getattr(league, "total_rosters", None)
-            or any(not r.owner_id for r in rosters)
-            or len({r.owner_id for r in rosters}) != len(rosters)):
+            or not assigned or len({r.owner_id for r in assigned}) != len(assigned)):
         return {**result, "reason": "Current roster ownership is incomplete. Refresh league data."}
+    if len(assigned) != len(rosters):
+        ids = [getattr(r, "roster_id", None) for r in rosters]
+        if any(type(rid) is not int for rid in ids) or len(set(ids)) != len(ids):
+            return {**result, "reason": "Current roster identifiers are incomplete. Refresh league data."}
+        result["owner_coverage"] = {
+            "roster_to_owner": {str(r.roster_id): r.owner_id for r in assigned},
+            "excluded_rosters": [{"roster_id": r.roster_id, "reason": "Current owner is unassigned."}
+                                 for r in rosters if not r.owner_id],
+        }
     if result["format"] != "redraft":
         positions = supporting.get("positions") or {}
         prices = supporting.get("ktc_by_player_id") or {}
@@ -44,6 +53,20 @@ def verify_current_assets(league, rosters, supporting, *, picks_verified, draft_
     return {**result, "status": "ready"}
 
 
+def current_owner_coverage(entry):
+    """A partial-owner receipt is valid only for its exact current membership."""
+    coverage = entry.current_rating_verification.get("owner_coverage")
+    if not coverage:
+        return None
+    mapping = {str(rid): uid for rid, uid in
+               entry.roster_to_user_by_league.get(entry.league_id, {}).items() if uid}
+    excluded = coverage.get("excluded_rosters") or []
+    if (not mapping or coverage.get("roster_to_owner") != mapping or not excluded
+            or any(str(row.get("roster_id")) in mapping for row in excluded)):
+        return None
+    return coverage
+
+
 def current_rating_error(entry):
     from app.services.current_results_coverage import current_results
     scoped = current_results(entry)
@@ -61,6 +84,8 @@ def current_rating_error(entry):
         details = "; ".join(f"{year}: {reason}" for year, reason in sorted(excluded.items()))
         return f"Cumulative Results include unverified history ({details}). Current and All ratings remain unavailable until that history is verified or explicitly excluded from the career calculation."
     audit = entry.current_rating_verification
+    if audit.get("owner_coverage") and current_owner_coverage(entry) is None:
+        return "Current owner verification is stale. Refresh league data before publishing ratings."
     if audit.get('requires_results_coverage') and scoped is None:
         return "Current provisional Results verification is missing or stale. Revalidate coverage before publishing ratings."
     if audit:

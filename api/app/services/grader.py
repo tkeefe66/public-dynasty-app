@@ -627,6 +627,9 @@ class GraderService:
         tier_by_user: dict[str, str] = {}
         try:
             current_rosters = await client.get_rosters(current_league_id)
+            # Vacant teams still contribute to asset totals and pick tiers.
+            supporting["current_roster_players"] = {
+                r.roster_id: list(r.players or []) for r in current_rosters}
             for r in current_rosters:
                 for pid in (r.players or []):
                     current_holders[pid] = r.owner_id

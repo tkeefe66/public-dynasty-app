@@ -217,6 +217,8 @@ export interface RatingScope {
   valuation_note?: string | null;
   included_seasons?: number[];
   excluded_seasons?: { season: number; reason: string }[];
+  verified_owner_count?: number | null;
+  excluded_rosters?: { roster_id: number; reason: string }[];
 }
 
 export interface DashboardResp {
