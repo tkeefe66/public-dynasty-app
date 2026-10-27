@@ -78,11 +78,15 @@ def owner_membership(entry: ChainCacheEntry, uid: str) -> dict:
     roster = entry.roster_to_user_by_league.get(lid) or {}
     expected = leagues.get(lid, {}).get("total_rosters")
     members = {canonical(u) for u in roster.values() if u}
+    # A unique current assignment proves presence even when another team is
+    # vacant. Completeness is needed to prove absence, not presence.
+    assignments = [canonical(u) for u in roster.values() if u]
+    if uid in entry.owners and assignments.count(uid) == 1:
+        result["membership_status"] = "current"
+        return result
     if (not expected or len(roster) != expected or len(members) != expected
             or not members.issubset(entry.owners)):
         return result
-    if uid in members:
-        result["membership_status"] = "current"
-    elif played:
+    if played:
         result["membership_status"] = "former"
     return result

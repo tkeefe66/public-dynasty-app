@@ -38,6 +38,10 @@ def test_unassigned_roster_does_not_block_verified_owner_current_and_all():
     entry.roster_to_user_by_league = {"L": {1: "u1"}}
     entry.current_rating_verification = audit
     entry.season_rating_inputs = build_season_rating_inputs(entry, {})
+    from app.services.owner_membership import owner_membership
+    entry.chain = [{"league_id": "L", "season": 2026, "total_rosters": 2}]
+    assert owner_membership(entry, "u1")["membership_status"] == "current"
+    assert owner_membership(entry, "u2")["membership_status"] == "unverified"
     assert set(live_ratings(entry)) == {"u1"}
     for year in ("all", 2026):
         scope = rating_scope(entry, year)
