@@ -125,6 +125,30 @@ def _passage_edits(edits):
             "input": {"edits": edits}}
 
 
+@pytest.mark.parametrize("final_approved", [True, False])
+def test_second_wording_repair_is_automatic_but_never_publishes_rejected_text(writer_factory, final_approved):
+    # Mutation: stop after one repair, or publish the second repair without approval.
+    def rejected(quote):
+        return _message([_verdict({"approved": False, "checks": [{
+            "status": "needs_correction", "quote": quote,
+            "evidence": "Timing is not supported by the saved weekly totals"}]})], stop_reason="tool_use")
+    writer, requests = writer_factory([
+        _message([_text("Team A won on Monday.")]), rejected("on Monday"),
+        _message([_passage_edits([{"passage_id": "p1", "after": "Team A won late."}])], stop_reason="tool_use"),
+        rejected("late"),
+        _message([_passage_edits([{"passage_id": "p1", "after": "Team A scored 158 points."}])], stop_reason="tool_use"),
+        _message([_verdict()], stop_reason="tool_use") if final_approved else rejected("158 points"),
+    ], max_calls=6)
+    if final_approved:
+        assert writer.write(_facts()) == "Team A scored 158 points."
+    else:
+        with pytest.raises(ValueError, match="2 corrections.*refusing publication"):
+            writer.write(_facts())
+    assert len(requests) == 6
+    assert requests[4]["messages"][0] == requests[0]["messages"][0]
+    assert "Team A scored 158 points." in json.dumps(requests[5])
+
+
 @pytest.mark.parametrize("approved", [True, False])
 def test_grounded_swap_evidence_keeps_each_owner_and_player_pair_together(writer_factory, approved):
     # Mutation: index swaps by slot alone and apply another owner's margin, or bypass a final rejection.
@@ -854,7 +878,7 @@ def test_paraphrased_review_feedback_reaches_repair_but_exact_edits_and_approval
 
 
 def test_followup_review_error_stops_instead_of_buying_second_repair(writer_factory):
-    # Mutation: MAX_REPAIRS=2 purchases two more stages after the allowance is exhausted.
+    # Mutation: ignore the four-call default and purchase a second correction pair.
     writer, requests = writer_factory([
         _message([_text("Team A scored 185 points. Team B won.")]),
         _message([_verdict({"approved": False, "checks": [

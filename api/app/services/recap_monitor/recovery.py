@@ -69,7 +69,7 @@ async def recover(db, item, owner_id, now):
         .order_by(ProviderAttempt.stage))).all()
     replay_only = (job.reason == 'provider_outcome_unknown' and job.calls == job.max_calls
         and len(saved_attempts) == job.calls and review_approved(saved_attempts))
-    if job.kind == 'generation' and (job.max_calls > 4 or job.calls >= job.max_calls and not replay_only):
+    if job.kind == 'generation' and (job.max_calls > 6 or job.calls >= job.max_calls and not replay_only):
         return help_needed('attempt_allowance_exhausted')
     related = select(GenerationOperation.id).where(GenerationOperation.subject == job.subject) if job.subject else select(GenerationOperation.id).where(GenerationOperation.id == job.id)
     attempts = (await db.scalars(select(ProviderAttempt).where(ProviderAttempt.operation_id.in_(related)))).all()

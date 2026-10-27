@@ -127,7 +127,7 @@ async def collect(config, maker, cache_dir, now, previous):
                     policy = await resolve_policy(db, series_id)
                     budget = await get_budget_view(db, series_id, None, now)
                     feature = policy['policy']['features']['analyst']
-                    if feature['max_calls'] > 4 or budget['caps']['combined_episode_microusd'] > 5_000_000 or budget['caps']['combined_month_microusd'] > 25_000_000:
+                    if feature['max_calls'] > 6 or budget['caps']['combined_episode_microusd'] > 5_000_000 or budget['caps']['combined_month_microusd'] > 25_000_000:
                         raise ValueError('monitor_authorization_ceiling_changed')
                     job, costs = await job_evidence(db, season.league_id, year, period['week'])
                     item.update(costs)

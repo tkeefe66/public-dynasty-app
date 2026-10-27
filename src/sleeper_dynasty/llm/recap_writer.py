@@ -35,7 +35,6 @@ REQUEST_TIMEOUT_SECONDS = 300.0
 # Full matchup recaps plus standings, bets and outlook can exceed 4096 tokens.
 MAX_TOKENS = 8192
 REVIEW_MAX_TOKENS = 8192
-MAX_REPAIRS = 1
 REVIEW_GROUNDING_VERSION = "recap-owner-evidence-v3"
 REVIEW_GROUNDING_VERSIONS = ("recap-owner-evidence-v1", "recap-owner-evidence-v2", REVIEW_GROUNDING_VERSION)
 TIMING_GUIDANCE = """
@@ -391,7 +390,11 @@ class RecapWriter:
         legacy_repair: bool = False,
         grounded_review: bool = True,
         grounding_version: str | None = None,
+        max_calls: int = 4,
     ) -> None:
+        if max_calls not in (2, 4, 6):
+            raise ValueError("Recaps require 2, 4, or 6 calls including independent reviews")
+        self._max_repairs = max_calls // 2 - 1
         self.model = model
         self.review_model = review_model
         self.persona = persona or load_default_persona()
@@ -615,16 +618,16 @@ class RecapWriter:
         lore: str | None = None,
         outlook: OutlookFacts | ArchivedPacket | None = None,
     ) -> str:
-        """Draft, review, and allow one evidence-based correction with fresh review.
+        """Draft and review, then correct within the job's reserved call allowance.
 
-        At most four provider calls. Provider failures, malformed verdicts and a
-        second rejection stop the attempt without returning any rejected text.
+        Every correction receives fresh review. Provider failures, malformed
+        verdicts and exhausted corrections stop without returning rejected text.
         Model review is a safeguard, not proof of factual accuracy.
         """
         system, messages = self.build_request(facts, lore, outlook)
         original_messages = messages
         text = ""
-        for attempt in range(MAX_REPAIRS + 1):
+        for attempt in range(self._max_repairs + 1):
             stage = "recap" if attempt == 0 else "recap_repair"
             draft = self._request(system, messages, stage=stage, repair_text=text)
             text = apply_recap_edits(text, draft) if attempt else sanitize_prose(
@@ -635,13 +638,13 @@ class RecapWriter:
                     f"Analyst {stage} returned no text; refusing publication"
                 )
             missing = matchup_coverage_findings(text, facts, outlook)
-            if missing and attempt == MAX_REPAIRS:
+            if missing and attempt == self._max_repairs:
                 raise ValueError("; ".join(missing) + "; refusing publication")
             violations = missing or self._review(text, facts, outlook, lore)
             if not violations:
                 require_scoring_claims(text, facts)
                 return text
-            if attempt < MAX_REPAIRS:
+            if attempt < self._max_repairs:
                 logger.info(
                     "Correcting Analyst week %s using factual feedback", facts.week
                 )
@@ -650,6 +653,6 @@ class RecapWriter:
                     messages = [*original_messages, {"role": "assistant", "content": text},
                                 {"role": "user", "content": LEGACY_REPAIR_INSTRUCTIONS + json.dumps(violations)}]
         raise ValueError(
-            "Analyst factual review did not approve after one correction; "
+            f"Analyst factual review did not approve after {'one correction' if self._max_repairs == 1 else str(self._max_repairs) + ' corrections'}; "
             "refusing publication"
         )

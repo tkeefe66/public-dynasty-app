@@ -7,7 +7,7 @@ from pydantic import ValidationError
 def test_defaults_require_explicit_activation():
     assert Policy().paused is True
     assert Policy().max_concurrency == 1
-    assert Policy().features["analyst"].max_calls == 4
+    assert Policy().features["analyst"].max_calls == 6
 
 
 @pytest.mark.parametrize("value", ["false", "true", 0, 1])
@@ -120,3 +120,17 @@ def test_profile_cannot_raise_default_app_concurrency():
     resolved = effective([("app", {"paused": False}), ("profile:dynasty", {"max_concurrency": 4})])
     assert resolved["policy"]["max_concurrency"] == 1
     assert effective([("app", {"paused": False, "max_concurrency": 4})])["policy"]["max_concurrency"] == 4
+def test_six_call_recap_reserves_both_repairs_below_existing_episode_cap():
+    # Mutation: reserve only the original four calls, or allow six video calls.
+    import pytest
+    from app.services.generation.accounting import bounded_plan
+    from app.services.generation.policy import Policy
+    policy = Policy.model_validate({"features": {"analyst": {
+        "max_calls": 6, "model": "claude-sonnet-4-6", "max_tokens": 8192}}})
+    feature = policy.features["analyst"].model_dump()
+    plan = bounded_plan("synthetic", "analyst", feature, feature, 6)
+    assert len(plan) == 6
+    assert sum(row["max_microusd"] for row in plan) == 4_220_928
+    assert sum(row["max_microusd"] for row in plan) < 5_000_000
+    with pytest.raises(ValueError):
+        Policy.model_validate({"features": {"recap_video": {"max_calls": 6}}})

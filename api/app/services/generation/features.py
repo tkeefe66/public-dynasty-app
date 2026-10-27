@@ -136,7 +136,8 @@ async def generate(job, gateway):
             from sleeper_dynasty.llm.recap_writer import RecapWriter
             edition = saved["edition"]
             writer = RecapWriter(**kwargs, review_model=policy["review_model"], legacy_repair=legacy_repair,
-                                grounded_review=grounded_review, grounding_version=grounding_version)
+                                grounded_review=grounded_review, grounding_version=grounding_version,
+                                max_calls=job.max_calls)
             arguments = {"lore": edition.get("lore"),
                 "outlook": ArchivedPacket(edition["outlook"]) if edition.get("outlook") else None}
             markdown = (writer.repair_saved(ArchivedPacket(edition["facts"]), repair["draft"],

@@ -21,14 +21,14 @@ class FeaturePolicy(StrictModel):
     paused: bool = False
     model: Literal["claude-haiku-4-5-20251001", "claude-haiku-4-5", "claude-sonnet-4-6"] = HAIKU
     review_model: Literal["claude-haiku-4-5-20251001", "claude-haiku-4-5", "claude-sonnet-4-6"] = SONNET
-    max_calls: int = Field(default=2, ge=1, le=4)
+    max_calls: int = Field(default=2, ge=1, le=6)
     max_tokens: int = Field(default=1024, ge=64, le=8192)
     max_prompt_chars: int = Field(default=128_000, ge=1024, le=256_000)
 
 
 def feature_defaults() -> dict[str, FeaturePolicy]:
     values = {key: FeaturePolicy() for key in FEATURES}
-    values["analyst"] = FeaturePolicy(model=SONNET, max_calls=4, max_tokens=8192)
+    values["analyst"] = FeaturePolicy(model=SONNET, max_calls=6, max_tokens=8192)
     values["recap_video"] = FeaturePolicy(mode="disabled", model=SONNET, max_calls=4,
         max_tokens=8192, max_prompt_chars=96_000)
     return values
@@ -48,8 +48,8 @@ class Policy(StrictModel):
             raise ValueError("Unknown feature; register its execution contract first")
         defaults = feature_defaults()
         for key, value in self.features.items():
-            if key in ("analyst", "recap_video") and value.max_calls not in (2, 4):
-                raise ValueError("Analyst requires draft plus review, optionally one correction plus review")
+            if key in ("analyst", "recap_video") and value.max_calls not in ((2, 4, 6) if key == "analyst" else (2, 4)):
+                raise ValueError("Recaps require draft plus review and complete correction/review pairs")
             if key not in ("analyst", "recap_video") and value.max_calls > 2:
                 raise ValueError("Story and blurb workflows permit at most two calls")
             defaults[key] = value

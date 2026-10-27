@@ -53,7 +53,7 @@ def test_catchup_previews_current_missing_content_without_buying(client, catchup
                            json={"reason": "Catch up all leagues"})
     assert response.status_code == 200
     assert {item["key"] for item in response.json()["items"]} == {"recap", "profile", "outlook", "trade"}
-    assert response.json()["max_calls"] == 10
+    assert response.json()["max_calls"] == 12
     assert len(client.get("/api/admin/generation/records/jobs").json()["records"]) == 2
 
 
