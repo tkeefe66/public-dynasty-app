@@ -190,7 +190,7 @@ class HistoricalAssetStore:
              identity_version: str, through_week: int, cutoff_date: str | None = None):
         path = self._path(season_league_id, season)
         if not path.exists():
-            return None, "Verified historical roster, pick ownership, and asset prices are missing."
+            return None, "Verified historical asset ownership and dated player values are missing."
         try:
             assets = HistoricalRatingAssets.model_validate_json(path.read_text())
         except (OSError, ValueError):
