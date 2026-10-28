@@ -61,9 +61,14 @@ the existing scoring-period/bracket rules; a final round remains tracked after
 the season ends. Unknown mappings/sources stay explicit and never select a
 different owner's Yahoo account.
 
-Eligible unfinished work is checked hourly. When only known retry/release times
+Eligible unfinished work and completed publications are checked hourly. A saved
+completion is reverified through the member-serving handler: later withdrawals
+must not remain silently marked complete. Previously tracked periods remain in
+the current season's checks after week rollover and survive source outages,
+without resetting recovery counters or issuing routine success messages.
+When only known retry/release times
 remain, the next useful check follows that gate; Tuesday morning is not applied
-to all text leagues. All delivered editions restore the next Monday automatically.
+to all text leagues. Inactive leagues retain the next Monday schedule.
 Postgres stores a CAS lease, fallback due time, progress fingerprints, immutable
 alert identities and bounded recovery counters. Recovery and its counter commit
 in the same transaction; stale workers cannot overwrite a newer lease.

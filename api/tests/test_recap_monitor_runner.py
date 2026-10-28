@@ -103,3 +103,45 @@ async def test_unfinished_games_prevent_edition_audit(maker,monkeypatch,tmp_path
     now=int(datetime.fromisoformat('2026-10-26T22:30:00-06:00').timestamp())
     items=await source.collect(Config('owner',('series',),2026,7,now),maker,tmp_path,now,{})
     assert len(items)==1 and items[0]['status']=='waiting' and items[0]['gate']>now
+
+
+@pytest.mark.asyncio
+async def test_completed_previous_week_is_rechecked_after_rollover(maker, monkeypatch, tmp_path):
+    # Mutation: exclude completed prior periods so a later withdrawal is never inspected.
+    from types import SimpleNamespace
+    from app.services.recap_monitor import collect as source
+    from app.services.recap_monitor.runner import Config
+    from app.db.models import User
+    from app.services.generation.models import LeagueSeries, LeagueSeason
+    monkeypatch.setenv('TRADE_GRADER_ADMIN_EMAILS', 'owner@example.test')
+    async with maker.begin() as db:
+        db.add(User(id='owner', google_sub='synthetic', email='owner@example.test', is_admin=True))
+        db.add(LeagueSeries(id='series', name='Synthetic'))
+        db.add(LeagueSeason(league_id='league', series_id='series', season=2026,
+                           provider='sleeper', provider_key='league', verified_at=1))
+    class FakeClient:
+        async def get_nfl_state(self): return dict(season=2026, season_type='regular', week=8)
+        async def get_league(self, *args):
+            return SimpleNamespace(playoff_week_start=15, playoff_round_type=0, num_playoff_teams=6), None
+        async def close(self): pass
+    games = [dict(event_id=f'game-{week}', week=week, home='H', away='A', kickoff=kickoff)
+             for week, kickoff in [(7, '2026-10-23T00:00:00Z'), (8, '2026-10-30T00:00:00Z')]]
+    async def inventory(*args): return dict(games=games)
+    async def evidence(year, week):
+        return dict(games=[{**g, 'completed': True, 'status': 'STATUS_FINAL'} for g in games if g['week'] == week])
+    async def connected(*args, **kwargs): return FakeClient()
+    async def proof(db, cache, league, year, week):
+        return {'artifact_id': f'current-{week}', 'member_serving_readable': True}
+    monkeypatch.setattr(source, 'SleeperClient', FakeClient)
+    monkeypatch.setattr(source, 'fetch_inventory', inventory)
+    monkeypatch.setattr(source, 'fetch_week_evidence', evidence)
+    monkeypatch.setattr(source, 'connected_client', connected)
+    monkeypatch.setattr(source, 'publication_proof', proof)
+    now = int(datetime.fromisoformat('2026-11-02T22:30:00-07:00').timestamp())
+    previous = {'series:2026:7': dict(series_id='series', season=2026, status='complete',
+                recovery_attempts=2, period={'period_id': '7', 'week': 7, 'nfl_weeks': [7]})}
+    items = await source.collect(Config('owner', ('series',), 2026, 7, now), maker, tmp_path, now, previous)
+    assert {item['week'] for item in items} == {7, 8}
+    prior = next(item for item in items if item['week'] == 7)
+    assert prior['proof']['artifact_id'] == 'current-7'
+    assert prior['recovery_attempts'] == 2

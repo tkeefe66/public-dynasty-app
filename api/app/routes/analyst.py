@@ -31,7 +31,9 @@ async def analyst_archive(league_id: str, db=Depends(get_db)):
                     RecapEpisode.league_id == league_id, RecapEpisode.season == edition['season'],
                     RecapEpisode.week == edition['week'], RecapEpisode.lifecycle == 'correction').limit(1))
                 if correction:
-                    continue
+                    from app.services.recap_video.text_revalidation import member_text_revalidated
+                    if not await member_text_revalidated(db, correction, edition):
+                        continue
                 row = await publication.edition_row(db, league_id, edition['season'], edition['week'])
                 if row and (row.withdrawn or row.hold or not await publication.article_current(db, row)):
                     continue

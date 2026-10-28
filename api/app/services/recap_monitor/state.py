@@ -25,9 +25,11 @@ def next_monday(now):
 def next_check(now, observations):
     due = [next_monday(now)]
     for item in observations:
-        if item['status'] in ('complete', 'inactive'):
+        if item['status'] == 'inactive':
             continue
-        gate = item.get('gate', 0)
+        # Publication can be withdrawn after completion. Recheck it hourly;
+        # a stale generation gate must not defer that verification.
+        gate = 0 if item['status'] == 'complete' else item.get('gate', 0)
         due.append(gate + 60 if gate > now else now + 3600)
     return min(due)
 
@@ -63,10 +65,10 @@ async def finish(maker, scope, token, now, observations, recipient):
             return False
         previous = json.loads(row.state_json).get('observations', {})
         keys = {item['key'] for item in observations}
-        # Source outages and season rollover cannot erase unfinished periods or
-        # their already-used recovery attempts. Only positive completion retires one.
+        # Source outages cannot erase tracked publications or their already-used
+        # recovery attempts. Completion is a current observation, not retirement.
         observations = [*observations, *(item for key, item in previous.items()
-            if key not in keys and item.get('period') and item.get('status') not in ('complete', 'inactive'))]
+            if key not in keys and item.get('period') and item.get('status') != 'inactive')]
         current, active = {}, set()
         for value in observations:
             old = previous.get(value['key'], {})

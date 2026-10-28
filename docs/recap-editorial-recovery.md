@@ -1,5 +1,23 @@
 # Editorial recovery of a saved video script
 
+## Unchanged member text after an unused bench correction
+
+`recap_video.text_revalidation.revalidate` previews an exact saved article against
+current stable source evidence. It accepts only changes to nonstarter player
+scores, with unchanged team totals, starters, opponents and all other competitive
+facts. Articles with bench claims or the changed numbers remain blocked. An
+operator must independently review the whole article for indirect effects,
+identify the reviewer, and apply the exact preview digest. This records an
+operator-assisted review, never a fabricated provider approval.
+
+The member archive rechecks the article, current source facts, original approved
+receipts, artifact head and delivery before honoring that audit. Further changes
+expire it. This path cannot restore a withdrawn publication or media, create a
+share, clear an episode hold, change paid artifacts, or authorize generation.
+It is intentionally limited to an edition without a media publication record.
+
+## Saved video scripts
+
 An exhausted script attempt may be corrected without buying another draft. The
 paid operation and all provider receipts remain unchanged. Recovery creates a
 separate zero-call operation and an `editorial_reviewed` artifact; it never

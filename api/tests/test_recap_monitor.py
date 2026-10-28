@@ -15,13 +15,15 @@ def test_weekly_schedule_tracks_denver_dst():
 
 
 def test_only_known_gates_skip_hourly_but_active_work_keeps_hourly():
-    # Mutation: apply Tuesday gate to all leagues or poll a lone future gate hourly.
+    # Mutation: apply Tuesday gate to all leagues, or stop checking after publication.
     from app.services.recap_monitor.state import next_check
     now = ts('2026-10-26T22:30:00-06:00')
     gate = ts('2026-10-27T08:00:00-06:00')
     assert next_check(now, [{'status': 'waiting', 'gate': gate}]) == gate + 60
     assert next_check(now, [{'status': 'waiting', 'gate': gate}, {'status': 'pending'}]) == now + 3600
-    assert next_check(now, [{'status': 'complete'}]) == ts('2026-11-02T22:30:00-07:00')
+    assert next_check(now, [{'status': 'complete'}]) == now + 3600
+    assert next_check(now, [{'status': 'complete', 'gate': gate}]) == now + 3600
+    assert next_check(now, [{'status': 'inactive'}]) == ts('2026-11-02T22:30:00-07:00')
 
 
 @pytest.mark.asyncio
@@ -96,6 +98,26 @@ async def test_source_failure_retains_period_and_recovery_counter(maker):
         saved = json.loads((await db.get(RecapMonitorState, 'weekly-recaps')).state_json)['observations']
         assert saved[item['key']]['recovery_attempts'] == 2
         assert saved[item['key']]['period'] == item['period']
+
+
+@pytest.mark.asyncio
+async def test_source_failure_retains_completed_publication_for_reverification(maker):
+    # Mutation: discard completed editions on source failure, permanently losing withdrawal checks.
+    from app.services.recap_monitor.models import RecapMonitorState
+    from app.services.recap_monitor.state import initialize, claim, finish
+    import json
+    await initialize(maker, 'scope', 100)
+    item = dict(key='series:2026:7', status='complete', series_id='series',
+                period={'period_id': '7', 'week': 7, 'nfl_weeks': [7]}, recovery_attempts=2)
+    token = await claim(maker, 'scope', 100)
+    await finish(maker, 'scope', token, 100, [item], 'recipient')
+    token = await claim(maker, 'scope', 3701)
+    assert token, 'Published editions must be checked again before next Monday'
+    await finish(maker, 'scope', token, 3701, [dict(key='source', status='pending')], 'recipient')
+    async with maker() as db:
+        saved = json.loads((await db.get(RecapMonitorState, 'weekly-recaps')).state_json)['observations']
+        assert saved[item['key']]['period'] == item['period']
+        assert saved[item['key']]['recovery_attempts'] == 2
 
 
 @pytest.mark.asyncio

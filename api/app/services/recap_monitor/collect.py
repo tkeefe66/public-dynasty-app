@@ -102,7 +102,7 @@ async def collect(config, maker, cache_dir, now, previous):
                 await client.close()
             periods = {period['period_id']: period} if period else {}
             for old in previous.values():
-                if old.get('series_id') == series_id and old.get('season') == year and old.get('status') not in ('complete', 'inactive') and old.get('period'):
+                if old.get('series_id') == series_id and old.get('season') == year and old.get('status') != 'inactive' and old.get('period'):
                     periods.setdefault(old['period']['period_id'], old['period'])
             if not periods:
                 observations.append({**base, 'status': 'inactive', 'reason': 'season_finished'})
