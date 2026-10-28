@@ -166,6 +166,8 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
                               if source.get("draft_rounds") == 0 else
                               ("Estimated full-player keeper picks use this season's completed draft and the same dated player board across the next three drafts. Keeper selections are excluded; round averages are smoothed. "
                                if historical_valuation else "Generic round values price future picks. "))
+                           + ("Keeper placeholder exclusions were reconstructed from reviewed draft, roster, and transaction evidence. "
+                              if historical_valuation and source.get("pick_valuation", {}).get("reconstruction") else "")
                            + "Historical estimates use "
                            "a different valuation source from current ratings.") if dated_prices else None,
     }

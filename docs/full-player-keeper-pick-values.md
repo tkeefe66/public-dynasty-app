@@ -81,3 +81,28 @@ The `dynasty-process-offense-v2` policy uses dated DynastyProcess values with th
 same explicit defensive exclusions as `stats-guy-offense-v2`. Its source credit
 and date are returned with the historical rating scope. Legacy manifests omit
 the optional model field when absent so their validation digests remain stable.
+
+### Reviewed historical keeper placeholders
+
+Some older full-player drafts use another player as a keeper-cost placeholder
+without setting Sleeper's `is_keeper` flag. Missing prices and retired status are
+not evidence of a placeholder. Historical pick receipts can now carry an optional
+`reconstruction` proof; receipts without it keep their original shape and digest.
+
+The proof preserves original provider picks and records the reviewed cost rule,
+season lineage, both drafts, owner identities, the prior final scored week's
+rosters, opening rosters, transactions, and explicit placeholder/keeper mappings.
+Replay requires an undrafted carryover with the same owner, no acquisition or
+removal before the draft ends, a unique standalone drop within two hours, and a
+cost matching the prior round minus one (minimum round one). This is a reviewed
+policy for matching evidence, not an inferred universal keeper rule. All undrafted
+carryovers must be accounted for, including placeholders that already have prices.
+Adjacent proof years must agree on their shared original draft; a prior
+reconstructed cost is usable only after that year's proof passes validation.
+
+Normalization changes only a copied valuation input. Original picks and proof
+remain in the manifest and participate in its digest and replay. Missing or
+contradictory evidence fails closed. Publication must compare proof source records
+with public provider responses, revalidate the full asset manifest, back up the
+existing snapshot, and verify current/All and unrelated seasons are preserved.
+The rating remains provisional and discloses reconstructed keeper exclusions.

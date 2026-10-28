@@ -20,6 +20,7 @@ def estimate(
     positions,
     board,
     exclude_idp=False,
+    reconstruction=None,
 ):
     if (
         source not in {"stats_guy", "dynasty_process"}
@@ -65,10 +66,21 @@ def estimate(
         },
         "player_value_sources": {pid: source for pid in values},
     }
+    valuation_picks = picks
+    if reconstruction is not None:
+        from app.services.keeper_placeholders import normalize
+
+        valuation_picks = normalize(
+            season=season,
+            league_id=league_id,
+            draft=draft,
+            picks=picks,
+            evidence=reconstruction,
+        )
     result = with_full_player_pick_values(
         league,
         [draft],
-        {draft["draft_id"]: picks},
+        {draft["draft_id"]: valuation_picks},
         support,
         prices_as_of=board["asOf"],
         exclude_idp=exclude_idp,
@@ -89,6 +101,9 @@ def estimate(
             "board": board,
             "exclude_idp": exclude_idp,
             "estimate": receipt,
+            **(
+                {"reconstruction": reconstruction} if reconstruction is not None else {}
+            ),
         }
     )
 
