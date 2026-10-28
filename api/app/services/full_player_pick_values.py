@@ -13,7 +13,7 @@ import logging
 from datetime import date
 from math import isfinite
 
-from app.services.historical_backfill import digest
+from app.services.historical_backfill import IDP, digest
 from sleeper_dynasty.models.player import KTCValue
 
 VERSION = "full-player-observed-rounds-v1"
@@ -21,7 +21,7 @@ EXCLUDED_POSITIONS = {"K", "DEF"}
 log = logging.getLogger(__name__)
 
 
-def with_full_player_pick_values(league, drafts, picks_by_draft, supporting, *, prices_as_of=None):
+def with_full_player_pick_values(league, drafts, picks_by_draft, supporting, *, prices_as_of=None, exclude_idp=False):
     """Return an isolated rating bundle; trade grading retains its own tables."""
     if getattr(league, "format", None) != "keeper" or (getattr(league, "format_evidence", None) or {}).get("future_picks_retained") is False:
         return supporting
@@ -29,6 +29,9 @@ def with_full_player_pick_values(league, drafts, picks_by_draft, supporting, *, 
     receipt = {"version": VERSION, "status": "unavailable", "league_id": league.league_id,
                "season": league.season, "prices_as_of": prices_as_of or date.today().isoformat()}
     result["full_player_pick_valuation"] = receipt
+    excluded_positions = EXCLUDED_POSITIONS | (IDP if exclude_idp else set())
+    if exclude_idp:
+        receipt['excluded_positions'] = sorted(excluded_positions)
     try:
         candidates = [d for d in drafts if d.get("league_id") == league.league_id
                       and str(d.get("season")) == str(league.season)]
@@ -59,14 +62,14 @@ def with_full_player_pick_values(league, drafts, picks_by_draft, supporting, *, 
             if not pick["is_keeper"]:
                 position = (supporting.get("positions") or {}).get(pid)
                 value = getattr((supporting.get("ktc_by_player_id") or {}).get(pid), "superflex_value", None)
-                if position in EXCLUDED_POSITIONS:
+                if position in excluded_positions:
                     value = 0.0  # Explicit asset policy, not missing-price imputation.
                 elif (position not in {"QB", "RB", "WR", "TE"}
                       or not isinstance(value, (float, int)) or not isfinite(value) or value < 0):
                     raise ValueError(f"Drafted offensive player {pid} has no verified current price or position.")
                 row.update(position=position, value=value,
                            source=(supporting.get("player_value_sources") or {}).get(pid, "current-player-values")
-                           if position not in EXCLUDED_POSITIONS else "excluded-position")
+                           if position not in excluded_positions else "excluded-position")
                 samples[r].append(float(value))
             evidence.append(row)
         if any(not values or sum(values) <= 0 for values in samples.values()):

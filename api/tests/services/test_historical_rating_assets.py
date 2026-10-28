@@ -35,7 +35,7 @@ def test_verified_assets_use_historical_ages_holdings_and_pick_transfers():
     assert ranks["u1"] == {"rank": 1, "of": 2}
 
 
-@pytest.mark.parametrize("policy_version", ["stats-guy-v1", "stats-guy-offense-v2", "dynasty-process-v1"])
+@pytest.mark.parametrize("policy_version", ["stats-guy-v1", "stats-guy-offense-v2", "dynasty-process-v1", "dynasty-process-offense-v2"])
 def test_keeper_dated_policy_accepts_verified_rosters_without_future_assets(
     policy_version,
 ):
@@ -51,10 +51,10 @@ def test_keeper_dated_policy_accepts_verified_rosters_without_future_assets(
     )
     data["valuation_policy"] = {
         "version": policy_version,
-        "source_url": "https://dynastyprocess.com" if policy_version == "dynasty-process-v1" else "https://statsguyfantasy.com",
+        "source_url": "https://dynastyprocess.com" if policy_version.startswith("dynasty-process") else "https://statsguyfantasy.com",
         "excluded": (
             [{"player_id": "defender", "owner_id": "u1", "position": "LB"}]
-            if policy_version == "stats-guy-offense-v2"
+            if policy_version.endswith("offense-v2")
             else []
         ),
         "unranked_upper_bounds": {},

@@ -52,3 +52,32 @@ fails closed; normal refresh rebuilds the model and binding.
 5. Reconcile Results, exclude unresolved history, publish source-bound coverage,
    and prove current/All ratings live. Compare old historical snapshots and owner
    history against the backup, leaving unresolved historical ratings unavailable.
+# Dated historical estimates
+
+Historical keeper imports can carry a replayable `pick_valuation` receipt. It
+contains the completed season draft, keeper flags, player positions, and a
+single provider-dated player board. The board must precede the independently
+verified season cutoff by one to seven days. Roster values and pick calibration
+must use that same board and scale. Missing offensive draft prices block the
+estimate; they are not silently assigned a replacement floor.
+
+The existing observed-round model excludes keeper selections, pools adjacent
+round averages to remove increasing round values, and projects generic round
+entitlements across three drafts. Historical offense-only policies may explicitly
+exclude individual defenders as well as kickers and team defenses. Dual-eligible
+players use their verified offensive eligibility. No future keeper elections are
+assumed. Pick ownership must independently reconcile from the complete transfer
+ledger at the season cutoff.
+
+The manifest binds the replayed estimate, dated roster values, complete pick
+inventory, identity mapping, and Results digest. Existing roster replacement-floor
+limits and exhaustive rank/grade sensitivity checks still apply. A modeled asset
+snapshot is **provisional**, including when all Results seasons are verified.
+Results exclusions remain explicit and independent of missing asset years.
+Refreshing must reload the dated manifest and reviewed format evidence; losing or
+altering either makes that year unavailable. Current/All inputs remain separate.
+
+The `dynasty-process-offense-v2` policy uses dated DynastyProcess values with the
+same explicit defensive exclusions as `stats-guy-offense-v2`. Its source credit
+and date are returned with the historical rating scope. Legacy manifests omit
+the optional model field when absent so their validation digests remain stable.

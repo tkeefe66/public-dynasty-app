@@ -53,6 +53,14 @@ def scoped_rating_entry(entry: ChainCacheEntry, year) -> ChainCacheEntry | None:
     owner_only = snapshot.get("basis") == "current" and bool(entry.current_rating_verification.get("owner_coverage"))
     from app.services.full_player_pick_values import current_pick_valuation
     model_only = snapshot.get("basis") == "current" and bool(current_pick_valuation(entry))
+    if snapshot.get("basis") != "current" and (snapshot.get("asset_source") or {}).get("pick_valuation"):
+        from app.services.historical_full_player_picks import snapshot_valuation
+        model_only = bool(snapshot_valuation(snapshot))
+        source = snapshot['asset_source']
+        if (not model_only or source.get('season') != int(year)
+                or entry.league_season_by_id.get(source.get('season_league_id')) != int(year)
+                or source.get('identity_version') != entry.owner_identity_version):
+            return None
     if ((snapshot.get("status") == "provisional" and not (owner_only or model_only)) or snapshot.get("results_coverage")
             or snapshot.get("requires_results_coverage")):
         from app.services.historical_results_coverage import ResultsCoverage
@@ -118,6 +126,9 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     )
     pick_valuation = current_pick_valuation(entry) if year == "all" or snapshot.get("basis") == "current" else None
     provisional = ready and bool(coverage or owner_coverage or pick_valuation)
+    from app.services.historical_full_player_picks import snapshot_valuation
+    historical_valuation = snapshot_valuation(snapshot) if ready and snapshot.get("basis") != "current" else None
+    provisional = provisional or bool(historical_valuation)
     reason = None
     if scoped is None:
         from app.services.current_rating_verification import current_rating_error
@@ -127,7 +138,7 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
     source = snapshot.get("asset_source") or {}
     policy = source.get("valuation_policy") or {}
     stats_guy = ready and year != "all" and policy.get("version") in {"stats-guy-v1", "stats-guy-offense-v2"}
-    dynasty_process = ready and year != "all" and policy.get("version") == "dynasty-process-v1"
+    dynasty_process = ready and year != "all" and policy.get("version") in {"dynasty-process-v1", "dynasty-process-offense-v2"}
     dated_prices = stats_guy or dynasty_process
     return {
         "status": "provisional" if provisional else "ready" if ready else "unavailable", "basis": basis,
@@ -149,11 +160,12 @@ def rating_scope(entry: ChainCacheEntry, year) -> dict:
         "valuation_note": (f"{policy['priced']}/{policy['eligible']} offensive players priced. "
                            "Unranked players use a zero replacement floor; "
                            + ("kickers, team defenses, and individual defensive players are excluded from assets. "
-                              if policy.get("version") == "stats-guy-offense-v2" else
+                              if policy.get("version", "").endswith("offense-v2") else
                               "kickers and defenses are excluded from assets. ")
                            + ("No future-pick assets were included in this verified snapshot. "
                               if source.get("draft_rounds") == 0 else
-                              "Generic round values price future picks. ")
+                              ("Estimated full-player keeper picks use this season's completed draft and the same dated player board across the next three drafts. Keeper selections are excluded; round averages are smoothed. "
+                               if historical_valuation else "Generic round values price future picks. "))
                            + "Historical estimates use "
                            "a different valuation source from current ratings.") if dated_prices else None,
     }
@@ -196,7 +208,7 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
                     "as_of": entry.cached_at if current else None, "owners": owners}
         out[str(year)] = snapshot
         prior = (prior_snapshots or {}).get(str(year), {})
-        if not current and (prior.get("status") == "provisional" or prior.get("results_coverage")
+        if not current and ((prior.get("status") == "provisional" and not (prior.get("asset_source") or {}).get("pick_valuation")) or prior.get("results_coverage")
                             or prior.get("requires_results_coverage")):
             snapshot["requires_results_coverage"] = True
         if not current and (prior.get("format_evidence") or prior.get("requires_format_evidence")):
@@ -312,6 +324,7 @@ def build_season_rating_inputs(entry: ChainCacheEntry, supporting: dict, *, asse
             snapshot["reason"] = "Rating inputs are incomplete. Refresh league data."
             continue
         snapshot["status"] = "provisional" if (snapshot.get("results_coverage") or
+            (snapshot.get("asset_source") or {}).get("pick_valuation") or
             (current and (entry.current_rating_verification.get("owner_coverage") or
                           entry.current_rating_verification.get("pick_valuation")))) else "ready"
     return out

@@ -325,7 +325,7 @@ def test_sensitivity_checks_simultaneous_missing_values(monkeypatch):
     # Mutation: test each absent player individually but miss the joint reversal.
     from app.services.historical_backfill_run import validate_sensitivity
 
-    def rank(entry, supporting, raw):
+    def rank(entry, supporting, raw, *, format_store=None):
         changed = sum(p["value"] for p in raw["players"]) > 1
         return {"a": {"rank": 2 if changed else 1, "grade": "B", "rating": 1500}}
 

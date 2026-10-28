@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from sleeper_dynasty.engine.asset_signals import asset_signals
 from sleeper_dynasty.util.atomic import write_json_atomic
@@ -33,7 +33,7 @@ class HistoricalPlayer(BaseModel):
 
 class HistoricalValuationPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    version: Literal["stats-guy-v1", "stats-guy-offense-v2", "dynasty-process-v1"]
+    version: Literal["stats-guy-v1", "stats-guy-offense-v2", "dynasty-process-v1", "dynasty-process-offense-v2"]
     source_url: Literal["https://statsguyfantasy.com", "https://dynastyprocess.com"]
     excluded: list[dict]
     unranked_upper_bounds: dict[str, float]
@@ -43,7 +43,7 @@ class HistoricalValuationPolicy(BaseModel):
 
     @model_validator(mode="after")
     def source_matches_policy(self):
-        expected = "https://dynastyprocess.com" if self.version == "dynasty-process-v1" else "https://statsguyfantasy.com"
+        expected = "https://dynastyprocess.com" if self.version.startswith("dynasty-process") else "https://statsguyfantasy.com"
         if self.source_url != expected:
             raise ValueError("Valuation source does not match its versioned policy.")
         return self
@@ -90,6 +90,14 @@ class HistoricalRatingAssets(BaseModel):
     picks: list[HistoricalPick]
     valuation_policy: HistoricalValuationPolicy | None = None
     validation: HistoricalValidation | None = None
+    pick_valuation: dict | None = None
+
+    @model_serializer(mode="wrap")
+    def preserve_legacy_digest(self, handler):
+        data = handler(self)
+        if self.pick_valuation is None:
+            data.pop("pick_valuation", None)
+        return data
 
     @model_validator(mode="after")
     def complete_at_cutoff(self):
@@ -133,7 +141,7 @@ class HistoricalRatingAssets(BaseModel):
                 if count > 2 or count / len(roster) > .10:
                     raise ValueError("Owner offensive coverage below policy threshold.")
             excluded = policy.excluded
-            excluded_positions = {"K", "DEF"} | (IDP if policy.version == "stats-guy-offense-v2" else set())
+            excluded_positions = {"K", "DEF"} | (IDP if policy.version.endswith("offense-v2") else set())
             if (len(missing) / len(self.players) > .02 or len(missing) > 8
                     or len({p.get('player_id') for p in excluded}) != len(excluded)
                     or any(p.get('position') not in excluded_positions or p.get('owner_id') not in owners
@@ -144,6 +152,27 @@ class HistoricalRatingAssets(BaseModel):
                 raise ValueError("Manifest differs from validated preview. Rerun backfill validation.")
         elif self.validation is not None:
             raise ValueError("Validation requires a versioned valuation policy.")
+        if self.pick_valuation is not None:
+            from app.services.historical_full_player_picks import validate
+            receipt = self.pick_valuation
+            estimate = validate(receipt)
+            if (self.format != "keeper" or self.validation is None or self.valuation_policy is None
+                    or receipt['season'] != self.season or receipt['league_id'] != self.season_league_id
+                    or receipt['cutoff'] != self.as_of.isoformat()
+                    or estimate['prices_as_of'] != self.prices_as_of.isoformat()
+                    or estimate['draft_rounds'] != self.draft_rounds
+                    or estimate['teams'] != len(self.owners) or self.pick_horizon != 3
+                    or (receipt.get('exclude_idp') and not self.valuation_policy.version.endswith('offense-v2'))
+                    or receipt['source'] != ('dynasty_process' if self.valuation_policy.version.startswith('dynasty-process') else 'stats_guy')):
+                raise ValueError("Historical pick estimate does not match the verified asset scope.")
+            rounds = {r['round']: r['value'] for r in estimate['rounds']}
+            board = {str(p['id']): p for p in receipt['board']['rankings']}
+            if any(p.value != rounds[p.round] for p in self.picks) or any(
+                p.pricing == 'provider' and (p.player_id not in board
+                    or p.value != float(board[p.player_id]['value'])
+                    or p.position != board[p.player_id]['position']) for p in self.players
+            ):
+                raise ValueError("Historical roster and pick values must use the same dated board.")
         return self
 
     def signals(self) -> tuple[dict, dict]:

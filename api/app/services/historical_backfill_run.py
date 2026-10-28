@@ -593,7 +593,7 @@ def collect(
     return raw, policy, supporting
 
 
-def rank_preview(entry, supporting, raw, *, include_results=False):
+def rank_preview(entry, supporting, raw, *, include_results=False, format_store=None):
     assets = HistoricalRatingAssets.model_validate(raw)
 
     class PreviewStore:
@@ -615,6 +615,7 @@ def rank_preview(entry, supporting, raw, *, include_results=False):
         entry,
         supporting,
         asset_store=PreviewStore(),
+        format_store=format_store,
         results_coverage={str(assets.season): coverage.model_dump(mode="json")}
         if coverage
         else None,
@@ -640,8 +641,8 @@ def rank_preview(entry, supporting, raw, *, include_results=False):
     return rows
 
 
-def validate_sensitivity(entry, supporting, raw, policy):
-    baseline = rank_preview(entry, supporting, raw)
+def validate_sensitivity(entry, supporting, raw, policy, *, format_store=None):
+    baseline = rank_preview(entry, supporting, raw, format_store=format_store)
     bounds = policy["unranked_upper_bounds"]
     if len(bounds) > 8:
         raise ValueError(
@@ -656,7 +657,7 @@ def validate_sensitivity(entry, supporting, raw, policy):
         for player in alternate["players"]:
             if player["player_id"] in overrides:
                 player["value"] = overrides[player["player_id"]]
-        ratings = rank_preview(entry, supporting, alternate)
+        ratings = rank_preview(entry, supporting, alternate, format_store=format_store)
         changed = [
             uid
             for uid in baseline
