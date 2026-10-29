@@ -282,7 +282,7 @@ def test_usage_evidence_preserves_units_in_draft_repair_and_both_reviews(writer_
             writer.write(ArchivedPacket(packet))
     assert len(requests) == 4
     draft_index = json.loads(requests[0]["messages"][0]["content"][0]["text"].split("CLAIM EVIDENCE INDEX:\n```json\n")[1].split("\n```")[0])
-    assert draft_index["version"] == "recap-owner-evidence-v4"
+    assert draft_index["version"] == "recap-owner-evidence-v5"
     assert draft_index["player_usage"] == [
         {"source_id": "/facts/player_context/players/0/usage/offense_snaps", "player": "Juwan Johnson",
          "field": "offense_snaps", "value": 42, "unit": "offensive_snaps"},
@@ -296,7 +296,7 @@ def test_usage_evidence_preserves_units_in_draft_repair_and_both_reviews(writer_
     assert requests[2]["messages"][0] == requests[0]["messages"][0]
     for request in requests:
         prompt = request["system"][1]["text"]
-        assert prompt.startswith("recap-owner-evidence-v4\n")
+        assert prompt.startswith("recap-owner-evidence-v5\n")
         assert "never routes run, touches, targets, carries, or receptions" in prompt
         assert "Audit ALL usage claims in the first review" in prompt
 
@@ -817,6 +817,53 @@ def test_write_requires_structured_review_and_returns_sanitized_draft(writer_fac
     assert result.startswith("# Week 9\nTeam A leads")
     assert "KTC" not in result
     assert "tools" not in requests[0]
+    assert len(requests) == 2
+
+
+@pytest.mark.parametrize('max_calls', [2, 4, 6])
+def test_editorial_guard_repairs_approved_error_within_existing_allowance(writer_factory, max_calls):
+    # Mutation: trust approval over deterministic evidence, or buy extra repair calls.
+    from sleeper_dynasty.llm.recap_packet import ArchivedPacket
+    packet = _facts().to_dict()
+    packet['season'] = 2026
+    writer, requests = writer_factory([
+        _message([_text('In 2025. On purpose.')]),
+        _message([_verdict()], stop_reason='tool_use'),
+        _message([_passage_edits([{'passage_id': 'p1', 'after': 'In 2026. On purpose.'}])], stop_reason='tool_use'),
+        _message([_verdict()], stop_reason='tool_use'),
+    ], max_calls=max_calls)
+    if max_calls == 2:
+        with pytest.raises(ValueError, match='refusing publication'):
+            writer.write(ArchivedPacket(packet))
+        assert len(requests) == 2
+    else:
+        assert writer.write(ArchivedPacket(packet)) == 'In 2026. On purpose.'
+        assert len(requests) == 4
+        assert 'Current recap season is 2026' in json.dumps(requests[2])
+        assert json.loads(requests[3]['messages'][0]['content'])['draft'] == 'In 2026. On purpose.'
+
+
+def test_legacy_v4_does_not_buy_new_editorial_repair_calls(writer_factory):
+    # Mutation: change replayed v4 requests or add a repair absent from saved receipts.
+    writer, requests = writer_factory([
+        _message([_text('In 2025. On purpose.')]),
+        _message([_verdict()], stop_reason='tool_use'),
+    ], grounding_version='recap-owner-evidence-v4')
+    with pytest.raises(ValueError, match='editorial claim'):
+        writer.write(_facts())
+    assert len(requests) == 2
+    assert 'editorial_scope' not in json.dumps(requests)
+    assert requests[0]['system'][1]['text'].startswith('recap-owner-evidence-v4\n')
+
+
+def test_saved_repair_cannot_publish_new_editorial_error(writer_factory):
+    # Mutation: omit editorial validation from the saved-draft recovery entrypoint.
+    writer, requests = writer_factory([
+        _message([_passage_edits([{'passage_id': 'p1', 'after': 'In 2025. On purpose.'}])], stop_reason='tool_use'),
+        _message([_verdict()], stop_reason='tool_use'),
+    ])
+    with pytest.raises(ValueError, match='refusing publication'):
+        writer.repair_saved(_facts(), 'Wrong season.', [{'quote': 'Wrong season.', 'evidence': 'Remove the season.'}])
     assert len(requests) == 2
 
 

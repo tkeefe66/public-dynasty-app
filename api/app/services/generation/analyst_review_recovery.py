@@ -145,7 +145,7 @@ async def generate_recovery(job, gateway):
     facts = ArchivedPacket(edition["facts"])
     outlook = ArchivedPacket(edition["outlook"]) if edition.get("outlook") else None
     require_matchup_coverage(evidence["draft"], facts, outlook)
-    require_scoring_claims(evidence["draft"], facts)
+    require_scoring_claims(evidence["draft"], facts, outlook)
     context = edition["facts"].get("player_context", {})
     policy = json.loads(job.policy_json)["policy"]["features"]["analyst"]
     payload = {**edition, "markdown": evidence["draft"], "edition_type": "roast",

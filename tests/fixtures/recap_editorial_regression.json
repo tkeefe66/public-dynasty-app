@@ -1,0 +1,69 @@
+{
+  "provenance": "Entirely synthetic regression: invented owners, players, scores and prose. No saved recap payload.",
+  "facts": {
+    "week": 2,
+    "season": 2026,
+    "league_name": "Synthetic Regression League",
+    "standings_race": {
+      "upcoming_matchups": [
+        {
+          "side_a": "OwnerB",
+          "side_b": "OwnerE"
+        },
+        {
+          "side_a": "OwnerC",
+          "side_b": "OwnerH"
+        }
+      ]
+    },
+    "lineups": [
+      {
+        "owner": "OwnerC",
+        "starters": [
+          {
+            "player": "Sample Quarterback",
+            "position": "QB",
+            "points": 12
+          },
+          {
+            "player": "Sample Tight End",
+            "position": "TE",
+            "points": 3
+          }
+        ]
+      },
+      {
+        "owner": "OwnerB",
+        "starters": [
+          {
+            "player": "Sample Leader",
+            "position": "QB",
+            "points": 40
+          },
+          {
+            "player": "Sample Runner",
+            "position": "RB",
+            "points": 10
+          }
+        ]
+      },
+      {
+        "owner": "OwnerH",
+        "starters": [
+          {
+            "player": "Other Quarterback",
+            "position": "QB",
+            "points": 35
+          },
+          {
+            "player": "Other Tight End",
+            "position": "TE",
+            "points": 15
+          }
+        ]
+      }
+    ]
+  },
+  "original": "# Synthetic Week 2\n\nIn 2025.\n\nOwnerC: your tight end and your QB1 combine for fewer points than Sample Runner had by himself.\n\nOwnerH had the week's high scorer.\n\nIf OwnerH wins, OwnerC is three games out of the cutoff.\n\nAll totals below are optimized-lineup projections.\n\nOwnerB hosts OwnerE.",
+  "corrected": "# Synthetic Week 2\n\nIn 2026.\n\nOwnerC's quarterback and tight end scored 15 combined, more than Sample Runner's 10.\n\nOwnerB had the week's high scorer, Sample Leader with 40.\n\nIf OwnerH wins, OwnerC loses ground to OwnerH. The playoff cutoff also depends on other games.\n\nOwnerB faces OwnerE."
+}
