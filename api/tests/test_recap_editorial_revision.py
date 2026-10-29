@@ -125,3 +125,48 @@ async def test_review_authority_remains_checked_on_reads(maker, tmp_path, monkey
         if change == 'receipt':
             (await db.get(ProviderAttempt, 'original-canonical-receipt')).receipt_json = '{}'
         assert not await member_text_current(db, await db.get(RecapEpisode, ident), json.loads(article.payload_json))
+
+
+@pytest.mark.asyncio
+async def test_explicit_result_review_can_correct_a_previous_manual_revision(maker, tmp_path, monkeypatch):
+    # Removing exact result authorization or original receipt ancestry breaks this lifecycle.
+    from app.services.recap_video.editorial_revision import revise
+    from app.services.recap_video.text_authority import member_text_current
+    ident, kwargs = await setup(maker, tmp_path, monkeypatch)
+    async with maker.begin() as db:
+        preview = await revise(db, ident, **kwargs)
+        first = await revise(db, ident, **kwargs, apply=True, expected_digest=preview['digest'])
+        previous = await db.get(ContentArtifact, first['artifact_id'])
+        previous_payload = previous.payload_json
+        episode = await db.get(RecapEpisode, ident)
+        observation = await db.get(RecapObservation, episode.latest_observation_id)
+        source = json.loads(observation.snapshot_json)
+        before = json.loads(dump(source['pairings']))
+        source['pairings'][0]['scores'][0] = '99'
+        source['scores']['4'][0]['points'] = '99'
+        db.add(RecapObservation(id='corrected-source', episode_id=ident, observed_at=4601,
+            snapshot_json=dump(source), snapshot_digest=digest(source), facts_digest=digest(source), decision='ready'))
+        episode.latest_observation_id = 'corrected-source'
+        episode.source_digest = digest(source)
+        kwargs.update(artifact_id=previous.id, edits=[{'before': first['markdown'],
+            'after': first['markdown'] + '\n\nCorrected result reviewed.'}])
+        with pytest.raises(Held, match='results_or_lineups_changed'):
+            await revise(db, ident, **kwargs)
+        with pytest.raises(Held, match='results_or_lineups_changed'):
+            await revise(db, ident, **kwargs, results_review={'before': before, 'after': before})
+        kwargs['results_review'] = {'before': before, 'after': source['pairings']}
+        preview = await revise(db, ident, **kwargs)
+        episode.source_digest = 'changed-after-preview'
+        with pytest.raises(Held, match='source_integrity'):
+            await revise(db, ident, **kwargs, apply=True, expected_digest=preview['digest'])
+        episode.source_digest = digest(source)
+        result = await revise(db, ident, **kwargs, apply=True, expected_digest=preview['digest'])
+        final = await db.get(ContentArtifact, result['artifact_id'])
+        assert await member_text_current(db, episode, json.loads(final.payload_json))
+        assert previous.payload_json == previous_payload
+        assert await db.scalar(select(func.count()).select_from(ProviderAttempt)) == 1
+        proof = json.loads(final.facts_json)['operator_review']
+        assert proof['original_artifact_id'] == 'article'
+        assert proof['previous_artifact_id'] == previous.id
+        previous.digest = 'tampered'
+        assert not await member_text_current(db, episode, json.loads(final.payload_json))

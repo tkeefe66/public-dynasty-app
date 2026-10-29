@@ -38,11 +38,17 @@ async def verify_review(db, episode, artifact):
             or digest(json.loads(observation.snapshot_json)) != observation.snapshot_digest
             or await receipt_binding(db, original.operation_id) != proof.get('receipts')):
         raise Held('editorial_revision_review_changed')
+    if proof.get('previous_artifact_id'):
+        previous = await db.get(ContentArtifact, proof['previous_artifact_id'])
+        if (not previous or previous.subject != artifact.subject
+                or previous.digest != proof.get('previous_digest')
+                or digest(json.loads(previous.payload_json)) != previous.digest):
+            raise Held('editorial_revision_previous_changed')
     return proof
 
 
 async def revise(db, episode_id, *, artifact_id, actor_id, cache_dir, edits, reviewer,
-                 review_notes, reason, apply=False, expected_digest=None):
+                 review_notes, reason, apply=False, expected_digest=None, results_review=None):
     if apply:
         await lock_control(db)
     await require_admin_actor(db, actor_id)
@@ -57,14 +63,17 @@ async def revise(db, episode_id, *, artifact_id, actor_id, cache_dir, edits, rev
         raise Held('editorial_revision_original_head_required')
     receipts = await receipt_binding(db, job.id)
     source = await current_source(db, episode)
-    # This explicit full-article review repairs prose about existing results.
-    # It may rebind fresh player details without waiting for the scheduler's
-    # one-hour quiet window, but cannot authorize changed outcomes or lineups.
+    # Changed results require an explicit review of the exact old/new pairings.
+    # Lineup and period changes still require a separate recovery workflow.
     prior_source = data.get('facts', {}).get('source_snapshot') or {}
-    if (not prior_source.get('pairings') or prior_source.get('pairings') != source.get('pairings')
+    changed_results = prior_source.get('pairings') != source.get('pairings')
+    exact_review = {'before': prior_source.get('pairings'), 'after': source.get('pairings')}
+    if (not prior_source.get('pairings') or (changed_results and results_review != exact_review)
             or prior_source.get('starters') != source.get('starters')
             or any(prior_source.get(key) != source.get(key) for key in ('season', 'week', 'period_id', 'roster_positions'))):
         raise Held('editorial_revision_results_or_lineups_changed')
+    if results_review is not None and results_review != exact_review:
+        raise Held('editorial_revision_results_review_changed')
     stages = list((await db.scalars(select(RecapStage).where(RecapStage.episode_id == episode_id))).all())
     if (any(s.kind != 'preflight' or s.state not in ('held', 'succeeded') or s.lease_until for s in stages)
             or await db.scalar(select(RecapProviderAttempt.id).where(RecapProviderAttempt.episode_id == episode_id).limit(1))):
@@ -97,11 +106,16 @@ async def revise(db, episode_id, *, artifact_id, actor_id, cache_dir, edits, rev
     revision = 1 + (await db.scalar(select(func.max(ContentArtifact.revision)).where(ContentArtifact.subject == original.subject)) or 0)
     corrected = AnalystEdition.model_validate({**data, 'markdown': text, 'facts': facts, 'outlook': None,
         'lore': None, 'revision': revision, 'original_markdown': None, 'correction_note': reason}).model_dump()
-    proof = dict(original_artifact_id=original.id, original_digest=original.digest,
+    paid_original = await db.get(ContentArtifact, job.artifact_id)
+    proof = dict(original_artifact_id=paid_original.id, original_digest=paid_original.digest,
         corrected_digest=digest(corrected), observation_id=episode.latest_observation_id,
         source_digest=episode.source_digest, serving_epoch=gate.epoch, receipts=receipts,
         reviewer=reviewer, review_notes=review_notes, actor_id=actor_id, edits=edits,
         stages=sorted([s.id, s.generation, s.state, s.input_digest] for s in stages))
+    if original.id != paid_original.id:
+        proof.update(previous_artifact_id=original.id, previous_digest=original.digest)
+    if results_review is not None:
+        proof['results_review'] = results_review
     fingerprint = digest(proof)
     report = dict(digest=fingerprint, applied=False, markdown=text, provider_requests=0, added_cost_microusd=0)
     if not apply:
