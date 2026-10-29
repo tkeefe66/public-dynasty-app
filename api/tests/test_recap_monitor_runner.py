@@ -106,7 +106,14 @@ async def test_unfinished_games_prevent_edition_audit(maker,monkeypatch,tmp_path
 
 
 @pytest.mark.asyncio
-async def test_completed_previous_week_is_rechecked_after_rollover(maker, monkeypatch, tmp_path):
+@pytest.mark.parametrize('video, expected', [
+    ({'status': 'disabled', 'enabled': False}, 'complete'),
+    ({'status': 'published', 'enabled': True, 'media_id': 'saved-media'}, 'complete'),
+    ({'status': 'pending', 'enabled': True, 'reason': 'video_processing'}, 'pending'),
+    ({'status': 'blocked', 'enabled': True, 'reason': 'video_budget_blocked',
+      'message': 'Review saved video budget in Admin'}, 'help'),
+])
+async def test_completed_previous_week_is_rechecked_after_rollover(maker, monkeypatch, tmp_path, video, expected):
     # Mutation: exclude completed prior periods so a later withdrawal is never inspected.
     from types import SimpleNamespace
     from app.services.recap_monitor import collect as source
@@ -132,11 +139,18 @@ async def test_completed_previous_week_is_rechecked_after_rollover(maker, monkey
     async def connected(*args, **kwargs): return FakeClient()
     async def proof(db, cache, league, year, week):
         return {'artifact_id': f'current-{week}', 'member_serving_readable': True}
+    async def video_proof(*args):
+        return video
+    async def forbidden(*args):
+        pytest.fail('Published text must not enter text job recovery or budgeting for missing video')
     monkeypatch.setattr(source, 'SleeperClient', FakeClient)
     monkeypatch.setattr(source, 'fetch_inventory', inventory)
     monkeypatch.setattr(source, 'fetch_week_evidence', evidence)
     monkeypatch.setattr(source, 'connected_client', connected)
     monkeypatch.setattr(source, 'publication_proof', proof)
+    monkeypatch.setattr(source, 'video_evidence', video_proof, raising=False)
+    monkeypatch.setattr(source, 'job_evidence', forbidden)
+    monkeypatch.setattr(source, 'get_budget_view', forbidden)
     now = int(datetime.fromisoformat('2026-11-02T22:30:00-07:00').timestamp())
     previous = {'series:2026:7': dict(series_id='series', season=2026, status='complete',
                 recovery_attempts=2, period={'period_id': '7', 'week': 7, 'nfl_weeks': [7]})}
@@ -145,3 +159,6 @@ async def test_completed_previous_week_is_rechecked_after_rollover(maker, monkey
     prior = next(item for item in items if item['week'] == 7)
     assert prior['proof']['artifact_id'] == 'current-7'
     assert prior['recovery_attempts'] == 2
+    assert prior['status'] == expected
+    assert prior.get('recoverable') is False
+    assert prior['video'] == video

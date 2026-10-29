@@ -11,7 +11,7 @@ from app.services.generation.models import LeagueSeason, LeagueSeries
 from app.services.generation.recap_budget import get_budget_view
 from app.services.generation.store import digest, resolve_policy
 from app.services.platform_client import connected_client
-from app.services.recap_monitor.evidence import game_gate, job_evidence, publication_proof, requires_recovery, workflow_evidence
+from app.services.recap_monitor.evidence import game_gate, job_evidence, publication_proof, requires_recovery, video_evidence, workflow_evidence
 from app.services.recap_monitor.state import ZONE
 from app.services.recap_video.periods import scoring_period
 from sleeper_dynasty.api.nfl_inventory import fetch_inventory
@@ -121,8 +121,13 @@ async def collect(config, maker, cache_dir, now, previous):
                 async with maker() as db:
                     proof = await publication_proof(db, cache_dir, season.league_id, year, period['week'])
                     if proof:
-                        observations.append({**item, 'status': 'complete', 'proof': proof,
-                                             'progress': digest(proof)})
+                        video = await video_evidence(db, season.league_id, year, period['week'])
+                        status = ('complete' if not video['enabled'] or video['status'] == 'published'
+                                  else 'help' if video['status'] == 'blocked' else 'pending')
+                        observations.append({**item, 'status': status, 'proof': proof, 'video': video,
+                            'recoverable': False, 'reason': 'video_' + video.get('reason', video['status']),
+                            'action': 'Review saved video preparation and publication in Admin; no additional AI calls are authorized',
+                            'progress': digest([proof, video])})
                         continue
                     policy = await resolve_policy(db, series_id)
                     budget = await get_budget_view(db, series_id, None, now)

@@ -131,6 +131,34 @@ async def publication_proof(db, cache_dir, league_id, season, week):
     return None
 
 
+async def video_evidence(db, league_id, season, week):
+    """Require the member-serving binding; inspect missing video without starting work."""
+    from app.services.generation.recap_models import RecapEpisode, RecapStage
+    from app.services.generation.store import Held
+    from app.services.recap_video.member_status import video_status
+    from app.services.recap_video.publication import authorize_member_read
+    status = await video_status(db, league_id, season, week)
+    if not status['enabled']:
+        return status
+    try:
+        served = await authorize_member_read(db, league_id, season, week)
+    except Held:
+        served = None
+    if served and served.get('media', {}).get('id'):
+        return dict(status='published', enabled=True, media_id=served['media']['id'])
+    episode = await db.scalar(select(RecapEpisode).where(
+        RecapEpisode.league_id == league_id, RecapEpisode.season == season, RecapEpisode.week == week))
+    progress = [status['status'], status['reason']]
+    if episode:
+        progress += [episode.episode_id, episode.lifecycle, episode.hold, episode.article_digest]
+        stages = (await db.scalars(select(RecapStage).where(
+            RecapStage.episode_id == episode.episode_id).order_by(RecapStage.id))).all()
+        # Polling/lease timestamps do not hide a stalled pipeline. Actual stage
+        # transitions and newly created stages do represent useful progress.
+        progress += [[row.id, row.revision, row.execution_revision, row.state] for row in stages]
+    return {**status, 'progress': digest(progress)}
+
+
 async def job_evidence(db, league_id, season, week):
     rows = (await db.scalars(select(GenerationOperation).where(
         GenerationOperation.league_id == league_id, GenerationOperation.feature == 'analyst',

@@ -191,6 +191,8 @@ async def episode_view(db, episode_id):
         actions.append('renew_preflight')
     if episode.hold.startswith('recap_'):
         actions.insert(0,'review_correction')
+    if episode.hold in ('recap_facts_changed', 'recap_editorial_correction_required') and not stages and not attempts:
+        actions.insert(0, 'resume_video')
     values = dict(episode=data(episode), authority_revision=public.authority_revision if public else 0,
         stage=data(stage) if stage else None, media_id=finished.id if finished else None,
         stages=[data(s) for s in stages], attempts=[dict(id=a.id,state=a.state,cost_microusd=a.cost_microusd,
@@ -253,6 +255,9 @@ async def apply_action(db, episode_id, *, actor_id, expected_revision, action, r
         db.expire_all()
     view = await require_episode_revision(db, episode_id, expected_revision)
     episode = await db.get(RecapEpisode, episode_id)
+    if action == 'resume_video':
+        from app.services.recap_video.article_resume import resume_video
+        return await resume_video(db, episode_id, actor_id=actor_id, reason=reason)
     if action == 'resume_recovered_audio':
         from app.services.recap_video.recovery import adopt_recovered_audio
         return await adopt_recovered_audio(db,episode_id,verified,actor_id=actor_id,reason=reason)

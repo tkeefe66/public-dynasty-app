@@ -4,7 +4,7 @@ import { Shell } from "@/components/Shell";
 import { TopBar } from "@/components/TopBar";
 import { analystArchive, analystShareState, analystPrivateMedia } from "@/lib/api";
 import { publicAnalyst } from "@/lib/public-analyst";
-import type { RecapMediaInfo } from "@/lib/recap-media";
+import type { RecapMediaInfo, RecapVideoStatus } from "@/lib/recap-media";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Weekly recap · DyNASTY" };
@@ -28,9 +28,11 @@ export default async function AnalystPage({ params, searchParams }: {
     : editions[0];
   let media: { token?: string; mediaBase?: string; info: RecapMediaInfo } | undefined;
   let mediaError = false;
+  let videoStatus: RecapVideoStatus | undefined;
   if (edition) {
     try {
       const privateMedia = await analystPrivateMedia(params.id, edition.season, edition.week);
+      videoStatus = privateMedia.video_status;
       if (privateMedia.media && privateMedia.revision === edition.revision && privateMedia.markdown === edition.markdown) {
         media = { info: privateMedia.media, mediaBase: `/api/league/${encodeURIComponent(params.id)}/analyst/${edition.season}/${edition.week}/media/${encodeURIComponent(privateMedia.media.id)}` };
       } else {
@@ -38,7 +40,8 @@ export default async function AnalystPage({ params, searchParams }: {
         const { token } = await analystShareState(params.id, edition.season, edition.week);
         const shared = token ? await publicAnalyst(token) : null;
         if (token && shared?.media && shared.status !== "withdrawn" &&
-            shared.season === edition.season && shared.week === edition.week && shared.markdown === edition.markdown) {
+            shared.season === edition.season && shared.week === edition.week &&
+            shared.revision === edition.revision && shared.markdown === edition.markdown) {
           media = { token, info: shared.media };
         }
       }
@@ -47,6 +50,6 @@ export default async function AnalystPage({ params, searchParams }: {
     }
   }
   return <Shell><TopBar leagueId={params.id} />
-    <AnalystArchive leagueId={params.id} editions={editions} selected={searchParams.edition} media={media} mediaError={mediaError} />
+    <AnalystArchive leagueId={params.id} editions={editions} selected={searchParams.edition} media={media} mediaError={mediaError} videoStatus={videoStatus} />
   </Shell>;
 }

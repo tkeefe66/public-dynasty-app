@@ -45,6 +45,21 @@ def evidence_hashes(evidence, required):
         raise Held('qualification_evidence_required')
 
 
+def performance_compatible(saved, current):
+    """Source validators are re-run per episode, not voice-performance evidence.
+
+    Keep full version hashes in every finished-preview binding. Only calibration
+    comparison excludes these three source/readiness modules: they cannot change
+    voice settings, narration, rendering or media QA. Unknown modules, missing
+    entries, and all performance changes still require explicit calibration.
+    """
+    source_validators = {'sleeper_dynasty.engine.recap_video_claims',
+        'app.services.recap_video.readiness', 'app.services.recap_video.periods'}
+    return (isinstance(saved, dict) and isinstance(current, dict)
+        and saved.keys() == current.keys() and bool(current.keys() - source_validators)
+        and all(saved[key] == value for key, value in current.items() if key not in source_validators))
+
+
 async def record_calibration(db, series_id, season, *, actor_id, config, metadata, rate_snapshot, evidence, reason):
     from app.services.recap_video.elevenlabs import preflight_config, validate_request, MODEL
     await lock_control(db)
@@ -71,7 +86,8 @@ async def calibration(db, series_id, season):
         RecapCalibration.season == season).order_by(RecapCalibration.created_at.desc(), RecapCalibration.id.desc()).limit(1))
     if not row:
         raise Held('media_calibration_required')
-    if json.loads(row.config_json) != preflight_config() or json.loads(row.versions_json) != current_versions():
+    if (json.loads(row.config_json) != preflight_config()
+            or not performance_compatible(json.loads(row.versions_json), current_versions())):
         raise Held('media_calibration_changed')
     await require_admin_actor(db, row.actor_id)
     return row
@@ -323,8 +339,11 @@ async def record_standing_approval(db, episode_id, expected_revision, media_id):
     # still require an explicit finished-preview review.
     existing = await publication.authority_for_episode(db, episode)
     article = scope['article']
-    if (article['revision'] != 1 or existing and (existing.withdrawn or existing.hold or existing.media_id
-            or existing.article_revision != 1 or existing.article_id != article['artifact_id']
+    from app.services.recap_video.article_resume import first_video_resume_authorized
+    resumed = (status.get('audience') == 'members'
+               and await first_video_resume_authorized(db, episode, article))
+    if (article['revision'] != 1 and not resumed or existing and (existing.withdrawn or existing.hold or existing.media_id
+            or existing.article_revision != article['revision'] or existing.article_id != article['artifact_id']
             or existing.article_digest != article['digest'])):
         raise Held('recap_revision_review_required')
     scope.update(media_digest=digest(media), script_id=script_id)

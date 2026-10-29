@@ -706,6 +706,8 @@ async def advance_media(maker):
     await reconcile_media_receipts(maker)
     async with maker.begin() as db:
         await lock_control(db)
+        from app.services.recap_video.article_resume import resume_automatic_articles
+        await resume_automatic_articles(db)
         episodes = (await db.scalars(select(RecapEpisode).where(RecapEpisode.lifecycle.in_(("ready", "waiting_for_article",
             "scripting", "narration", "speech_check", "rendering", "media_check", "review")),
             RecapEpisode.hold == "", RecapEpisode.admitted_at > 0).order_by(RecapEpisode.observed_at.desc()).limit(50))).all()

@@ -78,8 +78,10 @@ async def finish(maker, scope, token, now, observations, recipient):
             count = old.get('unchanged', 0) + 1 if same and now - old.get('checked_at', now) >= 3500 else 0
             item.update(unchanged=count, checked_at=now)
             if item['status'] == 'pending' and count >= 2:
-                item.update(status='help', reason='eligible_recap_stalled',
-                            action='Investigate saved work; no additional AI calls are authorized')
+                video_stalled = item.get('proof') and item.get('video', {}).get('enabled')
+                item.update(status='help', reason='enabled_video_stalled' if video_stalled else 'eligible_recap_stalled',
+                            action='Review saved video preparation and publication in Admin; no additional AI calls are authorized'
+                            if video_stalled else 'Investigate saved work; no additional AI calls are authorized')
             # Retain pending's original status for consecutive comparisons.
             current[item['key']] = {**item, 'status': value['status']}
             if item['status'] != 'help':

@@ -8,7 +8,7 @@ const labels: Record<string,string> = {
   reassign_worker:'Reassign recovery worker', resume_recovered_audio:'Resume free work with recovered audio',
   review_publish:'Review finished preview', review_publish_members:'Review video for members', resume_free:'Resume free work', reconcile_request:'Reconcile request',
   bounded_replacement:'Review bounded replacement', skip_video:'Skip video', restore_access:'Restore edition access',
-  disable_future_sharing:'Disable future sharing', prepare_preview:'Prepare episode preview', renew_preflight:'Renew free voice verification', review_correction:'Review correction',
+  disable_future_sharing:'Disable future sharing', prepare_preview:'Prepare episode preview', renew_preflight:'Renew free voice verification', review_correction:'Review correction', resume_video:'Resume video from corrected article (existing limits)',
 };
 const explanations: Record<string,string> = {
   recap_facts_changed:'Week facts changed; public edition withdrawn. Review corrected facts before proposing paid repair.',
@@ -17,7 +17,7 @@ const explanations: Record<string,string> = {
   speech_verification_failed:'Spoken words differ from the approved script. Inspect exact evidence; spelling review may resume free checks using the same narration.',
   input_revision_required:'Saved media failed its content or timing checks. Review the measured evidence before resuming free work.',
   media_calibration_required:'Exact account, voice, rate, full performance and runtime calibration still need explicit approval. Synthetic checks do not enable automation.',
-  media_calibration_changed:'Voice, provider, source or renderer changed. Requalification is required.',
+  media_calibration_changed:'Voice, provider, narration, renderer or media checks changed. Requalification is required.',
 };
 interface Preview { digest: string; article: { markdown: string }; media: unknown }
 export function episodeLabel(row: RecapEpisodeSummary) {
@@ -151,6 +151,7 @@ export function GenerationRecapEpisode({ seriesId, version, busy, run, onEpisode
           {Object.entries(checks).filter(([key])=>action!=='review_publish_members' || ['factual_coverage','performance'].includes(key)).map(([key,label])=><label key={key} className="mt-3 block text-prose">{label}<textarea className={controlClass+' mt-1'} required minLength={20} maxLength={2000} value={evidence[key] || ''} onChange={e=>setEvidence(old=>({...old,[key]:e.target.value}))}/></label>)}
         </>}
         {action==='skip_video' && <p className="mt-2 text-prose text-dim">Stops unfinished media work and retains a valid article. Requests already sent keep their charges and reservations.</p>}
+        {action==='resume_video' && <p className="mt-2 text-prose text-dim">Resume the first video from the current corrected article after verifying its facts and review. Automatic script and narration work can use the remaining existing allowance. Spending limits stay unchanged; prior paid video work requires separate recovery.</p>}
         {action==='disable_future_sharing' && <p className="mt-2 text-prose text-dim">Stops links for future episodes. Existing edition access is unchanged.</p>}
         {action==='restore_access' && <p className="mt-2 text-prose text-dim">Explicitly restores this edition’s link only. It does not approve new media, future links or paid work.</p>}
         {action==='resume_recovered_audio' && <p className="mt-2 text-prose text-dim">Verify every recovered audio chunk against its saved request and hash, then run free speech, timing and media checks. Uncertain charges stay reserved. Publication still requires review.</p>}
