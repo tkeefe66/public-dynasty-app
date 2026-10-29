@@ -70,6 +70,23 @@ async def published(maker, tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_old_editorial_recovery_retains_existing_serving_rules(maker, tmp_path, monkeypatch):
+    from app.routes.analyst import analyst_archive
+    from app.services.generation.models import ContentArtifact
+    from app.services.generation.recap_models import RecapEpisode
+    ident = await published(maker, tmp_path, monkeypatch)
+    async with maker.begin() as db:
+        artifact = await db.get(ContentArtifact, 'article')
+        artifact.operation_id = None
+        artifact.provenance = 'reviewed_receipt_only_correction'
+        artifact.facts_json = dump({'editorial_recovery': {'artifact_digest': 'original'}})
+        assert len((await analyst_archive('synthetic', db))['editions']) == 1
+        episode = await db.get(RecapEpisode, ident)
+        episode.lifecycle, episode.hold = 'correction', 'recap_facts_changed'
+        assert not (await analyst_archive('synthetic', db))['editions']
+
+
+@pytest.mark.asyncio
 async def test_legacy_managed_article_without_source_retains_existing_serving_rules(maker, tmp_path, monkeypatch):
     from app.routes.analyst import analyst_archive
     from app.services.generation.models import ContentArtifact

@@ -122,7 +122,8 @@ async def requires_text_proof(db, episode):
         ArtifactHead.artifact_id == ContentArtifact.id).where(ContentArtifact.feature == 'analyst',
         ContentArtifact.league_id == episode.league_id, ContentArtifact.series_id == episode.series_id))).all()
     return any(((row.operation_id and json.loads(row.payload_json).get('facts', {}).get('source_snapshot'))
-        or row.provenance == 'reviewed_receipt_only_correction') and (json.loads(row.payload_json).get('season'),
+        or (row.provenance == 'reviewed_receipt_only_correction'
+            and json.loads(row.facts_json).get('recovery_proof'))) and (json.loads(row.payload_json).get('season'),
         json.loads(row.payload_json).get('week')) == (episode.season, episode.week) for row in rows)
 
 
