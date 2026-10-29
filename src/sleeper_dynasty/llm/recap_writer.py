@@ -35,8 +35,18 @@ REQUEST_TIMEOUT_SECONDS = 300.0
 # Full matchup recaps plus standings, bets and outlook can exceed 4096 tokens.
 MAX_TOKENS = 8192
 REVIEW_MAX_TOKENS = 8192
-REVIEW_GROUNDING_VERSION = "recap-owner-evidence-v3"
-REVIEW_GROUNDING_VERSIONS = ("recap-owner-evidence-v1", "recap-owner-evidence-v2", REVIEW_GROUNDING_VERSION)
+REVIEW_GROUNDING_VERSION = "recap-owner-evidence-v4"
+REVIEW_GROUNDING_VERSIONS = ("recap-owner-evidence-v1", "recap-owner-evidence-v2", "recap-owner-evidence-v3", REVIEW_GROUNDING_VERSION)
+STARTER_GUIDANCE = """
+For every player contribution, verify roster ownership AND membership in that
+week's ordered starters. A rostered player is not necessarily a starter.
+Raw score evidence in this brief contains starters only. Bench claims require
+explicit named bench_regret evidence; never infer a starting role from a score.
+Count qualifying starters directly before claiming how many cleared a threshold.
+Compare ALL teams' starters before awarding the highest individual score.
+Audit every starter role, count and superlative in the entire article, including
+headlines and jokes. A correct score with a wrong role requires rejection.
+"""
 TIMING_GUIDANCE = """
 Reports with unknown chronology are omitted from the writing packet. Do not
 reconstruct their injury claims, pregame advice, or manager blame from a zero
@@ -180,7 +190,7 @@ def _claim_evidence(packet: dict, version: str) -> dict:
                 "published_at": published, "publication_relative_to_player_kickoff": relation,
             })
     evidence = {"version": version, "single_swaps": swaps, "player_news_timing": timing}
-    if version in ("recap-owner-evidence-v2", "recap-owner-evidence-v3"):
+    if version in ("recap-owner-evidence-v2", "recap-owner-evidence-v3", "recap-owner-evidence-v4"):
         evidence["player_usage"] = [
             {"source_id": f"/facts/player_context/players/{i}/usage/{field}",
              "player": player["player"], "field": field, "value": player["usage"][field], "unit": unit}
@@ -194,7 +204,7 @@ def _claim_evidence(packet: dict, version: str) -> dict:
 
 def _writing_packet(packet: dict, version: str) -> dict:
     """Exclude unqualified news only from new writing; keep review/source intact."""
-    if version != "recap-owner-evidence-v3":
+    if version not in ("recap-owner-evidence-v3", "recap-owner-evidence-v4"):
         return packet
     result = deepcopy(packet)
     timing = {row["source_id"]: row for row in _claim_evidence(packet, version)["player_news_timing"]}
@@ -343,6 +353,8 @@ def require_matchup_coverage(text: str, facts, outlook) -> None:
 
 def require_scoring_claims(text: str, facts) -> None:
     """Named reception formats must agree with the immutable provider settings."""
+    from sleeper_dynasty.llm.recap_starter_claims import require_starter_claims
+    require_starter_claims(text, facts)
     snapshot = facts.to_dict().get('source_snapshot')
     normalized = unicodedata.normalize('NFKC', text).casefold()
     normalized = re.sub(r'[‐‑‒–—−]', '-', normalized).replace('**', '').replace('__', '')
@@ -410,8 +422,9 @@ class RecapWriter:
         # Keeping this off preserves both literal- and passage-repair receipts.
         self._grounding_prompt = (
             self._grounding_version + "\n" + resources.files(_PROMPTS).joinpath("analyst_grounding.md").read_text()
-            + (USAGE_UNIT_GUIDANCE if self._grounding_version in ("recap-owner-evidence-v2", "recap-owner-evidence-v3") else "")
-            + (TIMING_GUIDANCE if self._grounding_version == "recap-owner-evidence-v3" else "")
+            + (USAGE_UNIT_GUIDANCE if self._grounding_version in ("recap-owner-evidence-v2", "recap-owner-evidence-v3", "recap-owner-evidence-v4") else "")
+            + (TIMING_GUIDANCE if self._grounding_version in ("recap-owner-evidence-v3", "recap-owner-evidence-v4") else "")
+            + (STARTER_GUIDANCE if self._grounding_version == "recap-owner-evidence-v4" else "")
             if grounded_review else None
         )
 
@@ -430,7 +443,9 @@ class RecapWriter:
             system.append({"type": "text", "text": self._grounding_prompt})
 
         user_parts = []
-        packet = _writing_packet(editorial_facts(facts), self._grounding_version) if self._grounding_prompt else editorial_facts(facts)
+        packet = editorial_facts(facts, starter_safe=bool(self._grounding_prompt and self._grounding_version == 'recap-owner-evidence-v4'))
+        if self._grounding_prompt:
+            packet = _writing_packet(packet, self._grounding_version)
         if lore:
             user_parts.append("LEAGUE LORE (weave these in where relevant):\n\n" + lore)
         user_parts.append(
@@ -517,7 +532,7 @@ class RecapWriter:
         review_prompt = (
             resources.files(_PROMPTS).joinpath("analyst_review.md").read_text()
         )
-        packet = editorial_facts(facts)
+        packet = editorial_facts(facts, starter_safe=bool(self._grounding_prompt and self._grounding_version == 'recap-owner-evidence-v4'))
         evidence = {
             "facts": packet,
             "outlook": outlook.to_dict() if outlook else None,

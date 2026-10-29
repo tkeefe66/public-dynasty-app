@@ -42,7 +42,7 @@ class ArchivedPacket:
         return deepcopy(self.data)
 
 
-def editorial_facts(facts: RecapFacts | ArchivedPacket) -> dict:
+def editorial_facts(facts: RecapFacts | ArchivedPacket, *, starter_safe=False) -> dict:
     """Keep each team's leading starters, low scorer, awards and legal swaps.
 
     Sending hundreds of unrelated bench players makes ownership and chronology
@@ -50,7 +50,7 @@ def editorial_facts(facts: RecapFacts | ArchivedPacket) -> dict:
     the archive retains the original facts and complete source metadata.
     """
     packet = deepcopy(facts.to_dict())
-    if period_local_facts(packet):
+    if period_local_facts(packet) or (starter_safe and packet.get('source_snapshot')):
         packet['source_snapshot'] = period_text_source(packet['source_snapshot'])
     selected = set()
 

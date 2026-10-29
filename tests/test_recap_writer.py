@@ -282,7 +282,7 @@ def test_usage_evidence_preserves_units_in_draft_repair_and_both_reviews(writer_
             writer.write(ArchivedPacket(packet))
     assert len(requests) == 4
     draft_index = json.loads(requests[0]["messages"][0]["content"][0]["text"].split("CLAIM EVIDENCE INDEX:\n```json\n")[1].split("\n```")[0])
-    assert draft_index["version"] == "recap-owner-evidence-v3"
+    assert draft_index["version"] == "recap-owner-evidence-v4"
     assert draft_index["player_usage"] == [
         {"source_id": "/facts/player_context/players/0/usage/offense_snaps", "player": "Juwan Johnson",
          "field": "offense_snaps", "value": 42, "unit": "offensive_snaps"},
@@ -296,7 +296,7 @@ def test_usage_evidence_preserves_units_in_draft_repair_and_both_reviews(writer_
     assert requests[2]["messages"][0] == requests[0]["messages"][0]
     for request in requests:
         prompt = request["system"][1]["text"]
-        assert prompt.startswith("recap-owner-evidence-v3\n")
+        assert prompt.startswith("recap-owner-evidence-v4\n")
         assert "never routes run, touches, targets, carries, or receptions" in prompt
         assert "Audit ALL usage claims in the first review" in prompt
 

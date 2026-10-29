@@ -43,6 +43,14 @@ async def reviewed_article(db, episode):
             or head.revision != artifact.revision or not outbox or not outbox.delivered or outbox.error
             or json.loads(outbox.payload_json).get('artifact_id') != artifact.id):
         raise Held('recap_text_article_changed')
+    if artifact.provenance == 'operator_reviewed_correction':
+        from app.services.recap_video.editorial_revision import verify_review
+        proof = await verify_review(db, episode, artifact)
+        original = await db.get(ContentArtifact, proof['original_artifact_id'])
+        job = await db.get(GenerationOperation, original.operation_id)
+        if not job or job.state != 'succeeded' or job.artifact_id != original.id:
+            raise Held('editorial_revision_original_review_changed')
+        return artifact, payload, job
     if artifact.provenance == 'reviewed_receipt_only_correction':
         proof = json.loads(artifact.facts_json).get('recovery_proof', {})
         from app.services.recap_video.publication import serving_gate
@@ -122,6 +130,7 @@ async def requires_text_proof(db, episode):
         ArtifactHead.artifact_id == ContentArtifact.id).where(ContentArtifact.feature == 'analyst',
         ContentArtifact.league_id == episode.league_id, ContentArtifact.series_id == episode.series_id))).all()
     return any(((row.operation_id and json.loads(row.payload_json).get('facts', {}).get('source_snapshot'))
+        or (row.provenance == 'operator_reviewed_correction')
         or (row.provenance == 'reviewed_receipt_only_correction'
             and json.loads(row.facts_json).get('recovery_proof'))) and (json.loads(row.payload_json).get('season'),
         json.loads(row.payload_json).get('week')) == (episode.season, episode.week) for row in rows)
