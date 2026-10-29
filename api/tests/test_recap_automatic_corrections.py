@@ -401,7 +401,8 @@ async def test_new_source_between_save_and_projection_recovers_without_rebuying_
 
 
 @pytest.mark.asyncio
-async def test_rejected_correction_repairs_saved_draft_only_after_extra_approval(maker, tmp_path, monkeypatch):
+@pytest.mark.parametrize('restart', [False, True])
+async def test_rejected_correction_repairs_saved_draft_only_after_extra_approval(maker, tmp_path, monkeypatch, restart):
     from types import SimpleNamespace
     from app.services.generation.worker import Worker, automatic_candidates
     from app.services.generation.commands import authorize_candidate
@@ -439,8 +440,22 @@ async def test_rejected_correction_repairs_saved_draft_only_after_extra_approval
                 return Receipt(200, json.dumps(body), receipt.headers)
             return receipt
     transport = RejectFirstReview()
+    if restart:
+        async def outage():
+            broken = copy.deepcopy(source)
+            broken['observed_games'] = []
+            async with maker.begin() as db:
+                await observe_period(db, EpisodeKey('series', 2026, '4'), broken, 14000)
+        transport.after_first = outage
     worker = Worker(maker, tmp_path, transport=transport, epoch='test-epoch')
     assert await worker.tick()
+    if restart:
+        async with maker.begin() as db:
+            stopped = await db.get(GenerationOperation, job.id)
+            assert stopped.state == 'queued' and stopped.calls == 1
+            stopped.next_attempt_at = 0
+            await observe_period(db, EpisodeKey('series', 2026, '4'), source, 15000)
+        assert await worker.tick()
     async with maker.begin() as db:
         stopped = await db.get(GenerationOperation, job.id)
         assert stopped.state == 'needs_attention' and stopped.calls == 2

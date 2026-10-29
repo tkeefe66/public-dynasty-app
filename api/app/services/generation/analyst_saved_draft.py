@@ -315,10 +315,20 @@ async def describe(db, job, *, prepared=False, repair_job_id=""):
                    for column in ProviderAttempt.__table__.columns}
                   if attempt.id in excluded else settled(attempt)) for attempt in attempts]
     own = [attempt for attempt in attempts if attempt.operation_id == job.id]
+    execution_generation = job.generation - int(prepared)
+    generations = [attempt.generation for attempt in own]
+    generation_matches = all(value == execution_generation for value in generations)
+    if correction:
+        # A worker restart can reuse a settled draft from an earlier claim.
+        # The rejecting review must still belong to the current execution;
+        # exact requests, receipt snapshots and source facts remain bound below.
+        generation_matches = bool(generations and generations[-1] == execution_generation
+            and generations == sorted(generations)
+            and all(0 < value <= execution_generation for value in generations))
     if (
         len(own) != job.calls
         or [attempt.stage for attempt in own] != list(range(1, job.calls + 1))
-        or (not recovery and any(attempt.generation != job.generation - int(prepared) for attempt in own))
+        or (not recovery and not generation_matches)
     ):
         raise Held("saved_repair_source_generation_changed")
     last = own[-1]
