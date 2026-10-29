@@ -399,12 +399,12 @@ describe("OwnerDeepDive", () => {
   });
 });
 
-it("shows current provisional coverage beside the owner rating", () => {
+it("omits provisional explanations beside the owner rating", () => {
   render(<OwnerDeepDive leagueId="L" detail={{ ...DETAIL, rating_scope: {
     status: "provisional", basis: "current", label: "Provisional current career rating",
     included_seasons: [2025, 2026], excluded_seasons: [{ season: 2024, reason: "Unverified points" }],
   } }} />);
-  expect(screen.getByText("Provisional current career rating")).toBeInTheDocument();
-  expect(screen.getByText("Included seasons: 2025, 2026.")).toBeInTheDocument();
-  expect(screen.getByText("2024: Unverified points")).toBeInTheDocument();
+  expect(screen.queryByText("Provisional current career rating")).not.toBeInTheDocument();
+  expect(screen.queryByText("Included seasons: 2025, 2026.")).not.toBeInTheDocument();
+  expect(screen.queryByText("2024: Unverified points")).not.toBeInTheDocument();
 });

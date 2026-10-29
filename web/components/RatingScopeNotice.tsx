@@ -1,13 +1,12 @@
 import type { RatingScope } from "@/lib/types";
 
 export function RatingScopeNotice({ scope }: { scope?: RatingScope | null }) {
-  if (!scope) return null;
-  const provisional = scope.status === "provisional";
-  const hasRating = scope.status === "ready" || provisional;
+  if (!scope || scope.status === "provisional") return null;
+  const hasRating = scope.status === "ready";
   return (
     <div className="mb-4 text-sm text-dim" role="status">
       <span className="font-medium text-ink">
-        {provisional && !/^provisional\b/i.test(scope.label) && "Provisional · "}{scope.label}
+        {scope.label}
       </span>
       {scope.as_of && hasRating && <> · As of {scope.as_of.slice(0, 10)}</>}
       {scope.reason && <>. {scope.reason}</>}
@@ -17,16 +16,6 @@ export function RatingScopeNotice({ scope }: { scope?: RatingScope | null }) {
         <ul className="list-disc pl-5">
           {scope.excluded_rosters.map(({ roster_id, reason }) => <li key={roster_id}>Team {roster_id}: {reason}</li>)}
         </ul>
-      </>}
-      {provisional && (!!scope.included_seasons?.length || !!scope.excluded_seasons?.length) && <>
-        <p className="mt-1">Incomplete history. Do not compare directly with ratings based on complete history.</p>
-        <p className="mt-1">Included seasons: {scope.included_seasons?.length ? scope.included_seasons.join(", ") : "Not reported"}.</p>
-        {!!scope.excluded_seasons?.length && <>
-          <p className="mt-1">Excluded seasons:</p>
-          <ul className="list-disc pl-5">
-            {scope.excluded_seasons.map(({ season, reason }) => <li key={season}>{season}: {reason}</li>)}
-          </ul>
-        </>}
       </>}
       {scope.valuation_source && hasRating && <>
         {" · Historical values: "}

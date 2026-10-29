@@ -12,24 +12,21 @@ const missing = { status: "unavailable" as const, basis: "season_end" as const,
   label: "Historical data unavailable", reason: "Verified historical asset prices are missing." };
 
 describe("rating scope", () => {
-  it("discloses current full-player estimates without implying missing history", () => {
-    // Mutation: only show valuation notes when a historical source is present.
-    render(<StandingsTable leagueId="L" rows={[]} year={2026} currentSeason={2026} ratingScope={{
-      status: "provisional", basis: "current", label: "Provisional current career rating",
-      current_valuation_note: "Estimated full-player keeper picks: 18 rounds. Future keepers are unknown.",
-    }} />);
-    expect(screen.getByRole("status")).toHaveTextContent("Estimated full-player keeper picks: 18 rounds");
-    expect(screen.getByRole("status")).not.toHaveTextContent("Incomplete history");
+  it("hides provisional explanations for current and historical ratings", () => {
+    for (const basis of ["current", "season_end"] as const) {
+      const { container, unmount } = render(<RatingScopeNotice scope={{
+        status: "provisional", basis, label: "Provisional career rating",
+        as_of: "2025-01-07", current_valuation_note: "Estimated keeper picks",
+        included_seasons: [2022, 2024], excluded_seasons: [{ season: 2023, reason: "Unresolved history" }],
+        verified_owner_count: 9, excluded_rosters: [{ roster_id: 7, reason: "Unassigned" }],
+        valuation_source: "stats_guy", prices_as_of: "2024-12-30", valuation_note: "Reconstructed placeholders",
+      }} />);
+      expect(container).toBeEmptyDOMElement();
+      unmount();
+    }
   });
-  it("separates unassigned teams from missing history and discloses shared asset blockers", () => {
-    const { rerender } = render(<RatingScopeNotice scope={{
-      status: "provisional", basis: "current", label: "Provisional current career rating",
-      verified_owner_count: 9, excluded_rosters: [{ roster_id: 7, reason: "Current owner is unassigned." }],
-    }} />);
-    expect(screen.getByRole("status")).toHaveTextContent("9 verified owners");
-    expect(screen.getByRole("status")).toHaveTextContent("Team 7: Current owner is unassigned.");
-    expect(screen.getByRole("status")).not.toHaveTextContent("Incomplete history");
-    rerender(<RatingScopeNotice scope={{
+  it("retains unavailable explanations and owner coverage", () => {
+    render(<RatingScopeNotice scope={{
       status: "unavailable", basis: "current", label: "Rating unavailable",
       reason: "Future-pick prices are incomplete.", verified_owner_count: 9,
       excluded_rosters: [{ roster_id: 7, reason: "Current owner is unassigned." }],
@@ -44,34 +41,13 @@ describe("rating scope", () => {
     expect(screen.getByRole("link", { name: "DynastyProcess" })).toHaveAttribute("href", "https://dynastyprocess.com");
     expect(screen.queryByText("Stats Guy Fantasy")).not.toBeInTheDocument();
   });
-  it("discloses provisional coverage and excluded reasons at the standings call site", () => {
-    // Mutation: suppress coverage disclosure for provisional ratings.
+  it("omits provisional banners at the standings call site", () => {
     render(<StandingsTable leagueId="L" rows={[]} year={2024} currentSeason={2026} ratingScope={{
-      status: "provisional", basis: "season_end", label: "Franchise rating at end of 2024",
-      included_seasons: [2022, 2024], excluded_seasons: [
-        { season: 2021, reason: "Final standings are unresolved." },
-        { season: 2023, reason: "Postseason results disagree." },
-      ],
+      status: "provisional", basis: "season_end", label: "Provisional franchise rating at end of 2024",
+      included_seasons: [2022, 2024], excluded_seasons: [{ season: 2023, reason: "Postseason results disagree." }],
     }} />);
-    const notice = screen.getByRole("status");
-    expect(notice).toHaveTextContent("Provisional");
-    expect(notice).toHaveTextContent("Included seasons: 2022, 2024");
-    expect(notice).toHaveTextContent("2021: Final standings are unresolved.");
-    expect(notice).toHaveTextContent("2023: Postseason results disagree.");
-    expect(notice).toHaveTextContent("Incomplete history");
-    expect(notice).toHaveTextContent("Do not compare directly with ratings based on complete history");
-  });
-
-  it("retains the cutoff and historical pricing attribution for provisional ratings", () => {
-    // Mutation: limit cutoff and valuation attribution to ready ratings.
-    render(<RatingScopeNotice scope={{ status: "provisional", basis: "season_end",
-      label: "Provisional franchise rating at end of 2024", as_of: "2025-01-07",
-      valuation_source: "stats_guy", prices_as_of: "2024-12-30",
-      valuation_note: "Unranked players use a zero replacement floor." }} />);
-    expect(screen.getByRole("status")).toHaveTextContent("As of 2025-01-07");
-    expect(screen.getByRole("link", { name: "Stats Guy Fantasy" })).toHaveAttribute("href", "https://statsguyfantasy.com");
-    expect(screen.getByRole("status")).toHaveTextContent("2024-12-30");
-    expect(screen.getByRole("status")).toHaveTextContent("zero replacement floor");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Provisional|Included seasons|Excluded seasons/)).not.toBeInTheDocument();
   });
 
   it("attributes historical estimates and discloses missing-player policy", () => {
