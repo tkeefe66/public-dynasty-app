@@ -17,7 +17,8 @@ class YahooCredentialsMissing(RuntimeError):
 def client_for_league(league_id: str, *, access_token: str | None = None):
     platform = platform_for_league_id(league_id)
     if platform == PLATFORM_SLEEPER:
-        return SleeperClient()
+        from app.config import get_settings
+        return SleeperClient(score_cache_dir=get_settings().cache_dir)
     if not re.fullmatch(r"\d+\.l\.\d+", league_id):
         raise ValueError("Invalid Yahoo league key.")
     if not access_token:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
+import re
 
 import httpx
 
@@ -43,8 +45,10 @@ def _resolve_avatar_url(u: dict) -> str | None:
 
 
 class SleeperClient:
-    def __init__(self) -> None:
+    def __init__(self, *, score_cache_dir: Path | None = None) -> None:
         self._client = httpx.AsyncClient(base_url=BASE_URL, timeout=30.0)
+        from sleeper_dynasty.api.score_authority import ScoreAuthority
+        self._score_authority = ScoreAuthority(score_cache_dir) if score_cache_dir is not None else None
         # Single-slot memo for _all_week_transactions. See its docstring.
         self._tx_cache_league_id: str | None = None
         self._tx_cache: list[dict] = []
@@ -116,9 +120,7 @@ class SleeperClient:
         return rosters
 
     async def get_matchups(self, league_id: str, week: int) -> list[Matchup]:
-        resp = await self._client.get(f"/league/{league_id}/matchups/{week}")
-        resp.raise_for_status()
-        raw_list = resp.json()
+        raw_list = await self.get_raw_matchups(league_id, week)
         by_matchup: dict[int, list[dict]] = {}
         for entry in raw_list:
             mid = entry["matchup_id"]
@@ -130,8 +132,8 @@ class SleeperClient:
                     week=week,
                     roster_id_1=entries[0]["roster_id"],
                     roster_id_2=entries[1]["roster_id"],
-                    points_1=entries[0].get("points"),
-                    points_2=entries[1].get("points"),
+                    points_1=entries[0].get("custom_points") if entries[0].get("custom_points") is not None else entries[0].get("points"),
+                    points_2=entries[1].get("custom_points") if entries[1].get("custom_points") is not None else entries[1].get("points"),
                 ))
         return matchups
 
@@ -144,15 +146,13 @@ class SleeperClient:
         this preserves ``starters``, ``players``, and ``players_points``
         so the recap engine can compute bench regret, heroes, and busts.
         """
-        resp = await self._client.get(f"/league/{league_id}/matchups/{week}")
-        resp.raise_for_status()
         results = []
-        for entry in resp.json():
+        for entry in await self.get_raw_matchups(league_id, week):
             results.append(MatchupResult(
                 week=week,
                 matchup_id=entry.get("matchup_id"),
                 roster_id=entry["roster_id"],
-                points=entry.get("points"),
+                points=entry.get("custom_points") if entry.get("custom_points") is not None else entry.get("points"),
                 starters=entry.get("starters") or [],
                 players=entry.get("players") or [],
                 players_points=entry.get("players_points") or {},
@@ -200,12 +200,22 @@ class SleeperClient:
         return resp.json()
 
     async def get_raw_matchups(self, league_id: str, week: int) -> list[dict]:
-        """Per-roster matchup rows for one league-week, unmodified.
+        """Per-roster rows, with result authority when configured by the app.
 
         On the protocol because ``grader_io`` needs the raw rows (starters,
         players_points) rather than the paired ``Matchup`` shape, and used to
         reach through to ``self._client`` to get them.
         """
+        if self._score_authority:
+            rows = await self._score_authority.rows(self._client, league_id, week)
+            if rows is not None:
+                # Legacy numerical consumers require floats; recap evidence
+                # uses the exact strings directly below.
+                return [
+                    {**r, "points": float(r["custom_points"] if r.get("custom_points") is not None else r["points"]),
+                     "custom_points": float(r["custom_points"]) if r.get("custom_points") is not None else None,
+                     "players_points": {p: float(v) for p, v in (r.get("players_points") or {}).items()}}
+                    for r in rows]
         resp = await self._client.get(f"/league/{league_id}/matchups/{week}")
         resp.raise_for_status()
         return resp.json() or []
@@ -225,7 +235,15 @@ class SleeperClient:
             def invalid(value):
                 raise ValueError("nonfinite JSON number")
             data = json.loads(response.text, parse_float=str, parse_constant=invalid)
+            matchup = re.fullmatch(r"/league/([0-9]+)/matchups/([0-9]+)", path)
+            verification = {}
+            if self._score_authority and matchup:
+                resolved = await self._score_authority.rows(self._client, matchup[1], int(matchup[2]))
+                if resolved is not None:
+                    data = resolved
+                    verification = self._score_authority.evidence.get(matchup[1], {})
             return {"ok": True, "source": source, "raw": response.text, "data": data,
+                    "score_verification": verification,
                     "provider_timestamp": response.headers.get("date", "")}
         except httpx.HTTPStatusError as exc:
             code = f"http_{exc.response.status_code}"
@@ -233,7 +251,10 @@ class SleeperClient:
             code = "timeout"
         except httpx.RequestError:
             code = "connection_failed"
-        except (ValueError, TypeError):
+        except ValueError as exc:
+            from sleeper_dynasty.api.score_authority import ScoreConflict
+            code = "score_source_conflict" if isinstance(exc, ScoreConflict) else "invalid_json"
+        except TypeError:
             code = "invalid_json"
         log.warning("Recap source failed source=%s reason=%s; retry collection", source, code)
         return {"ok": False, "source": source, "error": code}
