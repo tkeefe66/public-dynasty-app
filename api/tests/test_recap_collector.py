@@ -191,6 +191,30 @@ async def test_yahoo_enters_shared_correction_workflow(maker, tmp_path, enabled,
 
 
 @pytest.mark.asyncio
+async def test_yahoo_recap_throttle_preserves_free_worker_backoff(maker, tmp_path, enabled, free_sources):
+    from tests.test_generation_yahoo_authorization import seed_yahoo, LEAGUE
+    from app.services.recap_video.collector import collect_recap
+    from app.services.generation.yahoo_backoff import throttle_error
+    from sleeper_dynasty.api.yahoo import YahooRateLimitError
+    await seed_yahoo(maker)
+    class Throttled(Sources):
+        calls = 0
+        async def get_recap_source(self, path):
+            self.calls += 1
+            raise YahooRateLimitError('Synthetic provider throttle', retry_after=1800)
+    @asynccontextmanager
+    async def fence():
+        async with maker.begin() as db:
+            yield db
+    client = Throttled()
+    with pytest.raises(RuntimeError) as exc:
+        await collect_recap(client, LEAGUE, tmp_path, fence, 5000)
+    assert throttle_error(exc.value) is not None
+    assert throttle_error(exc.value).retry_after == 1800
+    assert client.calls == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("change,code", [({"observed_games": []}, "schedule_incomplete"),
     ({"inventory_verified": False}, "schedule_inventory_unqualified"),
     ({"pairings": []}, "participant_incomplete"), ({"bracket": {"ok": False}}, "bracket_unavailable"),

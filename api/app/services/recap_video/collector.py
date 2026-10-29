@@ -18,6 +18,7 @@ from app.services.recap_video.periods import build_participants, period_release,
 from app.services.recap_video import readiness
 from sleeper_dynasty.api.nfl_inventory import fetch_inventory
 from sleeper_dynasty.api.nfl_schedule import fetch_week_evidence
+from sleeper_dynasty.api.yahoo import YahooRateLimitError
 
 log = logging.getLogger(__name__)
 
@@ -142,6 +143,8 @@ async def _collect_recap(client, league_id, cache_dir, fence, now: int, *, force
     async def fetch(name, path):
         try:
             result = await client.get_recap_source(path)
+        except YahooRateLimitError:
+            raise  # Preserve Retry-After for the free worker; stop further reads.
         except Exception:
             log.exception("Recap source collection failed source=%s", path)
             result = {"ok": False, "source": path, "error": "source_exception"}
