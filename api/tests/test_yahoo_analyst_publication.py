@@ -68,7 +68,8 @@ async def staged_results(maker, tmp_path, monkeypatch, *, mode="automatic"):
         db.add(YahooLeagueGrant(user_id="owner", league_id=YAHOO_ID, generation="current",
             expires_at=stamp() + 3600))
         db.add(GenerationControl(id="global", epoch="test-epoch", hold=""))
-        db.add(GenerationPolicy(scope="app", value_json=dump({"paused": False,
+        # Archived receipt replay exercises the explicit legacy text workflow.
+        db.add(GenerationPolicy(scope="app", value_json=dump({"paused": False, "recap_text_reconciliation": False,
             "features": {"analyst": {"mode": "automatic"}}})))
         db.add(GenerationPolicy(scope="series:" + SERIES_ID, value_json=dump({
             "features": {"analyst": {"mode": mode}}})))

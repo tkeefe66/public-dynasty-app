@@ -708,9 +708,16 @@ class YahooAdapter:
             )
         return out
 
-    async def _scoreboard(self, league_id, week):
+    async def _scoreboard(self, league_id, week, *, exact=False):
         payload = await self._get(f"/league/{league_id}/scoreboard;week={week}")
         node = merge_fragments(unwrap(payload, "fantasy_content", "league"))
+        if exact:
+            scoreboard = child(node, 'scoreboard')
+            _require_week(scoreboard, week)
+            matches = child(scoreboard, 'matchups')
+            if (node.get('league_key') != league_id or not isinstance(matches, dict)
+                    or str(matches.get('count')) != str(len(collection(matches)))):
+                raise YahooDataError('Yahoo scoreboard inventory is incomplete; retry collection.')
         return [
             merge_fragments(m["matchup"])
             for m in collection(child(child(node, "scoreboard"), "matchups"))
@@ -860,7 +867,7 @@ class YahooAdapter:
             league.status != "complete" and week >= current
         ):
             return []
-        matchups = await self._scoreboard(league_id, week)
+        matchups = await self._scoreboard(league_id, week, **({'exact': True} if exact else {}))
         played = [m for m in matchups if m.get("status") == "postevent"]
         if not played:
             return []
@@ -869,6 +876,10 @@ class YahooAdapter:
                 _require_week(matchup, week)
         await self._ensure_ids()
         teams = await self._teams(league_id, f"/roster;week={week}/players")
+        if exact and (len(teams) != league.total_rosters
+                      or len({t.get('team_key') for t in teams}) != len(teams)
+                      or any(not str(t.get('team_key', '')).startswith(league_id + '.t.') for t in teams)):
+            raise YahooDataError('Yahoo weekly roster inventory is incomplete; retry collection.')
         totals = await self._weekly_points(league_id, week, teams, **({'exact': True} if exact else {}))
         starter_slots = [
             slot for slot in league.roster_positions if slot not in ("BN", "IR", "NA")
@@ -937,6 +948,23 @@ class YahooAdapter:
                         "players_points": points,
                     }
                 )
+        if exact and league.playoff_week_start and week >= league.playoff_week_start:
+            from sleeper_dynasty.api.yahoo_recap import postseason_inventory, postseason_rows
+            eliminated = set()
+            for prior_week in range(league.playoff_week_start, week):
+                previous = await self._scoreboard(league_id, prior_week, exact=True)
+                if not previous:
+                    raise YahooDataError('Yahoo prior playoff scoreboard is incomplete; retry collection.')
+                for prior, sides in postseason_inventory(previous, prior_week, [t['team_key'] for t in teams]):
+                    if _truth(prior.get('is_consolation')):
+                        continue
+                    if len(sides) == 1:
+                        continue
+                    if prior.get('status') != 'postevent' or prior.get('winner_team_key') not in sides:
+                        raise YahooDataError('Yahoo prior playoff winner is unresolved; retry collection.')
+                    eliminated.update(roster_id_for(k) for k in sides if k != prior['winner_team_key'])
+            rows = postseason_rows(league_id, week, rows, matchups,
+                                   [t['team_key'] for t in teams], eliminated)
         return rows
 
     async def get_recap_source(self, path):

@@ -9,6 +9,7 @@ from app.services.analyst_store import AnalystStore
 from app.services.generation.models import (
     GenerationCandidate,
     GenerationOperation,
+    GenerationPolicy,
     LeagueSeason,
     LeagueSeries,
     ProviderAttempt,
@@ -64,6 +65,8 @@ async def test_yahoo_completed_week_stages_facts_and_candidate_without_paid_call
     from app.services.generation.planner import collect_analyst
     client, entry, writer = yahoo_fixture(monkeypatch)
     async with maker.begin() as db:
+        # Legacy archive staging deliberately has no native period observations.
+        db.add(GenerationPolicy(scope="app", value_json=json.dumps({"recap_text_reconciliation": False})))
         db.add(LeagueSeries(id="series", lifecycle="active", profile="redraft", hold="",
                             activated_at=1, activation_week=0))
         db.add(LeagueSeason(league_id=YAHOO_ID, provider="yahoo", provider_key=YAHOO_ID,

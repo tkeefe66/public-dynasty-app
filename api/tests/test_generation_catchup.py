@@ -20,6 +20,9 @@ from tests.test_generation_admin import admin_db as catchup_db  # noqa: F401
 def seed(maker):
     async def run():
         async with maker.begin() as db:
+            # Catch-up fixtures exercise pre-workflow content and approvals.
+            (await db.get(GenerationPolicy, "app")).value_json = dump(
+                {"paused": False, "recap_text_reconciliation": False})
             season = await db.get(LeagueSeason, "synthetic")
             season.latest_week = 4
             for key, feature, week, event_at in [

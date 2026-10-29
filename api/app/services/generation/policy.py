@@ -36,7 +36,7 @@ def feature_defaults() -> dict[str, FeaturePolicy]:
 
 class Policy(StrictModel):
     paused: bool = True
-    recap_text_reconciliation: bool = False
+    recap_text_reconciliation: bool = True
     max_concurrency: int = Field(default=1, ge=1, le=4)
     series_concurrency: int = Field(default=1, ge=1, le=1)
     breaker_failures: int = Field(default=3, ge=1, le=3)

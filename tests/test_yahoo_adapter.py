@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from sleeper_dynasty.api.yahoo import YahooAdapter, YahooDataError
+from sleeper_dynasty.api.yahoo import YahooAdapter, YahooDataError, child
 from sleeper_dynasty.api.yahoo_json import collection, merge_fragments
 
 FIXTURES = Path(__file__).parent / "fixtures/yahoo"
@@ -415,6 +415,56 @@ class Replay(YahooAdapter):
         if "/game_weeks" in path:
             return fixture("game_weeks")
         raise AssertionError(path)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('damage', [None, 'truncated', 'classification'])
+async def test_captured_playoff_scoreboard_enters_recap_with_complete_owner_inventory(damage):
+    # Replay captured playoff structure and captured weekly lineups under one synthetic league.
+    def remap(value):
+        if isinstance(value, list): return [remap(v) for v in value]
+        if isinstance(value, dict): return {k: '16' if k == 'week' else remap(v) for k, v in value.items()}
+        if isinstance(value, str): return value.replace('461.l.100000002', LK)
+        return value
+    class Playoffs(Replay):
+        async def _get(self, path, **params):
+            if '/scoreboard;week=16' in path:
+                result = remap(fixture('prior_scoreboard_wk16'))
+                node = merge_fragments(result['fantasy_content']['league'])
+                board = merge_fragments(node['scoreboard'])
+                match = collection(child(board, 'matchups'))[0]['matchup']
+                if damage == 'truncated':
+                    match['0']['teams'] = {'0': collection(child(match, 'teams'))[0], 'count': 2}
+                if damage == 'classification': match.pop('is_consolation')
+                return result
+            if '/roster;week=16/' in path:
+                return remap(fixture('roster_points_wk1'))
+            result = await super()._get(path, **params)
+            if '/players;player_keys=' in path: return remap(result)
+            if path.endswith('/settings'):
+                node = merge_fragments(result['fantasy_content']['league'])
+                node.update(current_week='18', is_finished=1)
+                settings = merge_fragments(node['settings'])
+                settings['playoff_start_week'] = '16'
+                node['settings'] = settings
+                return {'fantasy_content': {'league': node}}
+            return result
+    client = Playoffs()
+    try:
+        if damage:
+            with pytest.raises(YahooDataError):
+                await client.get_recap_source(f'/league/{LK}/matchups/16')
+            return
+        result = await client.get_recap_source(f'/league/{LK}/matchups/16')
+        rows = result['data']
+        assert len(rows) == 10
+        assert {r['roster_id'] for r in rows if r.get('recap_status') == 'not_scheduled'} == {1, 10}
+        first = next(r for r in rows if r['roster_id'] == 2)
+        assert first['points'] == '132.20' and first['recap_matchup']['winner'] == 2
+        assert next(r for r in rows if r['roster_id'] == 4)['recap_matchup']['status'] == 'consolation'
+        assert first['starters'] and all(isinstance(p, str) for p in first['players_points'].values())
+    finally:
+        await client.close()
 
 
 @pytest.mark.asyncio

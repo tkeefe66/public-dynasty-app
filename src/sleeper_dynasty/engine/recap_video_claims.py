@@ -168,7 +168,7 @@ def compile_claims(snapshot: dict) -> dict:
     for p in participants:
         if p["roster_id"] in paired:
             continue
-        if p.get("status") not in ("bye", "season_finished"):
+        if p.get("status") not in ("bye", "season_finished", "not_scheduled"):
             raise ValueError("Unpaired owner lacks supported status")
         claims.append({"id": "status:" + p["owner_id"], "kind": "owner_status", "scope": snapshot["period_id"],
             "owner_ids": [p["owner_id"]], "matchup_ids": [], "status": p["status"], "values": {},

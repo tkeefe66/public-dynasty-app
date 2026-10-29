@@ -156,6 +156,9 @@ def test_completion_after_preview_cannot_buy_the_same_event_again(client, review
 def test_current_artifact_correction_remains_explicitly_approvable(client, review_db):  # noqa: F811
     async def seed():
         async with review_db.begin() as db:
+            # This saved legacy artifact predates durable recap observations.
+            (await db.get(GenerationPolicy, "app")).value_json = dump(
+                {"paused": False, "recap_text_reconciliation": False})
             row = add_candidate(db, "editable", feature="analyst")
             add_artifact(db, row, {"season": 2026, "week": 4, "edition_type": "roast",
                 "facts": {"week": 4}, "markdown": "Saved original"})

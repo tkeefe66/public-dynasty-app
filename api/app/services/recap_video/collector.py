@@ -214,6 +214,7 @@ async def _collect_recap(client, league_id, cache_dir, fence, now: int, *, force
     failure = list(errors)
     for period in periods.values():
         period.setdefault("round_type", settings.get("playoff_round_type"))
+        period.setdefault('provider', settings.get('recap_provider'))
         period["roster_positions"] = (league or {}).get("roster_positions")
         scores, observed, period_errors = {}, [], list(errors)
         period_sources = dict(sources)

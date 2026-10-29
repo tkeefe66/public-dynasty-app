@@ -99,7 +99,7 @@ def evaluate_readiness(snapshot: dict, previous: dict | None, now: int) -> Readi
     covered = [rid for p in pairings for rid in p.get("rosters", [])]
     playing = {p.get("roster_id") for p in participants if p.get("status") in ("regular", "title", "placement", "consolation")}
     if (not ids or len(ids) != len(set(ids)) or any(not p.get("owner_id") for p in participants)
-            or any(p.get("status") not in ("regular", "title", "placement", "consolation", "bye", "season_finished") for p in participants)
+            or any(p.get("status") not in ("regular", "title", "placement", "consolation", "bye", "season_finished", "not_scheduled") for p in participants)
             or len(covered) != len(set(covered)) or set(covered) != playing
             or any(len(p.get("rosters", [])) != 2 for p in pairings)
             or not snapshot.get("scores") or not snapshot.get("starters")):
@@ -125,7 +125,8 @@ def evaluate_readiness(snapshot: dict, previous: dict | None, now: int) -> Readi
 
 
 async def workflow_enabled(db, series_id: str) -> bool:
-    # Task 5 registers this policy feature. Absent is safely disabled.
+    # Text evidence is required by default; admission still checks analyst
+    # authorization, activation boundaries and current league membership.
     config = await resolve_policy(db, series_id)
     feature = config["policy"]["features"].get("recap_video", {})
     return bool(config['policy'].get('recap_text_reconciliation')

@@ -11,6 +11,7 @@ from app.services.generation.models import (
     GenerationCandidate,
     GenerationControl,
     GenerationOperation,
+    GenerationPolicy,
     ProviderAttempt,
     stamp,
 )
@@ -60,6 +61,9 @@ async def failed_recap(maker, *, calls=4, reason="execution_failed"):
         }
     ]
     async with maker.begin() as db:
+        # Archived receipt repair explicitly uses the pre-observation workflow.
+        (await db.get(GenerationPolicy, "app")).value_json = dump(
+            {"paused": False, "recap_text_reconciliation": False})
         job = await db.get(GenerationOperation, "job")
         job.feature, job.state, job.reason = (
             "analyst",

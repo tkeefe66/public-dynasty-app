@@ -146,11 +146,14 @@ def owner_allowlist(monkeypatch):
 
 
 async def analyst_job(maker):
-    from app.services.generation.models import GenerationOperation
+    from app.services.generation.models import GenerationOperation, GenerationPolicy
     from app.services.generation.store import dump
     from tests.test_generation_gateway import seed_job
     await seed_job(maker)
     async with maker.begin() as db:
+        # Ledger-only legacy jobs carry no durable source observations.
+        (await db.get(GenerationPolicy, "app")).value_json = dump(
+            {"paused": False, "recap_text_reconciliation": False})
         job = await db.get(GenerationOperation, "job")
         job.feature = "analyst"
         job.max_calls = 4
