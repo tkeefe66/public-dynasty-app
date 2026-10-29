@@ -253,6 +253,18 @@ def _scoring_number(value, description: str) -> float:
         raise YahooDataError(f"Yahoo returned an invalid {description}.") from None
 
 
+def _exact_points(value):
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise YahooDataError('Yahoo score precision is unavailable; retry source collection.')
+    _scoring_number(value, 'recap points')
+    return str(value)
+
+
+def _require_week(value, week):
+    if str(child(value, 'week')) != str(week):
+        raise YahooDataError('Yahoo recap returned a different or missing week; retry source collection.')
+
+
 def _bonus_records(node, stat_id: int) -> list[dict]:
     """Read Yahoo's bonus singleton, list, and numeric collection envelopes.
 
@@ -704,7 +716,7 @@ class YahooAdapter:
             for m in collection(child(child(node, "scoreboard"), "matchups"))
         ]
 
-    async def _weekly_points(self, league_id, week, teams):
+    async def _weekly_points(self, league_id, week, teams, *, exact=False):
         # Appending /stats to the teams/roster collection silently omits stats.
         # League-scoped player collections return authoritative league scoring.
         keys = list(
@@ -712,9 +724,9 @@ class YahooAdapter:
                 p["player_key"] for t in teams for p in self._roster_players(t)
             )
         )
-        return await self._player_points(league_id, week, keys)
+        return await self._player_points(league_id, week, keys, **({'exact': True} if exact else {}))
 
-    async def _player_points(self, league_id, week, keys):
+    async def _player_points(self, league_id, week, keys, *, exact=False):
         """League-context points, including bonuses; never substitute zero."""
         totals = {}
         for start in range(0, len(keys), 25):
@@ -733,7 +745,10 @@ class YahooAdapter:
                 key = player.get("player_key")
                 if key not in keys or key in totals:
                     raise YahooDataError("Yahoo returned unexpected or duplicate player points.")
-                totals[key] = _scoring_number(points["total"], "weekly player points")
+                value = _scoring_number(points["total"], "weekly player points")
+                if exact:
+                    _require_week(points, week)
+                totals[key] = _exact_points(points['total']) if exact else value
         if set(keys) != totals.keys():
             raise YahooDataError(
                 "Yahoo omitted players from weekly scoring; retry the import."
@@ -837,7 +852,7 @@ class YahooAdapter:
         totals = await self._player_points(league_id, week, list(keys))
         return {keys[key]: value for key, value in totals.items()}
 
-    async def get_raw_matchups(self, league_id, week):
+    async def get_raw_matchups(self, league_id, week, *, exact=False):
         league, _ = await self.get_league(league_id)
         meta = self._metadata[league_id]
         current = int(meta.get("current_week") or 0)
@@ -849,9 +864,12 @@ class YahooAdapter:
         played = [m for m in matchups if m.get("status") == "postevent"]
         if not played:
             return []
+        if exact:
+            for matchup in played:
+                _require_week(matchup, week)
         await self._ensure_ids()
         teams = await self._teams(league_id, f"/roster;week={week}/players")
-        totals = await self._weekly_points(league_id, week, teams)
+        totals = await self._weekly_points(league_id, week, teams, **({'exact': True} if exact else {}))
         starter_slots = [
             slot for slot in league.roster_positions if slot not in ("BN", "IR", "NA")
         ]
@@ -863,7 +881,10 @@ class YahooAdapter:
             # and preserve vacant slots with Sleeper's "0" sentinel.
             starters = ["0"] * len(starter_slots)
             for raw in self._roster_players(team):
-                slot = merge_fragments(raw.get("selected_position")).get("position")
+                selected = merge_fragments(raw.get("selected_position"))
+                if exact:
+                    _require_week(selected, week)
+                slot = selected.get("position")
                 if not slot:
                     raise YahooDataError(
                         "Yahoo omitted a player's selected position; retry the import."
@@ -898,6 +919,8 @@ class YahooAdapter:
                 continue
             for team in sides:
                 key = team["team_key"]
+                if exact:
+                    _require_week(merge_fragments(team.get('team_points')), week)
                 if key not in lineups:
                     raise YahooDataError(
                         "Yahoo omitted a played team's weekly roster; retry the import."
@@ -907,15 +930,19 @@ class YahooAdapter:
                     {
                         "matchup_id": idx,
                         "roster_id": roster_id_for(key),
-                        "points": float(
-                            merge_fragments(team.get("team_points"))["total"]
-                        ),
+                        "points": (_exact_points(merge_fragments(team.get("team_points"))["total"]) if exact else
+                            _scoring_number(merge_fragments(team.get("team_points"))["total"], 'team points')),
                         "players": players,
                         "starters": starters,
                         "players_points": points,
                     }
                 )
         return rows
+
+    async def get_recap_source(self, path):
+        """Normalize Yahoo evidence for the shared, source-bound recap workflow."""
+        from sleeper_dynasty.api.yahoo_recap import recap_source
+        return await recap_source(self, path)
 
     async def get_matchup_results(
         self, league_id: str, week: int

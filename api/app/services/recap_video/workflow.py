@@ -69,7 +69,7 @@ async def _preflight_current(db, stage):
     actor = await db.get(User, job.actor_id)
     if not actor.is_admin or actor.email.lower() not in get_settings().admin_email_list:
         raise Held("admin_permission_removed")
-    reason = await _authority_reason(db, EpisodeKey(episode.series_id, episode.season, episode.period_id), episode.league_id)
+    reason = await _authority_reason(db, EpisodeKey(episode.series_id, episode.season, episode.period_id), episode.league_id, media_checkpoint=True)
     if reason:
         raise Held(reason)
     await require_readiness(db, episode.series_id, dict(season=episode.season, week=episode.week,

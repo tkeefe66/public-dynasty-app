@@ -128,26 +128,29 @@ async def workflow_enabled(db, series_id: str) -> bool:
     # Task 5 registers this policy feature. Absent is safely disabled.
     config = await resolve_policy(db, series_id)
     feature = config["policy"]["features"].get("recap_video", {})
-    return bool(feature and feature.get("mode") != "disabled")
+    return bool(config['policy'].get('recap_text_reconciliation')
+                or feature and feature.get("mode") != "disabled")
 
 
-async def _authority_reason(db, key, league_id, *, automatic=False):
+async def _authority_reason(db, key, league_id, *, automatic=False, media_checkpoint=False):
     """Admission never substitutes for current policy or membership authority."""
     from app.db.models import LeagueMembership
     policy = await resolve_policy(db, key.series_id)
     if policy["blocked_by"]:
         return policy["blocked_by"][0]
     features = policy["policy"]["features"]
-    if not features.get("recap_video") or features["recap_video"].get("mode") == "disabled":
+    text_only = policy['policy'].get('recap_text_reconciliation', False) and not media_checkpoint
+    required = ('analyst',) if text_only else ('analyst', 'recap_video')
+    if not text_only and (not features.get("recap_video") or features["recap_video"].get("mode") == "disabled"):
         return "recap_workflow_disabled"
     if any(not features.get(f) or features[f].get("paused") or features[f].get("mode") == "disabled"
-           for f in ("analyst", "recap_video")):
+           for f in required):
         return "recap_feature_paused"
     season = await db.get(LeagueSeason, league_id)
     if (not season or not season.verified_at or season.series_id != key.series_id or season.season != key.season
             or not await db.scalar(select(LeagueMembership.id).where(LeagueMembership.league_id == league_id).limit(1))):
         return "recap_authority_missing"
-    if automatic and any(features[f].get("mode") != "automatic" for f in ("analyst", "recap_video")):
+    if automatic and any(features[f].get("mode") != "automatic" for f in required):
         return "manual_approval_required"
     return ""
 
@@ -275,7 +278,7 @@ async def require_readiness(db, series_id: str, payload: dict, *, league_id=None
             or payload.get("edition", {}).get("week", row.week) != row.week):
         raise Held("recap_episode_identity_conflict")
     key = EpisodeKey(series_id, row.season, row.period_id)
-    authority = await _authority_reason(db, key, row.league_id, automatic=automatic)
+    authority = await _authority_reason(db, key, row.league_id, automatic=automatic, media_checkpoint=media_checkpoint)
     if authority:
         raise Held(authority)
     if payload.get('automatic_recap_correction'):

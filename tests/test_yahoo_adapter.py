@@ -12,6 +12,53 @@ FIXTURES = Path(__file__).parent / "fixtures/yahoo"
 LK = "470.l.100000001"
 
 
+@pytest.mark.asyncio
+async def test_recap_sources_preserve_yahoo_scores_and_weekly_starters():
+    # Mutation: bypass Yahoo, round authoritative scores, or use current lineups.
+    a = Replay()
+    try:
+        league = await a.get_recap_source(f'/league/{LK}')
+        rosters = await a.get_recap_source(f'/league/{LK}/rosters')
+        users = await a.get_recap_source(f'/league/{LK}/users')
+        scores = await a.get_recap_source(f'/league/{LK}/matchups/1')
+        assert all(s['ok'] for s in (league, rosters, users, scores))
+        assert len(rosters['data']) == len(users['data']) == len(scores['data']) == 10
+        assert league['data']['season'] == str((await a.get_league(LK))[0].season)
+        numeric = await a.get_raw_matchups(LK, 1)
+        for exact, old in zip(scores['data'], numeric, strict=True):
+            assert isinstance(exact['points'], str)
+            assert float(exact['points']) == old['points']
+            assert exact['starters'] == old['starters']
+            assert all(isinstance(v, str) for v in exact['players_points'].values())
+        assert scores['source'].startswith('yahoo:')
+    finally:
+        await a.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('resource', ['scoreboard_wk1', 'roster_points_wk1'])
+async def test_recap_rejects_wrong_week_evidence(resource):
+    raw = fixture(resource)
+    def replace_week(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == 'week':
+                    node[key] = '2'
+                else:
+                    replace_week(value)
+        elif isinstance(node, list):
+            for value in node:
+                replace_week(value)
+    replace_week(raw)
+    path = f'/league/{LK}/' + ('scoreboard;week=1' if resource == 'scoreboard_wk1' else 'teams/roster;week=1/players')
+    a = Replay({path: raw})
+    try:
+        with pytest.raises(YahooDataError, match='week'):
+            await a.get_recap_source(f'/league/{LK}/matchups/1')
+    finally:
+        await a.close()
+
+
 def test_multi_position_name_mapping_requires_one_canonical_identity():
     # Mutation: use the literal WR,TE as one position, or choose first ambiguous match.
     from sleeper_dynasty.api.yahoo import player_name_index, resolve_named_player

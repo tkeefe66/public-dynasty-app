@@ -125,9 +125,11 @@ async def _collect_recap(client, league_id, cache_dir, fence, now: int, *, force
     Source failures commit an invalidating observation before raising to the
     owning free job. No transaction stays open across external HTTP calls.
     """
-    if fence is None or ".l." in league_id:
+    if fence is None:
         return False
     async with fence() as db:
+        if db is None:
+            return False  # Standalone legacy/test writers have no durable workflow.
         season = await db.get(LeagueSeason, league_id)
         if not season or not await readiness.workflow_enabled(db, season.series_id):
             return False
@@ -176,7 +178,9 @@ async def _collect_recap(client, league_id, cache_dir, fence, now: int, *, force
                 ):
                     periods[current_period_id] = current
             except ValueError as exc:
-                if str(exc) != "season_finished":
+                if '.l.' in league_id and str(exc) == 'playoff_round_timing_unsupported':
+                    log.warning('Yahoo postseason recap unsupported league=%s week=%s; continuing earlier weekly reconciliation', league_id, week)
+                elif str(exc) != "season_finished":
                     errors.append(str(exc))
     if not isinstance(rosters, list) or not isinstance(users, list):
         errors.append("participant_inventory_unavailable")

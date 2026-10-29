@@ -154,6 +154,43 @@ async def test_collection_persists_due_time_then_complete_private_packet(maker, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('legacy', [False, True])
+async def test_yahoo_enters_shared_correction_workflow(maker, tmp_path, enabled, free_sources, legacy):
+    from tests.test_generation_yahoo_authorization import seed_yahoo, LEAGUE
+    from app.services.recap_video.collector import collect_recap
+    from app.services.generation.recap_models import RecapEpisode
+    from app.services.analyst_store import AnalystStore
+    await seed_yahoo(maker)
+    async with maker.begin() as db:
+        (await db.get(LeagueSeason, LEAGUE)).latest_week = 4
+    @asynccontextmanager
+    async def fence():
+        async with maker.begin() as db:
+            yield db
+    start = int(datetime(2026, 10, 13, 14, tzinfo=timezone.utc).timestamp())
+    store = AnalystStore(tmp_path)
+    if legacy:
+        store.save(LEAGUE, {'season': 2026, 'week': 4, 'league_name': 'Saved league',
+            'generated_at': '2026-10-13T14:00:00Z', 'model': 'saved', 'edition_type': 'roast',
+            'markdown': 'Existing reviewed recap.', 'facts': {}})
+        original = store.edition_path(LEAGUE, 2026, 4).read_bytes()
+    assert await collect_recap(free_sources, LEAGUE, tmp_path, fence, start)
+    assert await collect_recap(free_sources, LEAGUE, tmp_path, fence, start + 3600)
+    async with maker() as db:
+        episode = await db.scalar(select(RecapEpisode))
+        assert episode.league_id == LEAGUE and episode.admitted_at
+    if legacy:
+        assert store.edition_path(LEAGUE, 2026, 4).read_bytes() == original
+        assert len(store.published_editions(LEAGUE)) == 1
+        async with maker() as db:
+            assert not list((await db.scalars(select(ProviderAttempt))).all())
+        return
+    edition = store.editions(LEAGUE)[0]
+    assert edition['facts']['text_contract'] == 'period-text-v1'
+    assert edition['facts']['source_snapshot']['scores']['4'][0]['points'] == '100.0100'
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("change,code", [({"observed_games": []}, "schedule_incomplete"),
     ({"inventory_verified": False}, "schedule_inventory_unqualified"),
     ({"pairings": []}, "participant_incomplete"), ({"bracket": {"ok": False}}, "bracket_unavailable"),

@@ -10,6 +10,7 @@ export interface FeatureSettings {
 }
 export interface GenerationPolicy {
   paused: boolean;
+  recap_text_reconciliation?: boolean;
   max_concurrency: number;
   series_concurrency: number;
   breaker_failures: number;

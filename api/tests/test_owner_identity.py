@@ -36,6 +36,17 @@ def identity():
     )
 
 
+@pytest.mark.asyncio
+async def test_recap_source_preserves_confirmed_owner_identity_and_raw_evidence():
+    raw = {'ok': True, 'raw': 'original provider evidence', 'data': [
+        {'user_id': OLD_A, 'display_name': 'Old team', 'metadata': {}}]}
+    source = SimpleNamespace(get_recap_source=AsyncMock(return_value=raw))
+    result = await OwnerIdentityClient(source, identity()).get_recap_source('/league/test/users')
+    assert result['data'][0]['user_id'] == A
+    assert result['data'][0]['metadata']['team_name'] == 'Alex'
+    assert result['raw'] == raw['raw'] and raw['data'][0]['user_id'] == OLD_A
+
+
 def test_identity_store_roundtrip_is_scoped_and_rejects_broken_mappings(tmp_path):
     # Mutation: reading another league's mapping would combine unrelated owners.
     store = OwnerIdentityStore(tmp_path)

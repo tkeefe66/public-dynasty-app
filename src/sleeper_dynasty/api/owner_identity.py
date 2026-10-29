@@ -81,6 +81,22 @@ class OwnerIdentityClient:
         return [replace(r, owner_id=uid, owner_name=self.identity.names.get(uid, r.owner_name))
                 for r, uid in zip(rosters, resolved, strict=True)]
 
+    async def get_recap_source(self, path):
+        result = await self.source.get_recap_source(path)
+        if not result.get('ok') or not path.endswith(('/users', '/rosters')):
+            return result
+        result = copy.deepcopy(result)
+        key = 'user_id' if path.endswith('/users') else 'owner_id'
+        resolved = [self._resolve(row[key]) for row in result['data']]
+        if len(set(resolved)) != len(resolved):
+            raise ValueError('Two recap teams map to one owner; correct the owner links.')
+        for row, uid in zip(result['data'], resolved, strict=True):
+            row[key] = uid
+            if key == 'user_id' and uid in self.identity.names:
+                row['display_name'] = self.identity.names[uid]
+                row['metadata'] = {**row.get('metadata', {}), 'team_name': self.identity.names[uid]}
+        return result
+
     def bundle(self, value):
         result = copy.deepcopy(value)
         for key, name_key in (("users", "display_name"), ("owners", "owner_name")):
