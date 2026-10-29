@@ -35,8 +35,26 @@ REQUEST_TIMEOUT_SECONDS = 300.0
 # Full matchup recaps plus standings, bets and outlook can exceed 4096 tokens.
 MAX_TOKENS = 8192
 REVIEW_MAX_TOKENS = 8192
-REVIEW_GROUNDING_VERSION = "recap-owner-evidence-v4"
-REVIEW_GROUNDING_VERSIONS = ("recap-owner-evidence-v1", "recap-owner-evidence-v2", "recap-owner-evidence-v3", REVIEW_GROUNDING_VERSION)
+REVIEW_GROUNDING_VERSION = "recap-owner-evidence-v5"
+REVIEW_GROUNDING_VERSIONS = ("recap-owner-evidence-v1", "recap-owner-evidence-v2", "recap-owner-evidence-v3", "recap-owner-evidence-v4", REVIEW_GROUNDING_VERSION)
+EDITORIAL_GUIDANCE = """
+Audit arithmetic and attribution across the WHOLE article, including jokes and previews.
+Compute named-player subtotals before comparing them: a QB at 12 plus a TE
+at 3 is 15, not less than a player at 10. Distinguish each individual's
+score from their combined subtotal. Name the exact players; do not call two
+players an entire NFL team's contribution when other starters may share that team.
+The highest TEAM total does not imply its owner rostered the highest individual
+PLAYER. Keep owner, starter/bench role, metric, scope and period attached to claims.
+Use the saved recap season, never an assumed current calendar year. Mark actual
+historical comparisons explicitly and require their own evidence.
+standings_race.upcoming_matchups gives the two named teams' relative win-equivalent
+gap only. It does NOT predict the playoff cutoff, seed or gap to every leader.
+Other games also change the standings; report conditional head-to-head records only.
+Scheduled fantasy pairings do not establish home-field hosting. Use faces/plays.
+Do not describe projections or optimized lineups when outlook is absent. Actual
+scores, projected scores and hindsight legal swaps are different quantities.
+Correct every repetition and dependent claim, then review the complete result.
+"""
 STARTER_GUIDANCE = """
 For every player contribution, verify roster ownership AND membership in that
 week's ordered starters. A rostered player is not necessarily a starter.
@@ -190,7 +208,7 @@ def _claim_evidence(packet: dict, version: str) -> dict:
                 "published_at": published, "publication_relative_to_player_kickoff": relation,
             })
     evidence = {"version": version, "single_swaps": swaps, "player_news_timing": timing}
-    if version in ("recap-owner-evidence-v2", "recap-owner-evidence-v3", "recap-owner-evidence-v4"):
+    if version in ("recap-owner-evidence-v2", "recap-owner-evidence-v3", "recap-owner-evidence-v4", "recap-owner-evidence-v5"):
         evidence["player_usage"] = [
             {"source_id": f"/facts/player_context/players/{i}/usage/{field}",
              "player": player["player"], "field": field, "value": player["usage"][field], "unit": unit}
@@ -199,12 +217,19 @@ def _claim_evidence(packet: dict, version: str) -> dict:
                                 ("offense_share", "fraction_of_team_offensive_snaps"))
             if (player.get("usage") or {}).get(field) is not None
         ]
+    if version == 'recap-owner-evidence-v5':
+        evidence['editorial_scope'] = {
+            'season': (packet.get('source_snapshot') or {}).get('season', packet.get('season')),
+            'upcoming_gap_scope': 'head_to_head_only_not_future_playoff_cutoff',
+            'team_score_is_not_individual_score': True,
+            'named_subtotals_are_not_entire_nfl_team_contributions': True,
+        }
     return evidence
 
 
 def _writing_packet(packet: dict, version: str) -> dict:
     """Exclude unqualified news only from new writing; keep review/source intact."""
-    if version not in ("recap-owner-evidence-v3", "recap-owner-evidence-v4"):
+    if version not in ("recap-owner-evidence-v3", "recap-owner-evidence-v4", "recap-owner-evidence-v5"):
         return packet
     result = deepcopy(packet)
     timing = {row["source_id"]: row for row in _claim_evidence(packet, version)["player_news_timing"]}
@@ -351,10 +376,12 @@ def require_matchup_coverage(text: str, facts, outlook) -> None:
         raise ValueError("; ".join(missing) + "; refusing publication")
 
 
-def require_scoring_claims(text: str, facts) -> None:
+def require_scoring_claims(text: str, facts, outlook=None) -> None:
     """Named reception formats must agree with the immutable provider settings."""
     from sleeper_dynasty.llm.recap_starter_claims import require_starter_claims
+    from sleeper_dynasty.llm.recap_editorial_claims import require_editorial_claims
     require_starter_claims(text, facts)
+    require_editorial_claims(text, facts, outlook)
     snapshot = facts.to_dict().get('source_snapshot')
     normalized = unicodedata.normalize('NFKC', text).casefold()
     normalized = re.sub(r'[‐‑‒–—−]', '-', normalized).replace('**', '').replace('__', '')
@@ -422,9 +449,10 @@ class RecapWriter:
         # Keeping this off preserves both literal- and passage-repair receipts.
         self._grounding_prompt = (
             self._grounding_version + "\n" + resources.files(_PROMPTS).joinpath("analyst_grounding.md").read_text()
-            + (USAGE_UNIT_GUIDANCE if self._grounding_version in ("recap-owner-evidence-v2", "recap-owner-evidence-v3", "recap-owner-evidence-v4") else "")
-            + (TIMING_GUIDANCE if self._grounding_version in ("recap-owner-evidence-v3", "recap-owner-evidence-v4") else "")
-            + (STARTER_GUIDANCE if self._grounding_version == "recap-owner-evidence-v4" else "")
+            + (USAGE_UNIT_GUIDANCE if self._grounding_version in ("recap-owner-evidence-v2", "recap-owner-evidence-v3", "recap-owner-evidence-v4", "recap-owner-evidence-v5") else "")
+            + (TIMING_GUIDANCE if self._grounding_version in ("recap-owner-evidence-v3", "recap-owner-evidence-v4", "recap-owner-evidence-v5") else "")
+            + (STARTER_GUIDANCE if self._grounding_version in ("recap-owner-evidence-v4", "recap-owner-evidence-v5") else "")
+            + (EDITORIAL_GUIDANCE if self._grounding_version == 'recap-owner-evidence-v5' else '')
             if grounded_review else None
         )
 
@@ -443,7 +471,7 @@ class RecapWriter:
             system.append({"type": "text", "text": self._grounding_prompt})
 
         user_parts = []
-        packet = editorial_facts(facts, starter_safe=bool(self._grounding_prompt and self._grounding_version == 'recap-owner-evidence-v4'))
+        packet = editorial_facts(facts, starter_safe=bool(self._grounding_prompt and self._grounding_version in ('recap-owner-evidence-v4', 'recap-owner-evidence-v5')))
         if self._grounding_prompt:
             packet = _writing_packet(packet, self._grounding_version)
         if lore:
@@ -532,7 +560,7 @@ class RecapWriter:
         review_prompt = (
             resources.files(_PROMPTS).joinpath("analyst_review.md").read_text()
         )
-        packet = editorial_facts(facts, starter_safe=bool(self._grounding_prompt and self._grounding_version == 'recap-owner-evidence-v4'))
+        packet = editorial_facts(facts, starter_safe=bool(self._grounding_prompt and self._grounding_version in ('recap-owner-evidence-v4', 'recap-owner-evidence-v5')))
         evidence = {
             "facts": packet,
             "outlook": outlook.to_dict() if outlook else None,
@@ -581,11 +609,14 @@ class RecapWriter:
             ):
                 violations = [{"quote": v["quote"], "evidence": v["evidence"]}
                               for v in checks if v["status"] == "needs_correction"]
+                from sleeper_dynasty.llm.recap_editorial_claims import claim_findings
+                deterministic = (claim_findings(text, facts, outlook)
+                    if self._grounding_version == 'recap-owner-evidence-v5' else [])
                 if verdict.get("approved") is True and not violations:
-                    return []
+                    return deterministic
                 if verdict.get("approved") is False and violations:
                     logger.warning("Analyst factual review rejected week %s: %s", facts.week, violations)
-                    return violations
+                    return violations + deterministic
         raise ValueError(
             "Analyst review did not approve or return actionable feedback; "
             "refusing publication"
@@ -624,7 +655,7 @@ class RecapWriter:
         require_matchup_coverage(text, facts, outlook)
         if self._review(text, facts, outlook, lore):
             raise ValueError("Saved recap repair did not receive factual approval; refusing publication")
-        require_scoring_claims(text, facts)
+        require_scoring_claims(text, facts, outlook)
         return text
 
     def write(
@@ -657,7 +688,7 @@ class RecapWriter:
                 raise ValueError("; ".join(missing) + "; refusing publication")
             violations = missing or self._review(text, facts, outlook, lore)
             if not violations:
-                require_scoring_claims(text, facts)
+                require_scoring_claims(text, facts, outlook)
                 return text
             if attempt < self._max_repairs:
                 logger.info(
