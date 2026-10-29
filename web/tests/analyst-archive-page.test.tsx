@@ -49,6 +49,7 @@ it("shows existing video and audio for the selected archive edition", async () =
 
 it.each([
   ["changed article", { markdown: "A different revision" }],
+  ["older revision with identical text", { revision: 0 }],
   ["different week", { week: 5 }],
   ["different season", { season: 2025 }],
   ["withdrawn edition", { status: "withdrawn" }],
@@ -82,4 +83,24 @@ it("does not load media for a missing selected edition", async () => {
   render(await Page({ ...props, searchParams: { edition: "2026-3" } }));
   expect(screen.getByText("That edition is not available yet.")).toBeInTheDocument();
   expect(shareState).not.toHaveBeenCalled();
+});
+
+it("explains blocked video on the newest edition and keeps older editions discoverable", async () => {
+  // Mutation: drop the no-media status or hide the saved-edition navigation.
+  privateMedia.mockResolvedValue({ media: null, video_status: { status: "blocked", reason: "source_review", enabled: true,
+    message: "Video is waiting for source verification. The written recap is available below." } });
+  shareState.mockResolvedValue({ token: null });
+  render(await Page({ ...props, searchParams: {} }));
+  expect(screen.getByRole("status")).toHaveTextContent("Video is waiting for source verification");
+  expect(screen.getByText("Week five article")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "2026 · Week 4" })).toHaveAttribute("href", "/league/test/analyst?edition=2026-4");
+});
+
+it("does not show a missing-video notice alongside authorized playback", async () => {
+  // Mutation: show stale missing-media status even after a matching publication loads.
+  privateMedia.mockResolvedValue({ media, revision: 1, markdown: week4.markdown,
+    video_status: { status: "pending", reason: "preparing", enabled: true, message: "Video is not published yet." } });
+  render(await Page(props));
+  expect(screen.getByLabelText("Week 4 video recap")).toBeInTheDocument();
+  expect(screen.queryByText("Video is not published yet.")).not.toBeInTheDocument();
 });

@@ -5,6 +5,13 @@ export type RecapMediaInfo = {
   audio_bytes: number;
 };
 
+export type RecapVideoStatus = {
+  status: "published" | "blocked" | "pending" | "disabled" | "unavailable";
+  reason: string;
+  message: string;
+  enabled: boolean;
+};
+
 export function recapMediaBase(token: string, bundle: string) {
   return `/api/public/analyst/${encodeURIComponent(token)}/media/${encodeURIComponent(bundle)}`;
 }

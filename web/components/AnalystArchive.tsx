@@ -5,7 +5,7 @@ import { AnalystShare } from "./AnalystShare";
 import { AnalystSources } from "./AnalystSources";
 import { AnalystMasthead } from "./AnalystMasthead";
 import { RecapMedia } from "./RecapMedia";
-import type { RecapMediaInfo } from "@/lib/recap-media";
+import type { RecapMediaInfo, RecapVideoStatus } from "@/lib/recap-media";
 
 // A small, deliberately text-only Markdown subset. Model output never becomes
 // HTML, executable links, images, or embedded content.
@@ -39,9 +39,10 @@ export function Article({ markdown }: { markdown: string }) {
   </div>;
 }
 
-export function AnalystArchive({ leagueId, editions, selected, media, mediaError }: {
+export function AnalystArchive({ leagueId, editions, selected, media, mediaError, videoStatus }: {
   leagueId: string; editions: AnalystEdition[]; selected?: string;
   media?: { token?: string; mediaBase?: string; info: RecapMediaInfo }; mediaError?: boolean;
+  videoStatus?: RecapVideoStatus;
 }) {
   editions = editions.filter((item) => item.edition_type !== "results");
   const edition = selected
@@ -81,6 +82,8 @@ export function AnalystArchive({ leagueId, editions, selected, media, mediaError
             </header>
             {media && <RecapMedia token={media.token} mediaBase={media.mediaBase} media={media.info} week={edition.week} />}
             {mediaError && <p role="status" className="mb-6 text-sm text-dim">Video and audio could not be loaded. Reload this page to try again. The article is still available.</p>}
+            {!media && !mediaError && videoStatus && videoStatus.status !== "published" &&
+              <p role="status" className="mb-6 text-sm text-dim">{videoStatus.message}</p>}
             <Article markdown={edition.markdown} />
             <AnalystSources sources={edition.sources} note={edition.context_note} />
             {edition.original_markdown && <details className="mt-8 border-t border-rule pt-4">

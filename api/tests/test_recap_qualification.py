@@ -22,6 +22,36 @@ async def test_absent_calibration_never_enables_automatic_media(maker):
     assert status['reason'] == 'media_calibration_required'
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('module', ['sleeper_dynasty.engine.recap_video_claims',
+    'app.services.recap_video.readiness', 'app.services.recap_video.periods'])
+async def test_source_validation_release_keeps_voice_calibration(maker, tmp_path, monkeypatch, module):
+    # Mutation: bind voice performance approval to unrelated source-validation file bytes.
+    from app.services.recap_video import qualification as q
+    from app.services.generation.recap_models import RecapCalibration
+    await qualified_series(maker, tmp_path, monkeypatch)
+    original = q.current_versions()
+    async with maker.begin() as db:
+        row = await db.get(RecapCalibration, 'calibration')
+        row.versions_json = dump({**original, module: 'old-source-validator'})
+    monkeypatch.setattr(q, 'current_versions', lambda: {**original, module: 'new-source-validator'})
+    async with maker() as db:
+        assert (await q.calibration(db, 'series', 2026)).id == 'calibration'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change', ['template', 'narrator', 'unknown_module'])
+async def test_performance_and_unknown_changes_still_require_calibration(maker, tmp_path, monkeypatch, change):
+    # Mutation: waive every code-version mismatch to unblock the weekly pipeline.
+    from app.services.recap_video import qualification as q
+    await qualified_series(maker, tmp_path, monkeypatch)
+    original = q.current_versions()
+    monkeypatch.setattr(q, 'current_versions', lambda: {**original, change: 'changed'})
+    async with maker() as db:
+        with pytest.raises(Held, match='media_calibration_changed'):
+            await q.calibration(db, 'series', 2026)
+
+
 async def qualified_series(maker,tmp_path,monkeypatch,*,review_target=True):
     from tests.test_recap_workflow import seed_media
     from app.services.recap_video import qualification as q, elevenlabs
@@ -125,6 +155,38 @@ async def test_manual_first_episode_calibration_reader_needs_no_rollout_approval
         value=await q.qualification_reader(db,ident)
         assert value['revision']=='calibration' and value['config']=={'voice':'synthetic-v8'}
         assert (await q.qualification_status(db,'series',2026))['passed']==0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('proof', ['exact', 'missing', 'changed', 'public'])
+async def test_first_corrected_video_requires_exact_member_resume_authority(maker, tmp_path, monkeypatch, proof):
+    # Mutation: allow any revised article to publish automatically, or strand an explicitly resumed first video.
+    from app.services.recap_video import qualification as q, publication as p
+    from app.services.generation.recap_models import RecapEpisode
+    from app.services.generation.store import audit
+    ident, mid = await qualified_series(maker, tmp_path, monkeypatch)
+    async def qualified(*args):
+        return dict(automatic=True, standing_id='standing', audience='public' if proof == 'public' else 'members')
+    async def verified(*args): return {'id': 'new-video'}, 'script'
+    article = dict(artifact_id='corrected-article', digest='corrected-digest', revision=2)
+    async def scope(*args, **kwargs): return {'article': article}
+    async def binding(*args, **kwargs): return {'verified': True}
+    monkeypatch.setattr(q, 'qualification_status', qualified)
+    monkeypatch.setattr(p, 'verified_media', verified)
+    monkeypatch.setattr(p, 'current_scope', scope)
+    monkeypatch.setattr(q, 'target_publication_binding', binding)
+    async with maker.begin() as db:
+        episode = await db.get(RecapEpisode, ident)
+        if proof != 'missing':
+            audit(db, 'owner', 'recap_video_corrected_article_resumed', ident, 'Reviewed corrected first video',
+                after=dict(article_id=article['artifact_id'], article_digest='other' if proof == 'changed' else article['digest'],
+                           facts_digest=episode.facts_digest))
+        await db.flush()
+        if proof == 'exact':
+            assert (await q.record_standing_approval(db, ident, 0, mid))['approval_id']
+        else:
+            with pytest.raises(Held, match='recap_revision_review_required'):
+                await q.record_standing_approval(db, ident, 0, mid)
 
 
 @pytest.mark.asyncio

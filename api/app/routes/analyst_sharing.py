@@ -16,6 +16,7 @@ from app.db.session import get_db
 from app.auth.deps import require_league_member
 from app.services.generation.store import Held
 from app.services.recap_video import publication
+from app.services.recap_video.member_status import video_status, state as video_state
 from app.services.analyst_shares import AnalystShares
 from app.services.analyst_media import AnalystMedia, ASSETS
 from app.services.analyst_store import AnalystSource
@@ -111,12 +112,17 @@ async def member_media(league_id: str, response: Response, season: int = Path(ge
     private_headers(response)
     if authority_mode() == 'database':
         try:
-            result = await publication.authorize_member_read(db, league_id, season, week)
+            try:
+                result = await publication.authorize_member_read(db, league_id, season, week)
+            except Held as exc:
+                if exc.code != 'public_unavailable':
+                    raise
+                return {'media': None, 'video_status': await video_status(db, league_id, season, week)}
             return {'media':AnalystMedia.public_metadata(result['media'] or None),
+                'video_status': video_state('published', 'published', 'Video is available.') if result['media']
+                    else await video_status(db, league_id, season, week),
                 'revision':result['article']['revision'], 'markdown':result['article']['markdown']}
         except Held as exc:
-            if exc.code == 'public_unavailable':
-                return {'media':None}
             raise authority_error(exc) from None
         except (SQLAlchemyError, OSError, ValueError, KeyError) as exc:
             raise authority_error(exc) from None
