@@ -88,6 +88,26 @@ async def publication_proof(db, cache_dir, league_id, season, week):
         payload = json.loads(artifact.payload_json)
         if (payload.get('season'), payload.get('week')) != (season, week):
             continue
+        if artifact.provenance == 'operator_reviewed_correction':
+            # Use the same exact source, receipt, epoch and projection authority
+            # as the reader. An editorial revision has no new provider job.
+            from app.services.generation.recap_models import RecapEpisode
+            from app.services.recap_video.text_authority import reviewed_article, member_text_current
+            from app.services.generation.store import Held
+            episode = await db.scalar(select(RecapEpisode).where(
+                RecapEpisode.series_id == artifact.series_id, RecapEpisode.league_id == league_id,
+                RecapEpisode.season == season, RecapEpisode.week == week))
+            if not episode:
+                continue
+            try:
+                reviewed, _, original_job = await reviewed_article(db, episode)
+                if reviewed.id != artifact.id or not await member_text_current(db, episode, editions[0]):
+                    continue
+            except (Held, ValueError, TypeError, KeyError):
+                continue
+            return dict(artifact_id=artifact.id, job_id=original_job.id, reviewed=True,
+                        review_kind='operator_editorial', delivered=True,
+                        member_serving_readable=True, text_chars=len(editions[0]['markdown']))
         job = await db.get(GenerationOperation, artifact.operation_id) if artifact.operation_id else None
         outbox = await db.scalar(select(GenerationOutbox).where(GenerationOutbox.key == 'artifact:' + artifact.id))
         if not job or job.state != 'succeeded' or not outbox or not outbox.delivered:

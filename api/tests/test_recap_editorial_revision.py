@@ -25,6 +25,7 @@ async def setup(maker, tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_revision_serves_exact_reviewed_text_and_invalidates_on_source_change(maker, tmp_path, monkeypatch):
+    # Mutation: require a new paid job for monitoring an operator-reviewed revision.
     from app.services.recap_video.editorial_revision import revise
     from app.services.recap_video.text_authority import member_text_current
     ident, kwargs = await setup(maker, tmp_path, monkeypatch)
@@ -36,6 +37,10 @@ async def test_revision_serves_exact_reviewed_text_and_invalidates_on_source_cha
         new = await db.get(ContentArtifact, result['artifact_id'])
         episode = await db.get(RecapEpisode, ident)
         assert await member_text_current(db, episode, json.loads(new.payload_json))
+        from app.services.recap_monitor.evidence import publication_proof
+        monitor = await publication_proof(db, tmp_path, 'synthetic', 2026, 4)
+        assert monitor and monitor['artifact_id'] == new.id
+        assert monitor['review_kind'] == 'operator_editorial'
         assert episode.lifecycle == 'correction' and episode.hold == 'recap_editorial_correction_required'
         assert old.payload_json == before and new.operation_id is None
         assert (await db.get(GenerationOperation, 'original-canonical')).artifact_id == old.id
@@ -46,6 +51,7 @@ async def test_revision_serves_exact_reviewed_text_and_invalidates_on_source_cha
         observation.snapshot_json, observation.snapshot_digest = dump(source), digest(source)
         episode.source_digest = digest(source)
         assert not await member_text_current(db, episode, json.loads(new.payload_json))
+        assert not await publication_proof(db, tmp_path, 'synthetic', 2026, 4)
 
 
 @pytest.mark.asyncio

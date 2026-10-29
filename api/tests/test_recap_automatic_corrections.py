@@ -234,6 +234,41 @@ async def run_correction(maker, tmp_path, transport, *, project=True):
 
 
 @pytest.mark.asyncio
+async def test_operator_revision_keeps_next_correction_automatic_and_bounded(maker, tmp_path, monkeypatch):
+    # Mutation: a zero-call editorial revision loses its original allowance/root.
+    from app.services.recap_video.editorial_revision import revise
+    from app.services.recap_video.readiness import observe_period, EpisodeKey
+    from app.services.recap_video.automatic_correction import allowance
+    from app.services.generation.models import GenerationOperation
+    from app.services.generation.recap_models import RecapEpisode
+    from app.services.recap_monitor.evidence import publication_proof
+    ident = await published(maker, tmp_path, monkeypatch)
+    async with maker.begin() as db:
+        (await db.get(GenerationOperation, 'job')).state = 'cancelled'
+        episode = await db.get(RecapEpisode, ident)
+        episode.lifecycle, episode.hold = 'correction', 'recap_editorial_correction_required'
+        kwargs = dict(artifact_id='article', actor_id='owner', cache_dir=tmp_path,
+            edits=[dict(before='Correct published roast.', after='## owner-1 vs owner-2\n\nReviewed tied result.')],
+            reviewer='Synthetic editorial reviewer', review_notes='Verified complete article against current facts.',
+            reason='Corrected wording without changing results.')
+        preview = await revise(db, ident, **kwargs)
+        await revise(db, ident, **kwargs, apply=True, expected_digest=preview['digest'])
+        assert (await publication_proof(db, tmp_path, 'synthetic', 2026, 4))['review_kind'] == 'operator_editorial'
+        source = await changed_source(db, ident, '102')
+        await observe_period(db, EpisodeKey('series', 2026, '4'), source, 9000)
+        assert not await publication_proof(db, tmp_path, 'synthetic', 2026, 4)
+        await observe_period(db, EpisodeKey('series', 2026, '4'), source, 12600)
+    transport = ReviewedTransport()
+    await run_correction(maker, tmp_path, transport)
+    async with maker() as db:
+        proof = await publication_proof(db, tmp_path, 'synthetic', 2026, 4)
+        assert proof and proof['member_serving_readable']
+        assert await allowance(db, 'article-subject', 'original') == 2
+        assert (await db.get(GenerationOperation, 'original')).max_calls == 6
+    assert len(transport.requests) == 2
+
+
+@pytest.mark.asyncio
 async def test_weekly_correction_lifecycle_with_real_writer_gateway_projection_and_rollover(maker, tmp_path, monkeypatch):
     # Mutation: allow six fresh calls per correction; hide corrected text behind old media;
     # buy a duplicate after rollover; or send raw bench facts to draft/review.
