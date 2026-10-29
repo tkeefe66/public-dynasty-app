@@ -64,8 +64,8 @@ async def published(maker, tmp_path, monkeypatch):
         for stage in (1, 2):
             body = {'content': [] if stage == 1 else [{'type': 'tool_use', 'name': 'submit_recap_review', 'input': {'approved': True}}]}
             db.add(ProviderAttempt(id=f'original-{stage}', operation_id='original', stage=stage,
-                generation=1, request_digest='request', request_json='{}', model='saved',
-                state='received', usage_state='known', cost_microusd=10, settled_at=4600, receipt_json=dump({'body': body})))
+                generation=1, request_digest=digest({}), request_json='{}', model='saved', status_code=200,
+                state='received', usage_state='known', cost_microusd=10, settled_at=4600, receipt_json=dump({'status':200, 'body': body})))
     return ident
 
 
@@ -397,6 +397,67 @@ async def test_new_source_between_save_and_projection_recovers_without_rebuying_
         assert len(served) == 1 and served[0]['revision'] == 3
         job = await db.get(GenerationOperation, obsolete)
         assert job.calls == 2 and await db.get(ContentArtifact, job.artifact_id)
+    assert len(transport.requests) == 4
+
+
+@pytest.mark.asyncio
+async def test_rejected_correction_repairs_saved_draft_only_after_extra_approval(maker, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app.services.generation.worker import Worker, automatic_candidates
+    from app.services.generation.commands import authorize_candidate
+    from app.services.generation.models import GenerationOperation
+    from app.services.generation.resolution import prepare_replacement
+    from app.services.generation.administration import apply_campaign
+    from app.services.generation.transport import Receipt
+    from app.services.generation.publication import drain
+    from app.services.recap_video.automatic_correction import approve_extra_pair
+    from app.services.recap_video.readiness import observe_period, EpisodeKey
+    from app.routes.analyst import analyst_archive
+    ident = await published(maker, tmp_path, monkeypatch)
+    async with maker.begin() as db:
+        (await db.get(GenerationOperation, 'original')).max_calls = 4
+        source = await changed_source(db, ident, '102')
+        await observe_period(db, EpisodeKey('series', 2026, '4'), source, 9000)
+        await observe_period(db, EpisodeKey('series', 2026, '4'), source, 12600)
+        candidate, key = (await automatic_candidates(db))[0]
+        job = await authorize_candidate(db, candidate.key, actor_id='owner', actor_kind='scheduler',
+                                        reason='Automatic correction', authorization_key=key)
+    class RejectFirstReview(ReviewedTransport):
+        async def send(self, request):
+            receipt = await super().send(request)
+            if len(self.requests) == 2:
+                body = json.loads(receipt.body)
+                body['content'][0]['input'] = {'approved':False, 'checks':[{
+                    'quote':'The corrected result is in.', 'evidence':'State the verified score explicitly.',
+                    'status':'needs_correction'}]}
+                return Receipt(200, json.dumps(body), receipt.headers)
+            if len(self.requests) == 3:
+                body = json.loads(receipt.body)
+                body['stop_reason'] = 'tool_use'
+                body['content'] = [{'type':'tool_use', 'name':'submit_recap_passage_edits', 'id':'repair',
+                    'input':{'edits':[{'passage_id':'p2', 'after':'The verified score is 102.'}]}}]
+                return Receipt(200, json.dumps(body), receipt.headers)
+            return receipt
+    transport = RejectFirstReview()
+    worker = Worker(maker, tmp_path, transport=transport, epoch='test-epoch')
+    assert await worker.tick()
+    async with maker.begin() as db:
+        stopped = await db.get(GenerationOperation, job.id)
+        assert stopped.state == 'needs_attention' and stopped.calls == 2
+        preview = await prepare_replacement(db, job.id, SimpleNamespace(expected_generation=stopped.generation,
+            expected_state=stopped.state, reason='Prepare a separate saved correction repair'), 'owner')
+    assert len(transport.requests) == 2
+    async with maker.begin() as db:
+        with pytest.raises(Held, match='recap_correction_allowance_exhausted'):
+            await apply_campaign(db, preview['id'], preview['digest'], 'owner', 'No extra approval exists')
+    async with maker.begin() as db:
+        await approve_extra_pair(db, 'original', actor_id='owner', authorization_key='explicit-repair-pair',
+                                 reason='User approved one repair and complete review')
+        await apply_campaign(db, preview['id'], preview['digest'], 'owner', 'User approved repair pair')
+    assert await worker.tick()
+    await drain(maker, tmp_path)
+    async with maker() as db:
+        assert len((await analyst_archive('synthetic', db))['editions']) == 1
     assert len(transport.requests) == 4
 
 

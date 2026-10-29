@@ -225,6 +225,21 @@ async def describe(db, job, *, prepared=False, repair_job_id=""):
             )
         ).all()
     )
+    correction = payload.get('automatic_recap_correction')
+    if correction:
+        # A rejected correction has a reviewed predecessor, unlike a failed
+        # first edition. Prove that exact head and current correction source;
+        # never relax ordinary saved-draft recovery for arbitrary published work.
+        from app.services.generation.recap_models import RecapEpisode
+        from app.services.recap_video.automatic_correction import require_correction
+        from app.services.recap_video.text_authority import reviewed_article
+        episode = await db.get(RecapEpisode, correction.get('episode_id', ''))
+        if not episode:
+            raise Held('saved_repair_correction_episode_missing')
+        await require_correction(db, episode, payload)
+        predecessor, _, _ = await reviewed_article(db, episode)
+        if predecessor.id != job.expected_artifact:
+            raise Held('saved_repair_correction_head_changed')
     if (
         (head.artifact_id if head else "") != job.expected_artifact
         or head
@@ -233,7 +248,8 @@ async def describe(db, job, *, prepared=False, repair_job_id=""):
         and not any(artifact.id == head.artifact_id for artifact in artifacts)
         or any(
             scope(artifact) != scope(job)
-            or object_json(artifact.payload_json).get("edition_type") != "results"
+            or object_json(artifact.payload_json).get("edition_type") not in (
+                ('results', 'roast') if correction else ('results',))
             or object_json(artifact.payload_json).get("season") != payload["season"]
             or object_json(artifact.payload_json).get("week") != payload["week"]
             or artifact.digest != digest(object_json(artifact.payload_json))
@@ -269,6 +285,8 @@ async def describe(db, job, *, prepared=False, repair_job_id=""):
     )
     if any(
         other.id not in (job.id, repair_job_id)
+        and not (correction and other.state == 'succeeded' and other.artifact_id
+                 and any(a.id == other.artifact_id and a.operation_id == other.id for a in artifacts))
         and (
             other.state != "cancelled"
             or other.artifact_id
