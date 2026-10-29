@@ -20,6 +20,10 @@ def workflow_evidence(job, episode, now):
     result = {}
     if episode:
         progress += [episode.episode_id, episode.lifecycle, episode.hold, episode.facts_digest]
+        correction = json.loads(job.payload_json).get('automatic_recap_correction') if job and job.kind == 'generation' else None
+        if correction and job.state in ('queued', 'running'):
+            return dict(status='pending', reason='automatic_correction_in_progress',
+                        recoverable=False, progress=digest(progress))
         gate = max(episode.eligible_at,
             episode.stable_since + 3600 if episode.hold == 'facts_unstable' else 0)
         if episode.hold and episode.hold not in ('facts_unstable', 'release_not_due'):

@@ -92,7 +92,7 @@ async def drain(maker, cache_dir, *, execution_role="api-projector"):
             except Held as exc:
                 if exc.code not in ("archive_busy", "schedule_incomplete", "source_error", "games_unresolved",
                         "facts_unstable", "release_not_due", "schedule_inventory_unqualified", "bracket_unavailable",
-                        "publication_paused", "public_serving_quarantined"):
+                        "publication_paused", "public_serving_quarantined", "recap_text_source_unavailable"):
                     item.error = exc.code
                 log.warning("publication held id=%s reason=%s", ident, exc.code)
             except Exception:

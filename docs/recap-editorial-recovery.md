@@ -1,5 +1,44 @@
 # Editorial recovery of a saved video script
 
+## Automatic weekly text corrections
+
+New canonical recaps use the `period-text-v1` input contract. Writer and reviewer
+receive completed-period evidence, with nonstarter scores excluded. The immutable
+artifact retains the full source snapshot. A bench-only correction therefore does
+not remove an otherwise reviewed member recap. Older prose keeps its original
+dependencies; the contract is never applied retroactively without evidence.
+
+A material source change waits for qualified, stable observations, then creates
+one correction candidate through the existing managed draft/review pipeline.
+Admission, each provider request, artifact save and projection recheck the source
+and publication authority. Source changes during writing or before projection
+retain prior receipts and superseded artifacts. Temporary source outages preserve
+replayable saved work; recovery reuses settled receipts rather than rebuying them.
+Next-week recaps with the period-local contract do not acquire unsupported
+dependencies on earlier prose or standings.
+
+Corrections share the original operation's call ceiling, counting every physical
+attempt across cancelled and superseded work. Only complete draft/review pairs
+are admitted. Current policy may lower this ceiling but cannot silently raise it.
+Unknown provider outcomes, exhausted allowance, explicit withdrawal, restored
+execution epochs and revoked authority remain blocked. Existing episode,
+series-month and application spending checks still apply to every send.
+
+The October 28 production audit found six calls per analyst job, combined recap
+caps of $5 per episode and $25 per series-month, and video subcaps of $3/$15.
+The separate application-wide monthly cap was unlimited (setting zero). No
+spending setting was changed by this release. Typically an original draft/review
+uses two calls, leaving four for corrections; failed or rejected attempts reduce
+that remainder. Exhaustion requires approval rather than a fresh automatic budget.
+An explicit operator approval can add one pair with `approve_extra_pair`; its
+idempotency key, root payload digest, subject and execution epoch are audited.
+Automatic recovery never calls this command. Original job limits and all standing
+policies remain unchanged, and the added pair still passes every monetary gate.
+
+Member text is proved against the exact artifact head, review receipts, delivered
+outbox, execution authority and source evidence. It is independent of obsolete
+media. Text recovery does not revive withdrawn video or public sharing.
+
 ## Unchanged member text after an unused bench correction
 
 `recap_video.text_revalidation.revalidate` previews an exact saved article against

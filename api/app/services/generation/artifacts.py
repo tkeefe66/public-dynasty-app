@@ -1,7 +1,7 @@
 """Canonical paid prose survives cache rebuilds; head changes use a DB fence."""
 import json
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.services.generation.commands import finish, require_actor, require_owner
 from app.services.generation.models import (
@@ -133,7 +133,9 @@ async def save_artifact(db, operation_id, generation, validated):
         raise Held("artifact_revision_changed")
     if head and head.hold:
         raise Held(head.hold)
-    revision = head.revision + 1 if head else 1
+    # Superseded unprojected corrections retain their immutable revision slots.
+    revision = 1 + (await db.scalar(select(func.max(ContentArtifact.revision)).where(
+        ContentArtifact.subject == job.subject)) or 0)
     if job.feature == "analyst":
         from app.services.analyst_store import AnalystEdition
         payload = {**payload, "revision": revision, "original_markdown": None}

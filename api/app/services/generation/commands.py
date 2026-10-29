@@ -296,12 +296,20 @@ async def authorize_candidate(db, candidate_key, *, actor_id, actor_kind,
     )
     if is_repair(candidate):
         await bind_authorization(db, candidate, actor_id, actor_kind, authorization_key, settings)
+    max_calls = feature['max_calls']
+    correction = json.loads(candidate.payload_json).get('automatic_recap_correction')
+    if correction:
+        from app.services.recap_video.automatic_correction import allowance
+        remaining = await allowance(db, candidate.subject, correction['root_operation_id'])
+        max_calls = min(max_calls, remaining - remaining % 2)
+        if max_calls < 2:
+            raise Held('recap_correction_allowance_exhausted')
     row = GenerationOperation(kind="generation", league_id=candidate.league_id,
         series_id=candidate.series_id, feature=candidate.feature, subject=candidate.subject,
         authorization_key=authorization_key, active_key="generate:" + candidate.subject,
         candidate_key=candidate.key, request_digest=candidate.digest,
         payload_json=candidate.payload_json, policy_json=dump(settings),
-        actor_id=actor_id, actor_kind=actor_kind, max_calls=feature["max_calls"],
+        actor_id=actor_id, actor_kind=actor_kind, max_calls=max_calls,
         connection_generation=connection.generation if connection else "",
         expected_artifact=head.artifact_id if head else "", epoch=control.epoch, reason=reason)
     await require_actor(db, row)

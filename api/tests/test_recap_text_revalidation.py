@@ -44,6 +44,10 @@ async def test_review_restores_only_exact_text_and_expires_on_further_change(mak
     async with maker.begin() as db:
         artifact = await db.get(ContentArtifact, 'article')
         edition = json.loads(artifact.payload_json)
+        # Historical article predates the explicit period-local input contract.
+        edition['facts'].pop('text_contract', None)
+        artifact.payload_json, artifact.digest = dump(edition), digest(edition)
+        (await db.get(RecapEpisode, ident)).article_digest = artifact.digest
         AnalystStore(tmp_path).save('synthetic', edition)
         artifact.operation_id = 'reviewed-job'
         db.add(GenerationOperation(id='reviewed-job', kind='generation', feature='analyst',

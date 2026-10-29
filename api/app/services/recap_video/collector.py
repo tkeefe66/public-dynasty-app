@@ -67,7 +67,7 @@ def edition_from_snapshot(snapshot, *, generated_at, facts_digest=None):
             "tied": winner is None, "score_tied": margin == 0, "blowout": margin >= 30,
             "nailbiter": margin <= 5, "scope": pair["scope"], "status": pair["status"],
             "result_source": pair["source_id"], "result": pair["result"]})
-    facts = {"week": snapshot["week"], "period_id": snapshot["period_id"],
+    facts = {"week": snapshot["week"], "period_id": snapshot["period_id"], "text_contract": "period-text-v1",
         "league_name": snapshot.get("league_name", "League"), "matchups": matchups,
         "standings": [], "high_scorer": None, "low_scorer": None,
         "bench_regret": [], "lucky": [], "unlucky": [], "heroes": [], "goats": [], "busts": [],

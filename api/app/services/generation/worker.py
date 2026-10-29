@@ -1,6 +1,7 @@
 """A durable worker owns refresh and generation; browser connections only observe."""
 import asyncio
 import contextlib
+import json
 import logging
 import uuid
 
@@ -228,6 +229,13 @@ class Worker:
                         pass
                     elif throttled and await defer_refresh(db, row, throttled):
                         pass
+                    elif (row.feature == 'analyst'
+                          and json.loads(row.payload_json).get('automatic_recap_correction')
+                          and code == 'recap_text_source_unavailable'):
+                        # Reuse settled receipts once qualified source evidence
+                        # returns. Never turn an uncertain provider send into a retry.
+                        row.state, row.reason = 'queued', code
+                        row.next_attempt_at = stamp() + 60
                     elif code in ("concurrency_busy", "series_concurrency_busy", "provider_cooldown", "worker_draining"):
                         row.state, row.reason = "queued", code
                     elif code == "publication_failed" or isinstance(exc, Held) and code not in (

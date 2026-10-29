@@ -101,7 +101,8 @@ async def withdraw_edition(db, league_id, season, week, *, expected_revision, ac
         raise Conflict('Publication changed. Review the current correction state.')
     row.withdrawn = True
     row.authority_revision += 1
-    audit(db, actor_id, 'recap_publication_withdrawn', row.episode_id, reason)
+    audit(db, actor_id, 'recap_publication_withdrawn', row.episode_id, reason,
+          after={'authority_revision': row.authority_revision})
     return dict(episode_id=row.episode_id, authority_revision=row.authority_revision)
 
 

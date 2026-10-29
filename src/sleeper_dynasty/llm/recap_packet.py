@@ -5,6 +5,29 @@ from dataclasses import dataclass
 from sleeper_dynasty.models.recap import RecapFacts
 
 
+def period_local_facts(facts: dict) -> bool:
+    return (facts.get('text_contract') == 'period-text-v1'
+            and all(not facts.get(key) for key in ('bench_regret', 'lineups', 'heroes', 'goats', 'busts',
+                'standings', 'lucky', 'unlucky', 'player_context', 'high_scorer', 'low_scorer'))
+            and facts.get('standings_race') == {'available': False}
+            and facts.get('bets') == {'available': False})
+
+
+def period_text_source(source: dict) -> dict:
+    """Version-one period text inputs: results and starters, no bench claims.
+
+    Used identically by writing, review, and correction comparison. Raw source
+    remains in the immutable archive, never silently substituted for this view.
+    """
+    result = deepcopy(source)
+    for rows in (result.get('scores') or {}).values():
+        for row in rows:
+            starters = row['starters']
+            row['players_points'] = {pid: row['players_points'][pid] for pid in starters if pid != '0'}
+            row['players'] = list(starters)
+    return result
+
+
 @dataclass(frozen=True)
 class ArchivedPacket:
     """Use saved evidence without reconstructing it from a later league state."""
@@ -27,6 +50,8 @@ def editorial_facts(facts: RecapFacts | ArchivedPacket) -> dict:
     the archive retains the original facts and complete source metadata.
     """
     packet = deepcopy(facts.to_dict())
+    if period_local_facts(packet):
+        packet['source_snapshot'] = period_text_source(packet['source_snapshot'])
     selected = set()
 
     def select(line):

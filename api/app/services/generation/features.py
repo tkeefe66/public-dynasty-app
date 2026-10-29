@@ -87,7 +87,7 @@ async def generate(job, gateway):
     saved = json.loads(job.payload_json)
     policy = json.loads(job.policy_json)["policy"]["features"][job.feature]
     managed = ManagedClient(gateway, job.id, job.generation, asyncio.get_running_loop(), policy["max_tokens"])
-    if saved.get("correction_base"):
+    if saved.get("correction_base") and not saved.get('automatic_recap_correction'):
         managed.correction = ("Revise only the requested issue, preserving other claims and using only the saved facts. "
             "Do not invent facts to satisfy the correction. Requested correction: " + saved["correction_reason"]
             + "\nPrevious content:\n" + json.dumps(saved["previous_content"]))

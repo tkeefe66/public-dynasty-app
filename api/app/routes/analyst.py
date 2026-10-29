@@ -27,6 +27,19 @@ async def analyst_archive(league_id: str, db=Depends(get_db)):
             await publication.serving_gate(db)
             visible = []
             for edition in editions:
+                episode = await db.scalar(select(RecapEpisode).where(
+                    RecapEpisode.league_id == league_id, RecapEpisode.season == edition['season'],
+                    RecapEpisode.week == edition['week']).limit(1))
+                if episode:
+                    from app.services.recap_video.text_authority import member_text_current, requires_text_proof
+                    if await member_text_current(db, episode, edition):
+                        visible.append(edition)
+                        continue
+                    if await requires_text_proof(db, episode):
+                        from app.services.recap_video.text_revalidation import member_text_revalidated
+                        if await member_text_revalidated(db, episode.episode_id, edition):
+                            visible.append(edition)
+                        continue
                 correction = await db.scalar(select(RecapEpisode.episode_id).where(
                     RecapEpisode.league_id == league_id, RecapEpisode.season == edition['season'],
                     RecapEpisode.week == edition['week'], RecapEpisode.lifecycle == 'correction').limit(1))

@@ -239,6 +239,8 @@ async def observe_period(db, key: EpisodeKey, snapshot: dict, now: int) -> str:
     db.add(observation)
     await db.flush()
     row.latest_observation_id = observation.id
+    from app.services.recap_video.automatic_correction import collect_correction
+    await collect_correction(db, row)
     await bind_dependencies(db, row)
     if was_new:
         # A late-discovered earlier period was never reviewed as context.
@@ -276,6 +278,17 @@ async def require_readiness(db, series_id: str, payload: dict, *, league_id=None
     authority = await _authority_reason(db, key, row.league_id, automatic=automatic)
     if authority:
         raise Held(authority)
+    if payload.get('automatic_recap_correction'):
+        from app.services.recap_video.automatic_correction import require_correction
+        return await require_correction(db, row, payload)
+    from app.services.recap_video.text_authority import current_source, period_local, text_source_digest
+    edition = payload.get('edition', {})
+    if (row.admitted_at and period_local(edition) and not media_checkpoint
+            and row.hold in ('', 'facts_unstable', 'recap_facts_changed',
+                             'recap_dependency_changed', 'recap_dependency_inventory_changed')):
+        original = edition.get('facts', {}).get('source_snapshot')
+        if original and text_source_digest(edition, original) == text_source_digest(edition, await current_source(db, row)):
+            return row  # Previously admitted text inputs are unchanged; media remains held.
     if allow_current_admission and not row.admitted_at:
         observation = await db.get(RecapObservation, row.latest_observation_id)
         snapshot = json.loads(observation.snapshot_json) if observation else {}

@@ -9,9 +9,8 @@ from sqlalchemy import select
 
 from app.services.generation.accounting import price_usage, pricing, validate_request_shape
 from app.services.generation.recap_budget import admit_provider_allocation, settle_attempt
-from app.services.generation.commands import UNRESOLVED, require_actor, require_owner
+from app.services.generation.commands import require_actor, require_owner
 from app.services.generation.models import (
-    GenerationOperation,
     GenerationOutbox,
     LeagueSeason,
     ProviderAttempt,
@@ -109,6 +108,12 @@ class Gateway:
                 raise Held("feature_breaker_open")
             if stage != job.calls + 1 or job.calls >= min(job.max_calls, feature["max_calls"]):
                 raise Held("attempt_allowance_exhausted")
+            correction = json.loads(job.payload_json).get('automatic_recap_correction')
+            if correction:
+                from app.services.recap_video.automatic_correction import allowance
+                remaining = await allowance(db, job.subject, correction['root_operation_id'], current_job=job.id)
+                if remaining < (2 if stage % 2 else 1):
+                    raise Held('recap_correction_allowance_exhausted')
             allowed_model = saved["review_model"] if job.feature in ("analyst", "recap_video") and stage > 1 else saved["model"]
             current_model = feature["review_model"] if job.feature in ("analyst", "recap_video") and stage > 1 else feature["model"]
             if request.get("model") != allowed_model or allowed_model != current_model:
@@ -193,7 +198,7 @@ class Gateway:
                 row.provider_request_id = receipt.headers.get("request-id", "")
                 row.status_code = receipt.status
         async with self.maker.begin() as db:
-            control = await lock_control(db)
+            await lock_control(db)
             row = await db.get(ProviderAttempt, attempt_id)
             if row.settled_at and (not reprice or row.cost_microusd is not None):
                 return
