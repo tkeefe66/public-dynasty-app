@@ -79,6 +79,7 @@ async def update_policy(db, scope, value, expected_revision, actor, reason):
     after = await policy_view(db, scope)
     old, new = before["effective"]["policy"], after["effective"]["policy"]
     resumes = old["paused"] and not new["paused"]
+    resumes = resumes or (not old["recap_text_reconciliation"] and new["recap_text_reconciliation"])
     resumes = resumes or any(
         (old["features"][f]["paused"] and not new["features"][f]["paused"])
         or (old["features"][f]["mode"] != "automatic" and new["features"][f]["mode"] == "automatic")

@@ -1,4 +1,4 @@
-"""Emulate Task 5's registered feature without bypassing readiness policy checks."""
+"""Exercise the opt-in coupled media workflow and its readiness policy checks."""
 from copy import deepcopy
 from importlib import import_module
 
@@ -11,6 +11,7 @@ def install_recap_policy(monkeypatch):
 
     async def resolved(db, series_id, **kwargs):
         result = deepcopy(await resolve_policy(db, series_id, **kwargs))
+        result["policy"]["recap_text_reconciliation"] = False
         for name, values in features.items():
             result["policy"]["features"].setdefault(name, FeaturePolicy().model_dump()).update(values)
         return result

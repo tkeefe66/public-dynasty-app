@@ -10,6 +10,57 @@ def test_defaults_require_explicit_activation():
     assert Policy().features["analyst"].max_calls == 6
 
 
+def test_text_reconciliation_defaults_on_without_authorizing_generation_or_media():
+    policy = Policy()
+    assert policy.recap_text_reconciliation is True
+    assert policy.paused is True
+    assert policy.features["analyst"].mode == "manual"
+    assert policy.features["recap_video"].mode == "disabled"
+    assert effective([("app", {"recap_text_reconciliation": False})])["policy"]["recap_text_reconciliation"] is False
+
+
+@pytest.mark.asyncio
+async def test_enabling_text_reconciliation_holds_accumulated_candidates(maker):
+    from app.services.generation.administration import update_policy
+    from app.services.generation.models import GenerationCandidate, LeagueSeason, LeagueSeries
+    from app.services.generation.store import save_policy
+    async with maker.begin() as db:
+        db.add(LeagueSeries(id="text-series", lifecycle="active", hold="", activated_at=100, activation_week=1))
+        db.add(LeagueSeason(league_id="text-league", provider="sleeper", provider_key="text-league",
+            series_id="text-series", season=2026, latest_week=8))
+        db.add(GenerationCandidate(key="text-backlog", series_id="text-series", league_id="text-league",
+            feature="analyst", subject="text-subject", event="week-7", payload_json="{}", digest="old", hold=""))
+        await save_policy(db, "app", {"paused": False, "recap_text_reconciliation": False}, 0, "owner", "setup")
+    async with maker.begin() as db:
+        await update_policy(db, "app", {"paused": False, "recap_text_reconciliation": True}, 1, "owner", "enable")
+    async with maker() as db:
+        assert (await db.get(GenerationCandidate, "text-backlog")).hold == "historical_approval_required"
+        assert (await db.get(LeagueSeries, "text-series")).activation_week == 8
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("feature,paused,reason", [
+    ({"mode": "automatic"}, False, ""),
+    ({"mode": "manual"}, False, "manual_approval_required"),
+    ({"mode": "disabled"}, False, "recap_feature_paused"),
+    ({"mode": "automatic", "paused": True}, False, "recap_feature_paused"),
+    ({"mode": "automatic"}, True, "app_paused"),
+])
+async def test_default_text_workflow_preserves_analyst_authority(maker, feature, paused, reason):
+    from tests.test_generation_gateway import seed_job
+    from app.services.generation.store import save_policy
+    from app.services.recap_video.contracts import EpisodeKey
+    from app.services.recap_video.readiness import _authority_reason
+    await seed_job(maker)
+    async with maker.begin() as db:
+        await save_policy(db, "app", {"paused": paused, "features": {"analyst": feature}}, 1, "owner", "setup")
+        key = EpisodeKey("series", 2026, "4")
+        assert await _authority_reason(db, key, "synthetic", automatic=True) == reason
+        if not reason:
+            assert await _authority_reason(db, key, "synthetic", automatic=True,
+                media_checkpoint=True) == "recap_workflow_disabled"
+
+
 @pytest.mark.parametrize("value", ["false", "true", 0, 1])
 def test_truthy_string_is_not_a_boolean(value):
     with pytest.raises(ValidationError):

@@ -34,11 +34,23 @@ def period_release(games: list[dict], weeks: list[int]) -> int:
 
 
 def scoring_period(week: int, settings: dict, bracket: dict) -> dict:
+    if settings.get('recap_provider') == 'yahoo':
+        end = settings.get('end_week')
+        if type(end) is not int or end not in range(1, 19):
+            raise ValueError('season_end_unknown')
+        if week > end:
+            raise ValueError('season_finished')
     start = settings.get("playoff_week_start")
     if type(start) is not int or start not in range(1, 19):
         raise ValueError("playoff_rules_unknown")
     if week < start:
         return {"period_id": str(week), "week": week, "round": None, "phase": "regular", "nfl_weeks": [week]}
+    if settings.get('recap_provider') == 'yahoo':
+        # Supported Yahoo leagues use weekly matchups, including placement and
+        # consolation. Result authority comes from that week's scoreboard.
+        round_no = week - start + 1
+        return {'period_id': f'playoff:{round_no}', 'week': week, 'round': round_no,
+                'phase': 'post', 'nfl_weeks': [week], 'round_type': 0, 'provider': 'yahoo'}
     kind = settings.get("playoff_round_type")
     if type(kind) is not int or kind not in (0, 1, 2) or not bracket.get("ok"):
         raise ValueError("playoff_rules_unknown")
@@ -65,6 +77,27 @@ def _number(value):
     if not result.is_finite():
         raise ValueError("score_invalid")
     return result
+
+
+def _yahoo_pairs(rows):
+    statuses, pairs, seen = {}, [], set()
+    for rid, row in rows.items():
+        if row.get('recap_status') == 'not_scheduled' and row.get('matchup_id') is None:
+            statuses[rid] = 'not_scheduled'
+            continue
+        pair = row.get('recap_matchup') or {}
+        ids = pair.get('rosters', [])
+        if (len(ids) != 2 or len(set(ids)) != 2 or rid not in ids or any(r not in rows for r in ids)
+                or pair.get('status') not in ('title', 'placement', 'consolation')
+                or not pair.get('source_id')
+                or any(rows[r].get('recap_matchup') != pair or rows[r].get('recap_status') for r in ids)):
+            raise ValueError('yahoo_postseason_evidence_conflict')
+        statuses[rid] = pair['status']
+        key = frozenset(ids)
+        if key not in seen:
+            pairs.append(deepcopy(pair))
+            seen.add(key)
+    return statuses, pairs
 
 
 def build_participants(rosters: list, scores: dict, bracket: dict, period: dict) -> dict:
@@ -106,6 +139,10 @@ def build_participants(rosters: list, scores: dict, bracket: dict, period: dict)
                 raise ValueError("participant_incomplete")
             pairs = [{"rosters": group, "status": "regular", "source_id": str(mid)} for mid, group in groups.items()]
             statuses = dict.fromkeys(ids, "regular")
+        elif (period.get('provider') or (period.get('rules') or {}).get('recap_provider')) == 'yahoo':
+            if not bracket.get('ok') or len(weeks) != 1:
+                raise ValueError('yahoo_postseason_evidence_conflict')
+            statuses, pairs = _yahoo_pairs(by_week[weeks[0]])
         else:
             if not bracket.get("ok"):
                 raise ValueError("bracket_unavailable")
