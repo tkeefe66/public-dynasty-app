@@ -64,7 +64,7 @@ async def test_text_repair_does_not_restart_automatic_media(maker, tmp_path, mon
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('change', ['preview', 'review', 'receipt', 'source', 'anchor', 'head', 'epoch', 'stage'])
+@pytest.mark.parametrize('change', ['preview', 'review', 'receipt', 'source', 'anchor', 'head', 'epoch', 'stage', 'results', 'starters', 'positions'])
 async def test_changed_editorial_review_cannot_publish(maker, tmp_path, monkeypatch, change):
     from app.services.recap_video.editorial_revision import revise
     ident, kwargs = await setup(maker, tmp_path, monkeypatch)
@@ -78,6 +78,17 @@ async def test_changed_editorial_review_cannot_publish(maker, tmp_path, monkeypa
             (await db.get(ProviderAttempt, 'original-canonical-receipt')).usage_state = 'unknown'
         if change == 'source':
             (await db.get(RecapEpisode, ident)).source_digest = 'changed'
+        if change in ('results', 'starters', 'positions'):
+            observation = await db.get(RecapObservation, 'observation')
+            source = json.loads(observation.snapshot_json)
+            if change == 'results':
+                source['pairings'][0]['scores'][0] = '99'
+            elif change == 'starters':
+                source['starters']['4']['1'] = ['different']
+            else:
+                source['roster_positions'] = ['FLEX', 'QB']
+            observation.snapshot_json, observation.snapshot_digest = dump(source), digest(source)
+            (await db.get(RecapEpisode, ident)).source_digest = digest(source)
         if change == 'head':
             (await db.get(ArtifactHead, 'article-subject')).hold = 'operator_hold'
         if change == 'epoch':

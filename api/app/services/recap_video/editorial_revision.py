@@ -57,9 +57,14 @@ async def revise(db, episode_id, *, artifact_id, actor_id, cache_dir, edits, rev
         raise Held('editorial_revision_original_head_required')
     receipts = await receipt_binding(db, job.id)
     source = await current_source(db, episode)
-    from app.services.recap_video.readiness import source_ready
-    if not source_ready(episode, source):
-        raise Held('editorial_revision_source_not_stable')
+    # This explicit full-article review repairs prose about existing results.
+    # It may rebind fresh player details without waiting for the scheduler's
+    # one-hour quiet window, but cannot authorize changed outcomes or lineups.
+    prior_source = data.get('facts', {}).get('source_snapshot') or {}
+    if (not prior_source.get('pairings') or prior_source.get('pairings') != source.get('pairings')
+            or prior_source.get('starters') != source.get('starters')
+            or any(prior_source.get(key) != source.get(key) for key in ('season', 'week', 'period_id', 'roster_positions'))):
+        raise Held('editorial_revision_results_or_lineups_changed')
     stages = list((await db.scalars(select(RecapStage).where(RecapStage.episode_id == episode_id))).all())
     if (any(s.kind != 'preflight' or s.state not in ('held', 'succeeded') or s.lease_until for s in stages)
             or await db.scalar(select(RecapProviderAttempt.id).where(RecapProviderAttempt.episode_id == episode_id).limit(1))):

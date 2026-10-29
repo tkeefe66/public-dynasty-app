@@ -48,7 +48,7 @@ async def reviewed_article(db, episode):
         proof = await verify_review(db, episode, artifact)
         original = await db.get(ContentArtifact, proof['original_artifact_id'])
         job = await db.get(GenerationOperation, original.operation_id)
-        if not job or job.state != 'succeeded' or job.artifact_id != original.id:
+        if not job or job.state != 'succeeded' or job.artifact_id != original.id or job.subject != artifact.subject:
             raise Held('editorial_revision_original_review_changed')
         return artifact, payload, job
     if artifact.provenance == 'reviewed_receipt_only_correction':
