@@ -17,12 +17,11 @@ describe("The Analyst", () => {
     expect(screen.queryByText("Alice")).not.toBeInTheDocument();
     expect(screen.queryByText(/AI-written from league results/)).not.toBeInTheDocument();
   });
-  it("labels a correction and preserves readable original text", () => {
-    // Mutation: silently replace the article without exposing the original.
+  it("hides correction notes and preserves readable original text", () => {
     render(<AnalystArchive leagueId="123" editions={[{
       ...editions[0], revision: 2, correction_note: "Corrected ownership.", original_markdown: "Original draft.",
     }]} />);
-    expect(screen.getByText("Corrected ownership.")).toBeInTheDocument();
+    expect(screen.queryByText("Corrected ownership.")).not.toBeInTheDocument();
     expect(screen.getByText("View original edition")).toBeInTheDocument();
     expect(screen.getByText("Original draft.")).toBeInTheDocument();
   });

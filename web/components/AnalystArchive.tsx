@@ -77,7 +77,6 @@ export function AnalystArchive({ leagueId, editions, selected, media, mediaError
               <h2 className="font-display text-title font-bold">Week {edition.week} · {edition.season}</h2>
               <p className="mt-2 text-body">{edition.league_name}</p>
               <p className="mt-3 text-sm text-dim">Published {new Date(edition.generated_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })} · AI-written from league results</p>
-              {edition.correction_note && <p className="mt-3 text-sm text-body"><strong>Corrected edition:</strong> {edition.correction_note}</p>}
               <AnalystShare key={`${edition.season}-${edition.week}`} leagueId={leagueId} season={edition.season} week={edition.week} />
             </header>
             {media && <RecapMedia token={media.token} mediaBase={media.mediaBase} media={media.info} week={edition.week} />}
