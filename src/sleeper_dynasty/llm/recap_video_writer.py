@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from importlib import resources
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -77,6 +78,31 @@ class ScriptHold(ValueError):
         super().__init__("Script held: " + json.dumps(issues))
 
 
+def delivery_issues(script):
+    """New drafts only: do not invalidate already-paid historical narration."""
+    parts = [{'id': 'opening', 'text': script['opening']}, *script['segments'],
+             {'id': 'closing', 'text': script['closing']}]
+    issues = []
+    words = sum(len(re.findall(r"\b[\w]+(?:['’-][\w]+)*\b", p['text'])) for p in parts)
+    if words > 380:
+        issues.append(dict(code='narration_word_budget', segment_id='script', quote=f'{words} spoken words',
+            evidence='Target 2–3 minutes and at most 380 spoken words. Compress every matchup; never drop owners or results.'))
+    scores = {}
+    for part in parts:
+        label = re.search(r'\bmatch\s*up\s*(?:#\s*)?(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b', part['text'], re.I)
+        if label:
+            issues.append(dict(code='numbered_matchup', segment_id=part['id'], quote=label.group(),
+                evidence='Use a natural transition, never a spoken matchup number. Keep matchup IDs in metadata only.'))
+        for number in part.get('spoken_numbers', []):
+            if number['field'] in ('score_a', 'score_b'):
+                scores.setdefault(number['claim_id'], set()).add(number['field'])
+    for claim, fields in scores.items():
+        if fields == {'score_a', 'score_b'}:
+            issues.append(dict(code='paired_scores', segment_id='script', quote=claim,
+                evidence='Both final scores are narrated for this result. Keep exact scores on screen; narrate the winner and a takeaway, or one meaningful margin/score.'))
+    return issues
+
+
 class RecapVideoWriter:
     def __init__(self, *, client=None, model="claude-sonnet-4-6", review_model="claude-sonnet-4-6", max_calls=4):
         if max_calls not in (2, 4):
@@ -92,7 +118,9 @@ class RecapVideoWriter:
         instruction = ("Audit the WHOLE script, including opening/closing. Return every unresolved issue; "
             "audit semantic claims in jokes, unsupported medical/personal/causal statements, exact numbers, "
             "meaningful owner and matchup coverage, agreement with corrected published prose, and repeated "
-            "premises. A boolean or ID inventory alone is insufficient. Check all categories and each segment. "
+            "premises. Audit the 2–3 minute delivery: no numbered introductions, paired final scores, repetitive score openings, "
+            "or unnecessary stat lists. Check spoken numbers even when omitted from metadata; coverage never requires reading scores. "
+            "A boolean or ID inventory alone is insufficient. Check all categories and each segment. "
             "Issues must contain only unresolved errors, never observations you conclude are correct or 'no issue'. "
             "For deterministic number errors, inspect the cited claim and field, not just whether a number appears somewhere in the evidence."
             if review else "Write the complete structured show. On repair, fix all evidenced issues using only the original evidence.")
@@ -122,6 +150,7 @@ class RecapVideoWriter:
             issues = [{"code": e, "segment_id": "script", "quote": "validation", "evidence": e}
                       for e in errors if not e.startswith('spoken_number:')]
             issues.extend(number_issues)
+            issues.extend(delivery_issues(script))
             try:
                 narration_chunks(script)
             except ValueError as exc:

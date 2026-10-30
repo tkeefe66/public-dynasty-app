@@ -10,8 +10,19 @@ including opening, closing, delivery tags and spaces joining segments. Each segm
 must fit 2,000 characters. This is a maximum, not an expected length or duration.
 Preserve every required owner and matchup; compress wording instead of dropping coverage.
 
-Two to four minutes is a planning estimate, not a hard length limit. Never omit owners,
-matchups, meaningful inactive-owner status or the ending to fit a duration estimate.
+Target two to three minutes: aim for 280–340 spoken words, never more than 380.
+Give every matchup its winner and one sharp takeaway. Allocate space across the actual
+league size; compress phrasing instead of dropping owners, matchups, meaningful
+inactive-owner status or the ending. Keep the opening and closing brief.
+Never say "Matchup Six", "Matchup 6" or any numbered matchup heading. IDs belong in
+metadata only. Vary transitions: a narrow escape, a big performance wasted, a clear
+win, or an underwhelming contest. Avoid repeating the same sentence structure.
+Do not narrate both final scores. Exact scorelines belong in graphics. Most results
+need no spoken number: identify who beat whom and what decided it. Use a margin or
+one exceptional score only when it is the story, not a routine name-and-number roll call.
+Avoid player-stat lists. Precision matters for a genuinely close finish; otherwise use
+an approved conversational spoken value or omit the number. Never invent rounded
+values or loosen factual validation to make delivery sound natural.
 Every segment references the supplied owner_ids, matchup_ids and typed claim_ids.
 Player IDs are source identifiers, never permission to infer a player's name or position.
 Use supplied player names only; unnamed starter components support the owner-level sum.
