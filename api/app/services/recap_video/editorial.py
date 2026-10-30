@@ -229,6 +229,10 @@ async def require_editorial_artifact(db, artifact, *, require_renderable=True, r
         raise Held('recap_editorial_authority_invalid')
     payload = json.loads(artifact.payload_json)
     authority = await db.get(GenerationAudit, payload.get('editorial_authority_id', ''))
+    if authority and authority.action == 'recap_editorial_retake_approved':
+        from app.services.recap_video.editorial_retake import require_retake_artifact
+        return await require_retake_artifact(db, artifact, require_renderable=require_renderable,
+            require_preflight=require_preflight)
     job = await db.get(GenerationOperation, artifact.operation_id)
     if not authority or authority.action != 'recap_editorial_approved' or not job:
         raise Held('recap_editorial_authority_invalid')

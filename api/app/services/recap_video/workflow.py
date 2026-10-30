@@ -182,6 +182,8 @@ async def _current(db, stage, *, now):
     if artifact.provenance == "editorial_reviewed":
         from app.services.recap_video.editorial import require_editorial_artifact
         await require_editorial_artifact(db, artifact)
+        from app.services.recap_video.editorial_retake import require_retake_stage
+        await require_retake_stage(db, stage, artifact)
     elif job.kind != "generation":
         raise Held("media_script_invalid")
     head = await db.get(ArtifactHead, artifact.subject)
